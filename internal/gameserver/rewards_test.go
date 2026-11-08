@@ -63,19 +63,19 @@ func TestPlayerRewards2015ReturnsOwnedMedal(t *testing.T) {
 
 func TestPlaceOfItem(t *testing.T) {
 	cases := map[string]uint32{
-		"ft_big_bear_cup_medal_1":   1,
-		"ft_big_bear_cup_medal_2":   2,
-		"ft_big_bear_cup_medal_3":   3,
-		"weekly_medal_1":            1,
-		"weekly_medal_3":            3,
-		"ft_5th_anniversary_2":      2,
+		"ft_big_bear_cup_medal_1": 1,
+		"ft_big_bear_cup_medal_2": 2,
+		"ft_big_bear_cup_medal_3": 3,
+		"weekly_medal_1":          1,
+		"weekly_medal_3":          3,
+		"ft_5th_anniversary_2":    2,
 		// 非名次类：计数/等级后缀不得误判
-		"statuette_fisherman_10":    0,
-		"statuette_supertrophy_50":  0,
-		"trophy_level_001_lake":     0,
-		"ny_2024_cup":               0,
-		"qual_carp_cup":             0,
-		"ft_extremal":               0,
+		"statuette_fisherman_10":   0,
+		"statuette_supertrophy_50": 0,
+		"trophy_level_001_lake":    0,
+		"ny_2024_cup":              0,
+		"qual_carp_cup":            0,
+		"ft_extremal":              0,
 	}
 	for id, want := range cases {
 		if got := placeOfItem(id); got != want {
