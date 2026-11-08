@@ -533,8 +533,9 @@ func hRodCutLine(ctx *Ctx) ([]byte, bool) {
 	return body, true
 }
 
-// hDynamicRewardEntry 处理 3/40，返回 2015 奖励条目并回显请求中的 guid。
-// 没有奖励持久化表时保留空物品 ID，不生成不存在的 systemID。
+// hDynamicRewardEntry 处理 3/40，按 guid 返回单条 2015 奖赏条目（enikeammfen）。
+// 命中库中真实物品则填 item_id/容器/数量/创建时间/名次；否则回显 guid（空物品 ID），
+// 不生成不存在的 systemID。
 func hDynamicRewardEntry(ctx *Ctx) ([]byte, bool) {
 	guid := zeroGUID
 	for _, g := range deepGUIDs(ctx.Tree) {
@@ -543,9 +544,39 @@ func hDynamicRewardEntry(ctx *Ctx) ([]byte, bool) {
 			break
 		}
 	}
+	if srv := ctx.Sess.Srv; srv != nil && srv.DB != nil && guid != "" && guid != zeroGUID {
+		if row, err := srv.DB.GetItemByGUID(ctx.Sess.pushCtx(), guid); err == nil && row != nil && row.UID == ctx.Sess.Userid {
+			containerKind := uint32(10) // 房/家
+			if row.Container != "house" {
+				containerKind = 0
+			}
+			obj, merr := wiregen.MakeObj("enikeammfen", map[int]*proto.Value{
+				0:  proto.U32(placeOfItem(row.ItemID)),
+				1:  proto.U32(0), // 0=可见、1=隐藏
+				2:  proto.Guid(row.GUID),
+				3:  proto.Guid(""),
+				4:  proto.U32(containerKind),
+				5:  proto.U32(uint32(row.NumericID)),
+				6:  proto.U32(0),
+				7:  proto.U32(0),
+				8:  proto.U64(uint64(netTicksNow())),
+				9:  proto.U64(uint64(proto.WindowsFiletimeNow())),
+				10: proto.U32(0),
+				11: proto.Null(),
+				12: proto.Null(),
+				13: proto.U32(uint32(row.Qty)),
+				14: proto.U32(0),
+			})
+			if merr == nil {
+				if body, e := proto.EncodeValue(obj, ctx.Sess.Table()); e == nil {
+					return body, true
+				}
+			}
+		}
+	}
 	obj, err := wiregen.MakeObj("enikeammfen", map[int]*proto.Value{
 		0:  proto.U32(0),
-		1:  proto.U32(1),
+		1:  proto.U32(0),
 		2:  proto.Guid(guid),
 		3:  proto.Guid(""),
 		4:  proto.U32(10),
