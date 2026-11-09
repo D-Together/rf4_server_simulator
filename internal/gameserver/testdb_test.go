@@ -72,7 +72,8 @@ func testDBTemplateTables(kind testDBTemplateKind) []string {
 	case testDBSkills:
 		return []string{"item_def", "skill_def", "skill_cat_def"}
 	case testDBRecipes:
-		return []string{"item_def", "recipe"}
+		// shop_item：贩卖机配方（*_vend）按货架价收费，ShelfPriceLowest 需要它。
+		return []string{"item_def", "recipe", "shop_item"}
 	default:
 		return nil
 	}

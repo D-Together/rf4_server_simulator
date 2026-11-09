@@ -82,6 +82,95 @@ func craftBatchSpecFor(def *store.ItemDef) craftBatchSpec {
 	return craftBatchSpec{Limit: maxCraftQty, Yield: 1}
 }
 
+// vendRecipeReports 判定配方是否走贩卖机语义：recipe_id 以 _vend 结尾的
+// 全部是图内诱饵贩卖机商品（feed 14 + pva_stick 3 + pva_stinger 5，共 22 条），
+// 官方语义是机器按货架价卖料+搅拌一步完成，玩家不需要持有原料。
+func vendRecipeReports(recipeID string) bool {
+	return strings.HasSuffix(recipeID, "_vend")
+}
+
+// vendCharge 是贩卖机配方每套材料要按份购买的一种配料（Qty 未乘制作套数）。
+type vendCharge struct {
+	ItemID string
+	Qty    int64
+}
+
+// resolveVendCharges 解析贩卖机配方每套材料的购买清单。
+// 静态库读取必须在经济事务开启前完成（SQLite 单连接）。
+// 需求带显式 item_id 直接采用；类别/标签需求取客户端材料槽 f2 提交的
+// 具体物品（craftSlot.Species 承载，实抓 2026-11-09：槽 = {需求id, 临时GUID,
+// 具体item id}），槽序即需求序，已认领的槽不复用；类别可校验则校验，
+// 标签沿用既有"无法反查、忽略"口径（见 consumeByDemand）。
+func (s *Server) resolveVendCharges(ctx context.Context, demands []craftDemand, slots []craftSlot) ([]vendCharge, error) {
+	used := make([]bool, len(slots))
+	out := make([]vendCharge, 0, len(demands))
+	for _, d := range demands {
+		if d.ItemID != "" {
+			out = append(out, vendCharge{ItemID: d.ItemID, Qty: d.need()})
+			continue
+		}
+		picked := -1
+		for i, sl := range slots {
+			if used[i] || sl.Species == "" {
+				continue
+			}
+			if len(d.Categories) > 0 {
+				cat, ok := s.effectiveCategory(ctx, sl.Species)
+				if !ok || !containsI64(d.Categories, cat) {
+					continue
+				}
+			}
+			picked = i
+			break
+		}
+		if picked < 0 {
+			return nil, fmt.Errorf("需求 %s 没有可定价的材料槽", d.DemandID)
+		}
+		used[picked] = true
+		out = append(out, vendCharge{ItemID: slots[picked].Species, Qty: d.need()})
+	}
+	return out, nil
+}
+
+// vendTotalPrice 按货架最低价合计 times 套的银币总额。
+// 价格读取同样必须在经济事务之外。
+func (s *Server) vendTotalPrice(ctx context.Context, charges []vendCharge, times int64) (int64, error) {
+	var total int64
+	for _, c := range charges {
+		price, err := s.DB.ShelfPriceLowest(ctx, c.ItemID)
+		if err != nil {
+			return 0, fmt.Errorf("配料 %s 没有货架价", c.ItemID)
+		}
+		q := c.Qty * times
+		if q > 0 && price > math.MaxInt64/q {
+			return 0, fmt.Errorf("配料 %s 价格合计溢出", c.ItemID)
+		}
+		total += price * q
+		if total < 0 {
+			return 0, fmt.Errorf("配料合计溢出")
+		}
+	}
+	return total, nil
+}
+
+// vendChargeNote 把配料清单压成流水 note（item×份 逗号分隔）。
+func vendChargeNote(charges []vendCharge) string {
+	parts := make([]string, 0, len(charges))
+	for _, c := range charges {
+		parts = append(parts, fmt.Sprintf("%sx%d", c.ItemID, c.Qty))
+	}
+	return strings.Join(parts, ",")
+}
+
+func containsI64(list []int64, v int64) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
 // craftTimesFor 把客户端提交的 qty 收敛到 [1, spec.Limit]。
 func craftTimesFor(spec craftBatchSpec, qty uint64) int64 {
 	if qty < 1 {
@@ -586,6 +675,23 @@ func hCraft(ctx *Ctx) ([]byte, bool) {
 		}
 	}
 
+	// 贩卖机配方（*_vend）：机器按货架价卖料+搅拌一步完成，玩家不需要持有
+	// 原料。配料解析与定价读静态库/覆盖价，必须在经济事务开启前完成。
+	isVendCraft := vendRecipeReports(recipe.RecipeID)
+	var vendCharges []vendCharge
+	var vendTotal int64
+	if isVendCraft {
+		var verr error
+		vendCharges, verr = srv.resolveVendCharges(cctx, demands, req.Materials)
+		if verr == nil {
+			vendTotal, verr = srv.vendTotalPrice(cctx, vendCharges, times)
+		}
+		if verr != nil {
+			ctx.Log.Warn("9/1 贩卖机配料定价失败", "recipe", recipe.RecipeID, "err", verr)
+			return srv.replyCraftResult(ctx, false, nil, nil, nil)
+		}
+	}
+
 	tx, err := beginEconomyTx(cctx, srv.DB)
 	if err != nil {
 		ctx.Log.Warn("9/1 开启事务失败", "err", err)
@@ -612,6 +718,22 @@ func hCraft(ctx *Ctx) ([]byte, bool) {
 			cctx, tx, uid, req.Materials, demands, times)
 		if materialErr != nil {
 			return fail("引线材料扣除失败", "err", materialErr)
+		}
+	} else if isVendCraft {
+		// 同一事务内按货架价扣款：余额不足整体回滚，不产出、不扣钱。
+		if vendTotal > 0 {
+			if err := applyWalletTx(cctx, tx, uid, -vendTotal, 0, "buy", outputID, "",
+				fmt.Sprintf("vend recipe=%s qty=%d items=%s",
+					recipe.RecipeID, times, vendChargeNote(vendCharges))); err != nil {
+				if errors.Is(err, errInsufficientFunds) {
+					return fail("贩卖机余额不足", "total", vendTotal)
+				}
+				return fail("贩卖机扣款失败", "err", err)
+			}
+		}
+		// 自制窝料成分按实例记账：配料即真实用料，投进窝里后成分比例不变。
+		for _, c := range vendCharges {
+			usedMats = appendMaterialUses(usedMats, c.ItemID, c.Qty*times)
 		}
 	} else if len(demands) > 0 && allDemandsExplicit(demands) {
 		need, ok := scaleDemands(demands, times)
@@ -881,6 +1003,10 @@ func hCraft(ctx *Ctx) ([]byte, bool) {
 	ctx.AfterResponse(func() {
 		if masteryGain > 0 {
 			ctx.Sess.Push2_4SkillTree("制作 " + outputID)
+		}
+		if isVendCraft && vendTotal > 0 {
+			// 扣了银币就刷新钱包 HUD（与商店购买同一信号）。
+			ctx.Sess.Push2_1()
 		}
 		if mounted != nil {
 			// 4/21 是物品移除信号：客户端据它把鱼护里的原鱼撤下
@@ -1434,7 +1560,8 @@ func (s *Server) consumeMountedFishTx(ctx context.Context, tx *sql.Tx, uid int64
 
 // hCraftCost 处理 9/4 制作询价，返回 501 价格行：
 // STR 配方 systemID、U64 银价、U64 金价、U32 数量。
-// 当前制作只扣材料、不收费，因此价格为 0；数量缺省为 1。
+// 家用版制作只扣材料、不收费，价格为 0；贩卖机配方（*_vend）按货架最低价
+// 报真实总价，数量按产出品类上限收敛，保证与 9/1 的实际扣款一致。
 func hCraftCost(ctx *Ctx) ([]byte, bool) {
 	srv := ctx.Sess.Srv
 	if !srv.requireDB(ctx) {
@@ -1445,13 +1572,29 @@ func hCraftCost(ctx *Ctx) ([]byte, bool) {
 	if qty == 0 {
 		qty = 1
 	}
+	silver := int64(0)
+	cctx := ctx.Sess.pushCtx()
+	if recipe := srv.resolveRecipe(cctx, req.Recipe); recipe != nil && vendRecipeReports(recipe.RecipeID) {
+		if def, derr := srv.DB.GetItemDefByItemID(cctx, recipe.OutputID); derr == nil && def != nil {
+			qty = craftTimesFor(craftBatchSpecFor(def), req.Qty)
+		}
+		if charges, err := srv.resolveVendCharges(cctx, parseDemands(recipe.MaterialsJSON), req.Materials); err == nil {
+			if total, terr := srv.vendTotalPrice(cctx, charges, qty); terr == nil {
+				silver = total
+			} else {
+				ctx.Log.Warn("9/4 贩卖机配料定价失败", "recipe", recipe.RecipeID, "err", terr)
+			}
+		} else {
+			ctx.Log.Warn("9/4 贩卖机配料解析失败", "recipe", recipe.RecipeID, "err", err)
+		}
+	}
 	row := wiregen.MustMakeObj("ifdefblccde", map[int]*proto.Value{
-		0: proto.StrVal(req.Recipe), // f0 systemID（必须与请求一致）
-		1: proto.U64(0),             // f1 银价（制作不收货币）
-		2: proto.U64(0),             // f2 金币价
-		3: proto.U32(uint32(qty)),   // f3 数量（请求里的制作数量）
+		0: proto.StrVal(req.Recipe),  // f0 systemID（必须与请求一致）
+		1: proto.U64(uint64(silver)), // f1 银价（贩卖机配方为配料总价）
+		2: proto.U64(0),              // f2 金币价
+		3: proto.U32(uint32(qty)),    // f3 数量（贩卖机配方收敛后数量）
 	})
-	ctx.Log.Info("9/4 询价", "recipe", req.Recipe, "qty", qty,
+	ctx.Log.Info("9/4 询价", "recipe", req.Recipe, "qty", qty, "silver", silver,
 		"materials", len(req.Materials), "tools", len(req.Tools), "source", req.Source)
 	body, err := proto.EncodeValue(row, ctx.Sess.Table())
 	if err != nil {
