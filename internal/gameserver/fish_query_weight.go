@@ -143,7 +143,7 @@ func (s *Server) weightModelDB(ctx context.Context, key string, modeMult, scale,
 }
 
 func (s *Server) weightLawDB(ctx context.Context, key string, modeMult, scale, capG float64, c fishRollContext) fishWeightLaw {
-	if s.tunableF("grade_ratio_enabled", 0) == 1 {
+	if s.tunableF("grade_ratio_enabled", 1) == 1 {
 		lines := s.cachedSettleStatics(ctx, c, key)
 		model, handled := s.gradeRatioModel(cachedGradeLines{val: &lines[0], trophy: &lines[1], blue: &lines[2]}, modeMult, scale, capG)
 		if handled {

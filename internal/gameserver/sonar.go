@@ -668,18 +668,25 @@ func (s *Server) rosterSonarSchools(ctx context.Context, systemID string, grid s
 		w1, w2, w3, w4, forceTrophy := fishHuntWeights(
 			readiness.Stage, hunt, c.skill.TrophyLuck, readiness.Comp,
 		)
-		if strength := s.tunableF(tunableHookSpawnMatchStrength, 1); strength > 0 && !forceTrophy {
-			scale := s.tunableF("fish_weight_scale", 1)
-			if scale <= 0 {
-				scale = 1
+		gradeWeights := [4]float64{w1, w2, w3, w4}
+		scale := s.tunableF("fish_weight_scale", 1)
+		if scale <= 0 {
+			scale = 1
+		}
+		if s.gradeRatioEnabled() {
+			lines := s.cachedSettleStatics(ctx, c, key)
+			if weights, handled := s.gradeRatioGradeWeights(sonarSettlementGradeLines(lines), 1, scale, 0); handled {
+				gradeWeights = weights
+				forceTrophy = false
 			}
+		} else if strength := s.effectiveHookSpawnMatchStrength(); strength > 0 && !forceTrophy {
 			compat := s.hookSpawnCompatibilityByGrade(ctx, c, key, scale, 1)
 			applyHookSpawnMatch(&w1, &w2, &w3, &w4, compat, strength)
+			gradeWeights = [4]float64{w1, w2, w3, w4}
 		}
 		if forceTrophy {
-			w1, w2 = 0, 0
+			gradeWeights[0], gradeWeights[1] = 0, 0
 		}
-		gradeWeights := [4]float64{w1, w2, w3, w4}
 
 		traits := s.marineTraits(ctx, key, c)
 		radiusX := 1 + rng.Intn(3) + int(math.Round(traits.schooling*2))

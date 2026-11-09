@@ -140,6 +140,10 @@ func TestAdminFishUsesRealWeightAndSurvivesRestart(t *testing.T) {
 
 func TestLuckyRollGradeUsesCappedWeight(t *testing.T) {
 	s, db := newProgressSrv(t)
+	if err := db.TunableSet(t.Context(), "grade_ratio_enabled", "0", "test"); err != nil {
+		t.Fatal(err)
+	}
+	s.execAdminCmd(&AdminCommand{Op: "reload_tunables"})
 	for i := 0; i < 100; i++ {
 		f := s.rollFishPoolsWithRules("loc1_02", 0.45, fishingSkillBonus{BiteSpeed: 1, TrophyLuck: 2})
 		if f == nil || f.WeightG > 450 || f.Grade != s.rollGradeDB(t.Context(), f.Species, f.WeightG) {

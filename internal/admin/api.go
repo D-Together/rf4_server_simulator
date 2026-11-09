@@ -327,6 +327,13 @@ func (s *Server) handleTunableSet(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if strings.HasPrefix(req.Key, "grade_pct_") {
+		v, err := strconv.ParseFloat(req.Value, 64)
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+			httpError(w, 400, "鱼获档位权重必须是非负数字")
+			return
+		}
+	}
 	if req.Key == "event_branches" {
 		if err := validateEventBranches(req.Value); err != nil {
 			httpError(w, 400, err.Error())

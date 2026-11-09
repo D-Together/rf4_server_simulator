@@ -33,7 +33,33 @@ const (
 )
 
 func (s *Server) hookNibbleEnabled() bool {
-	return s == nil || s.tunableF(tunableHookNibbleEnabled, 1) != 0
+	return s != nil && s.tunableF(tunableHookNibbleEnabled, 0) != 0
+}
+
+func (s *Server) gradeRatioEnabled() bool {
+	return s != nil && s.tunableF("grade_ratio_enabled", 1) == 1
+}
+
+// effectiveHookSpawnMatchStrength 返回真正参与发鱼的钩型软匹配强度。
+// 档位比例开启后由配置比例独占档位权重，钩型不得再改写派鱼结果。
+func (s *Server) effectiveHookSpawnMatchStrength() float64 {
+	if s == nil || s.gradeRatioEnabled() {
+		return 0
+	}
+	return s.tunableF(tunableHookSpawnMatchStrength, 0)
+}
+
+// gradeRatioGradeWeights 把可用档位及其配置权重展开为四档数组，供海图声呐等只读预览复用。
+func (s *Server) gradeRatioGradeWeights(lines cachedGradeLines, modeMult, scale, capG float64) ([4]float64, bool) {
+	model, handled := s.gradeRatioModel(lines, modeMult, scale, capG)
+	if !handled {
+		return [4]float64{}, false
+	}
+	var weights [4]float64
+	for i, band := range model.bands {
+		weights[band.grade-1] = model.weights[i]
+	}
+	return weights, true
 }
 
 type fishHuntState struct {
@@ -723,8 +749,16 @@ func (s *Server) sampleHuntBand(ctx context.Context, key string, grade int64, mo
 func (s *Server) sampleHuntWeight(ctx context.Context, key string, modeMult, scale, capG float64, c fishRollContext,
 	h *fishHuntState) (int64, int64, fishHuntReadiness) {
 	readiness := s.fishHuntReadiness(ctx, key, c, h)
+	if s.gradeRatioEnabled() {
+		// 档位比例是总开关：不得再叠加鱼猎阶段、奖杯保底/补偿或钩型软匹配。
+		weight := s.sampleWeightDB(ctx, key, modeMult, scale, capG, c)
+		if weight <= 0 {
+			return 0, 0, readiness
+		}
+		return weight, s.rollGradeForRoll(ctx, key, weight, c), readiness
+	}
 	w1, w2, w3, w4, force := fishHuntWeights(readiness.Stage, h, c.skill.TrophyLuck, readiness.Comp)
-	if strength := s.tunableF(tunableHookSpawnMatchStrength, 1); strength > 0 && !force {
+	if strength := s.effectiveHookSpawnMatchStrength(); strength > 0 && !force {
 		compat := s.hookSpawnCompatibilityByGrade(ctx, c, key, scale, modeMult)
 		applyHookSpawnMatch(&w1, &w2, &w3, &w4, compat, strength)
 	}

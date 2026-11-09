@@ -11,6 +11,9 @@ import (
 func seedBaitWeightTest(t *testing.T) (*Server, *store.DB) {
 	t.Helper()
 	s, db := seedBaitRuleTest(t)
+	if err := db.TunableSet(t.Context(), "grade_ratio_enabled", "0", "test"); err != nil {
+		t.Fatal(err)
+	}
 	for _, query := range []string{
 		`CREATE INDEX bait_weight_test_item_id ON item_def(item_id)`,
 		`INSERT INTO loc_fish(loc,fish_key,name_zh,catches) VALUES('rules-test','c.roach','常见拟鲤',1)`,
@@ -24,6 +27,7 @@ func seedBaitWeightTest(t *testing.T) (*Server, *store.DB) {
 			t.Fatal(err)
 		}
 	}
+	s.execAdminCmd(&AdminCommand{Op: "reload_tunables"})
 	return s, db
 }
 

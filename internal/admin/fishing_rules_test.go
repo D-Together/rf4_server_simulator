@@ -59,6 +59,17 @@ func TestHookSpawnMatchStrengthAPI(t *testing.T) {
 		}
 		assertQueueContains(t, db, "reload_tunables")
 	}
+	for _, value := range []string{"-1", "NaN", "Inf", ""} {
+		if got := call("POST", "/api/tunables", login.Token, `{"key":"grade_pct_below","value":"`+value+`"}`).Code; got != 400 {
+			t.Fatalf("invalid grade weight %q=%d", value, got)
+		}
+	}
+	for _, value := range []string{"0", "5", "125"} {
+		w = call("POST", "/api/tunables", login.Token, `{"key":"grade_pct_below","value":"`+value+`"}`)
+		if w.Code != 200 {
+			t.Fatalf("save grade weight %q=%d %s", value, w.Code, w.Body)
+		}
+	}
 }
 func testFishingSwitchAPIAndRestart(t *testing.T, key string) {
 	db := testDB(t)
