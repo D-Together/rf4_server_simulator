@@ -725,6 +725,21 @@ func (s *Server) repairPartsOf(ctx context.Context, it *store.Item) []repairPart
 		if v == nil || v.Kind != proto.KindObj {
 			return 1.0
 		}
+		// 摩擦片的权威状态是制动力 csDragForce，耐久字段只是它的显示镜像
+		// （见 degradeFrictionWasherFields）。只读镜像会让磨穿的摩擦片报成
+		// 100% 完好，与 f3 报价、客户端"损耗"显示自相矛盾。
+		if idx := fieldIdxByCS(v.Class, csDragForce); idx >= 0 && idx < v.FieldCount() {
+			if cur, present, _ := frictionWasherDrag(v); present {
+				if nidx := fieldIdxByCS(v.Class, csNumericID); nidx >= 0 && nidx < v.FieldCount() {
+					if def, derr := s.DB.GetItemDef(ctx, int64(u64Of(v.Fields[nidx].Num))); derr == nil &&
+						def != nil && def.Category == reelPartCatWasher {
+						if rated := itemDefF32(def, gearAttrDragMax) * it.Workmanship; rated > 0 {
+							return clampUnit(cur / rated)
+						}
+					}
+				}
+			}
+		}
 		// 子件耐久字段按类名查（竿件在下标 15，渔轮件在下标 6），值以 f32 位形存放。
 		if idx := fieldIdxByCS(v.Class, csDurability); idx >= 0 && idx < v.FieldCount() {
 			if f := v.Field(idx); f.Num != nil {
