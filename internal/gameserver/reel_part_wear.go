@@ -2,10 +2,11 @@ package gameserver
 
 // 渔轮内部零件的耐久消耗与本体耐久聚合。
 //
-// 外面那一格耐久不是独立账本：它是轮内六件零件剩余寿命的加权结果，最弱的一件还会额外
-// 拉低整体。零件按"用了多久"缓慢消耗，锁轮过载、泄力打滑、泡水、断件冲击各再加一点，
-// 品质越低的件越不耐用。摩擦片不参与这里的每竿基准：它是烧件，寿命由泄力打滑与锁轮
-// 过载曲线决定，再叠一层基准就会变成第二个摩擦片。
+// 外面那一格耐久不是独立账本：它是轮内零件剩余寿命的加权结果，最弱的一件还会额外
+// 拉低整体。普通轮聚合六件；电轮额外纳入 category 81 电机。零件按"用了多久"缓慢消耗，
+// 锁轮过载、泄力打滑、泡水、断件冲击各再加一点，品质越低的件越不耐用。摩擦片不参与
+// 这里的每竿基准：它是烧件，寿命由泄力打滑与锁轮过载曲线决定，再叠一层基准会变成
+// 第二个摩擦片。
 // 口径见 specs/changes/reel-friction-life-model/spec.md §5/§6/§7。
 
 import (
@@ -34,6 +35,8 @@ var reelPartWearMatrix = map[int64]reelPartWearRates{
 	reelPartCatBearing: {perRod: 0.030, perOverloadSec: 0.012, perSlip: 0.004, perSoak: 0.010, perBreak: 0.05},
 	reelPartCatHandle:  {perRod: 0.030, perOverloadSec: 0.004},
 	reelPartCatSpool:   {perRod: 0.008, perOverloadSec: 0.006, perBreak: 0.20},
+	// 电机只在带电受力时计入应力账；普通抛投和手摇不靠 perRod 白耗。
+	reelPartCatMotor: {perOverloadSec: 0.020, perSlip: 0.002, perSoak: 0.010, perBreak: 0.05},
 }
 
 // reelPartCounts 是本竿攒下来要结算的应力事件计数。Rods/Soaks 是浮点：路亚族
@@ -138,6 +141,16 @@ var reelWearPartCategories = []int64{
 	reelPartCatOil, reelPartCatGear, reelPartCatBearing, reelPartCatHandle, reelPartCatSpool,
 }
 
+// reelWearCategoriesInFields 在普通六件之外，仅为当前实际装有电机的电轮追加
+// 电机品类。普通渔轮没有电机槽，不能因为它而多出一条恒为 1 的假账。
+func (s *Server) reelWearCategoriesInFields(ctx context.Context, fields []proto.Field) []int64 {
+	out := append([]int64(nil), reelWearPartCategories...)
+	if _, _, _, found := s.selectedReelPart(ctx, fields, reelPartCatMotor); found {
+		out = append(out, reelPartCatMotor)
+	}
+	return out
+}
+
 // wearReelPartsInFields 按消耗矩阵扣轮内零件耐久，返回零件定义 ID 到本次扣掉寿命比例的
 // 映射（供损伤日志）。已经磨完的件不再扣；缺件的轮子什么都不做，老档回退由调用方决定。
 func (s *Server) wearReelPartsInFields(ctx context.Context, fields []proto.Field, counts reelPartCounts) map[string]float64 {
@@ -145,7 +158,7 @@ func (s *Server) wearReelPartsInFields(ctx context.Context, fields []proto.Field
 	if s == nil || counts.total() <= 0 {
 		return out
 	}
-	for _, category := range reelWearPartCategories {
+	for _, category := range s.reelWearCategoriesInFields(ctx, fields) {
 		child, def, _, ok := s.selectedReelPart(ctx, fields, category)
 		if !ok || child == nil || def == nil {
 			continue
@@ -190,6 +203,14 @@ const (
 	reelBodyWeightSpool   = 0.10
 	reelBodyWeightHandle  = 0.10
 	reelBodyWeightOil     = 0.10
+	// 电轮把电机纳入聚合，同时重新分配权重，保证总和仍为 1。
+	reelBodyElectricWeightWasher  = 0.20
+	reelBodyElectricWeightGear    = 0.20
+	reelBodyElectricWeightBearing = 0.15
+	reelBodyElectricWeightSpool   = 0.08
+	reelBodyElectricWeightHandle  = 0.07
+	reelBodyElectricWeightOil     = 0.05
+	reelBodyElectricWeightMotor   = 0.25
 	// reelBodyWeakSpotTolerance 是最弱熔断件对整体耐久的容差：外面那格不能比里面的
 	// 短板好太多，"综合体检"才有意义。
 	reelBodyWeakSpotTolerance = 0.15
@@ -201,8 +222,9 @@ var reelBodyFuseCategories = []int64{
 	reelPartCatWasher, reelPartCatGear, reelPartCatBearing, reelPartCatSpool, reelPartCatHandle,
 }
 
-// reelPartLivesInFields 收集轮内六件零件的剩余寿命。ok=false 表示这只轮子读不出摩擦片
-// 额定制动力（老档或品类不认识），这时不做聚合，免得把读不懂的库存误判成损坏。
+// reelPartLivesInFields 收集轮内零件的剩余寿命；电轮存在 cat81 时一并收集。
+// ok=false 表示这只轮子读不出摩擦片额定制动力（老档或品类不认识），这时不做聚合，
+// 免得把读不懂的库存误判成损坏。
 func (s *Server) reelPartLivesInFields(ctx context.Context, reel *store.Item, fields []proto.Field) (map[int64]float64, bool) {
 	lives := map[int64]float64{}
 	if s == nil || reel == nil {
@@ -230,6 +252,9 @@ func (s *Server) reelPartLivesInFields(ctx context.Context, reel *store.Item, fi
 		}
 		lives[category] = reelChildDurability(part)
 	}
+	if motor, _, _, found := s.selectedReelPart(ctx, fields, reelPartCatMotor); found && motor != nil {
+		lives[reelPartCatMotor] = reelChildDurability(motor)
+	}
 	return lives, true
 }
 
@@ -239,10 +264,7 @@ func (s *Server) reelRepairWearInFields(ctx context.Context, reel *store.Item, f
 	lives, ok := s.reelPartLivesInFields(ctx, reel, fields)
 	if ok {
 		total := 0.0
-		for _, category := range []int64{
-			reelPartCatWasher, reelPartCatGear, reelPartCatBearing,
-			reelPartCatSpool, reelPartCatHandle, reelPartCatOil,
-		} {
+		for _, category := range append([]int64{reelPartCatWasher}, s.reelWearCategoriesInFields(ctx, fields)...) {
 			total += math.Max(0, 1-lives[category])
 		}
 		return total
@@ -250,10 +272,7 @@ func (s *Server) reelRepairWearInFields(ctx context.Context, reel *store.Item, f
 
 	// 老档缺少摩擦片定义时仍按能读出的子件耐久计费，不能把整机恢复做成免费。
 	total := 0.0
-	for _, category := range []int64{
-		reelPartCatWasher, reelPartCatGear, reelPartCatBearing,
-		reelPartCatSpool, reelPartCatHandle, reelPartCatOil,
-	} {
+	for _, category := range append([]int64{reelPartCatWasher}, s.reelWearCategoriesInFields(ctx, fields)...) {
 		part, _, _, found := s.selectedReelPart(ctx, fields, category)
 		if !found || part == nil {
 			continue
@@ -277,6 +296,15 @@ func (s *Server) reelBodyDurabilityInFields(ctx context.Context, reel *store.Ite
 		reelBodyWeightSpool*lives[reelPartCatSpool] +
 		reelBodyWeightHandle*lives[reelPartCatHandle] +
 		reelBodyWeightOil*lives[reelPartCatOil]
+	if motorLife, ok := lives[reelPartCatMotor]; ok {
+		weighted = reelBodyElectricWeightWasher*lives[reelPartCatWasher] +
+			reelBodyElectricWeightGear*lives[reelPartCatGear] +
+			reelBodyElectricWeightBearing*lives[reelPartCatBearing] +
+			reelBodyElectricWeightSpool*lives[reelPartCatSpool] +
+			reelBodyElectricWeightHandle*lives[reelPartCatHandle] +
+			reelBodyElectricWeightOil*lives[reelPartCatOil] +
+			reelBodyElectricWeightMotor*motorLife
+	}
 	weakest := math.Inf(1)
 	for _, category := range reelBodyFuseCategories {
 		life := lives[category]
@@ -330,7 +358,7 @@ func (s *Server) restoreReelInternalsInFields(ctx context.Context, row *store.It
 			changed = true
 		}
 	}
-	for _, category := range reelWearPartCategories {
+	for _, category := range s.reelWearCategoriesInFields(ctx, fields) {
 		part, _, _, found := s.selectedReelPart(ctx, fields, category)
 		if !found || part == nil {
 			continue

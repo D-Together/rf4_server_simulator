@@ -92,7 +92,7 @@ body.notice-on #view-fish.on{height:max(600px,calc(100vh - 204px))}
 @media(max-width:980px){.duo{grid-template-columns:minmax(0,1fr)!important}.tunable-fields{grid-template-columns:1fr}}
 
 /* 参数行式布局：左标签+说明，右数值+操作，双列排布 */
-.tunable-group+.tunable-group{margin-top:18px}.tunable-group h3{font-size:14px;margin:0 0 2px}.tunable-fields{display:grid;grid-template-columns:1fr 1fr;gap:0 34px}.tunable-field{display:flex;gap:14px;align-items:center;justify-content:space-between;min-width:0;padding:9px 0;border-bottom:1px solid var(--line)}.tunable-field>div:first-child{flex:1;min-width:0}.tunable-field label{display:block;color:var(--text);margin:0;font-weight:600;overflow-wrap:anywhere}.tunable-field .tunable-hint{margin-top:2px}.tunable-field>div:last-child{display:flex;gap:8px;align-items:center;flex:none}.tunable-field input{width:112px;min-width:0;flex:none;padding:7px 9px}.tunable-field button{flex:none}.section-head{flex-wrap:wrap}
+.tunable-group+.tunable-group{margin-top:18px}.tunable-group h3{font-size:14px;margin:0 0 2px}.tunable-fields{display:grid;grid-template-columns:1fr 1fr;gap:0 34px}.tunable-field{display:flex;gap:14px;align-items:center;justify-content:space-between;min-width:0;padding:9px 0;border-bottom:1px solid var(--line)}.tunable-field.tunable-wide{grid-column:1/-1}.tunable-field>div:first-child{flex:1;min-width:0}.tunable-field label{display:block;color:var(--text);margin:0;font-weight:600;overflow-wrap:anywhere}.tunable-field .tunable-hint{margin-top:2px}.tunable-field>div:last-child{display:flex;gap:8px;align-items:center;flex:none}.tunable-field.tunable-wide>div:last-child{flex-wrap:wrap;justify-content:flex-end}.tunable-field input{width:112px;min-width:0;flex:none;padding:7px 9px}.tunable-field button{flex:none}.section-head{flex-wrap:wrap}
 #storeSummary{max-width:100%;overflow-wrap:anywhere}
 #playerHappyHour{overflow-wrap:anywhere}
 .update-banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 18px;padding:12px 16px;border:1px solid var(--accent);border-radius:12px;background:#0e2438;color:#bfe3ff;font-size:13px}.update-banner[hidden]{display:none}.update-banner.muted{border-color:var(--line);background:#101c2b;color:var(--muted)}.update-banner.warn{border-color:var(--warn);background:#3a2b14;color:#ffd9a0}.update-banner .update-actions{display:flex;gap:8px;margin-left:auto;align-items:center}.update-banner a{text-decoration:none;display:inline-block}
@@ -313,6 +313,8 @@ const TUNABLE_DEFS=[
   ['bait_pref_weight_shift','饵效偏大体型',1,'越大越偏向个体大的鱼咬钩'],
   ['fish_weight_scale','鱼体重倍率',1,'全地图鱼重整体缩放，2=两倍重'],
   ['fish_weight_cap','鱼重受钓具上限',0,'1=超出钓具负重的鱼按上限截断；0=不限制'],
+  ['electric_locked_multiplier','电轮锁轮倍率',3,'电轮锁轮有效承力=当前机械承力与电机承力较小者的该倍率；默认3'],
+  ['electric_motor_kg_per_power','电轮电机功率折算',1,'电机功率映射为承力公斤的系数；默认1，用于后续实机校准'],
   ['hook_nibble_enabled','嘬饵机制',1,'1=保留钩型嘬饵判定；0=普通鱼和奖杯鱼首次抬竿不再判嘬饵。中钩后的保持率倍率仍生效'],
   ['hook_spawn_match_strength','钩型发鱼软匹配强度',1,'0=关闭；1=标准；2=更偏向与钩型匹配的鱼重档位。只影响发鱼，不改后台咬口/保持率倍率'],
   ['grade_ratio_enabled','档位比例开关',0,'0=保持原对数正态标定；1=按下列比例出鱼'],
@@ -583,17 +585,17 @@ async function loadTunables(){
   if(key==='event_anniversary_enabled'||key==='event_newyear_enabled'){
    const on=String(t[key]??def)==='1';
    const tag=key==='event_newyear_enabled'?'新年任务':'周年活动';
-   return `<div class="tunable-field"><div><label for="tun_${key}">${esc(label)}</label><div class="tunable-hint">${esc(hint)}；服务端最多 30 秒生效，活动节点只在全新登录下发，切换后要完整退出游戏重登。</div></div><div><button class="btn sm" id="tun_${key}" style="min-width:230px;${on?'background:#2f7d4f;border-color:#2f7d4f':'opacity:.6'}" onclick="saveEventSwitch('${key}',${on?0:1})">${on?tag+'：开（点击关闭）':tag+'：关（点击开启）'}</button></div></div>`;
+   return `<div class="tunable-field tunable-wide"><div><label for="tun_${key}">${esc(label)}</label><div class="tunable-hint">${esc(hint)}；服务端最多 30 秒生效，活动节点只在全新登录下发，切换后要完整退出游戏重登。</div></div><div><button class="btn sm" id="tun_${key}" style="min-width:230px;${on?'background:#2f7d4f;border-color:#2f7d4f':'opacity:.6'}" onclick="saveEventSwitch('${key}',${on?0:1})">${on?tag+'：开（点击关闭）':tag+'：关（点击开启）'}</button></div></div>`;
   }
   if(key==='event_branches'){
    const val=String(t[key]??def);
-   return `<div class="tunable-field"><div><label for="tun_event_branches">${esc(label)}</label><div class="tunable-hint">${esc(hint)}；当前 <b>${esc(val)||'（空）'}</b>。9/10=2024新年、11/12=7周年、13/14=2025新年、15/16=8周年、17/18=2026新年、19/20=9周年。保存后最多 30 秒生效，需完整退出游戏重登。</div></div><div><input type="text" id="tun_event_branches" value="${esc(val)}" style="min-width:230px" placeholder="9,10,..."><button class="btn sm" onclick="saveEventBranches()">保存</button><button class="btn alt sm" onclick="resetEventBranches()">恢复默认</button></div></div>`;
+   return `<div class="tunable-field tunable-wide"><div><label for="tun_event_branches">${esc(label)}</label><div class="tunable-hint">${esc(hint)}；当前 <b>${esc(val)||'（空）'}</b>。9/10=2024新年、11/12=7周年、13/14=2025新年、15/16=8周年、17/18=2026新年、19/20=9周年。保存后最多 30 秒生效，需完整退出游戏重登。</div></div><div><input type="text" id="tun_event_branches" value="${esc(val)}" style="min-width:230px" placeholder="9,10,..."><button class="btn sm" onclick="saveEventBranches()">保存</button><button class="btn alt sm" onclick="resetEventBranches()">恢复默认</button></div></div>`;
   }
   if(key==='event_anniversary_end_unix'){
    const ts=Number(String(t[key]??def))||def;
    const iso=new Date(ts*1000).toISOString().slice(0,16);
    const shown=iso.replace('T',' ')+' UTC';
-   return `<div class="tunable-field"><div><label for="tun_event_end">${esc(label)}</label><div class="tunable-hint">${esc(hint)}；当前 <b>${shown}</b>。保存后最多 30 秒生效，活动节点只在全新登录下发，改完要完整退出游戏重登。</div></div><div><input type="datetime-local" id="tun_event_end" value="${iso}" style="min-width:230px"><button class="btn sm" onclick="saveEventEnd()">保存</button><button class="btn alt sm" onclick="resetEventEnd(${def})">恢复默认</button></div></div>`;
+   return `<div class="tunable-field tunable-wide"><div><label for="tun_event_end">${esc(label)}</label><div class="tunable-hint">${esc(hint)}；当前 <b>${shown}</b>。保存后最多 30 秒生效，活动节点只在全新登录下发，改完要完整退出游戏重登。</div></div><div><input type="datetime-local" id="tun_event_end" value="${iso}" style="min-width:230px"><button class="btn sm" onclick="saveEventEnd()">保存</button><button class="btn alt sm" onclick="resetEventEnd(${def})">恢复默认</button></div></div>`;
   }
   if(key==='fish_hooked_chat'){
    const on=parseFloat(String(t[key]??def))>0;
@@ -612,6 +614,7 @@ async function loadTunables(){
  const group=(title,sub,keys)=>'<section class="tunable-group"><h3>'+esc(title)+'<small style="font-weight:400;margin-left:8px;color:var(--muted)">'+esc(sub)+'</small></h3><div class="tunable-fields">'+keys.map(field).join('')+'</div></section>';
  $('#paramsBody').innerHTML=
   group('玩法手感','咬钩快慢、饵料偏好、鱼的大小与挣扎力度',['bite_probability','bite_delay_fixed','bite_delay_scale','bite_delay_max','bite_delay_lure_max','bait_pref_scale','bait_pref_weight_shift','fish_weight_scale','fish_weight_cap','fight_power_scale'])
+  +group('电轮参数','电轮锁轮倍率与电机功率折算；改后最多 30 秒生效',['electric_locked_multiplier','electric_motor_kg_per_power'])
   +group('钩型与咬口','嘬饵总开关与发鱼软匹配；后台钩型倍率仍独立生效',['hook_nibble_enabled','hook_spawn_match_strength'])
   +group('经验与结算','改后只对新结算的鱼生效，已入护的不重算',['xp_gain','release_xp_ratio'])
   +group('钓获掉卡','本地自定概率；最多 30 秒生效，重连或重复结算不补抽',['card_drop_normal','card_drop_star','card_drop_blue','card_drop_rare_scale'])
