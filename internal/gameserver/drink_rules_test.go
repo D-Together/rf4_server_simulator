@@ -10,25 +10,23 @@ import (
 func TestDrinkRulesClassifyAlcoholicDrinks(t *testing.T) {
 	groups := []struct {
 		category string
-		peak     float64
-		duration time.Duration
 		items    string
 	}{
-		{"beer", .05, 5 * time.Minute, `
+		{"beer", `
 			kvas_bottle kvas_glass lb_bottle_ch_ale_ny lb_bottle_eks lb_bottle_eks_ny
 			lb_bottle_krep lb_bottle_krep_ny lb_bottle_trad lb_bottle_trad_ny
 			wood_bottle_cask wood_bottle_dark wood_bottle_lager
 			wood_can_cask wood_can_dark wood_can_lager`},
-		{"wine", .10, 10 * time.Minute, `
+		{"wine", `
 			AV_shamp_1l AV_shamp_1l_8 AV_shamp_1lg AV_shamp_p_6l AV_shamp_tsr
 			apple_sidr g_vine_bottle rd_ice_vine rd_ice_vine25 rd_ice_vine26
 			rd_red_vine rd_red_vine_2017 rd_red_vine_8 rd_white_vine
 			rot_bottle_porto thermos_gwein vine_bottle_em`},
-		{"spirit", .15, 15 * time.Minute, `
+		{"spirit", `
 			XXIVA_bottle_vdka boyar_bottle_vdka gorilka hooch_corn hooch_potato
 			kala_vodka kr_pennik pervach tungus_vodka vodka_glass
 			zdn_bottle_cogn3 zdn_bottle_cogn5 zdn_bottle_vdka`},
-		{"mead", .20, 20 * time.Minute, `
+		{"mead", `
 			barrel_honey pm_medovuha pm_medovuha_g pm_medovuha_g_8 sbiten`},
 	}
 	seen := make(map[string]bool)
@@ -40,14 +38,45 @@ func TestDrinkRulesClassifyAlcoholicDrinks(t *testing.T) {
 			seen[item] = true
 			t.Run(item, func(t *testing.T) {
 				rule, ok := drinkRuleForItem(item)
-				if !ok || rule.Category != group.category || rule.Peak != group.peak || rule.Duration != group.duration {
-					t.Fatalf("rule = %+v, %v; want %s %g %s", rule, ok, group.category, group.peak, group.duration)
+				if !ok || rule.Category != group.category {
+					t.Fatalf("rule = %+v, %v; want category %s", rule, ok, group.category)
 				}
 			})
 		}
 	}
 	if len(seen) != 50 {
 		t.Fatalf("classified %d drinks, want 50", len(seen))
+	}
+}
+
+// TestDrinkRulesOfficialBonuses 官服单瓶加成覆盖类别档位（gamekee 官服
+// 酒表 2026-11-09 存档，drink-bonus-official.docx）：有官服实测值的单品
+// 用官服峰值与游戏小时时长（24:1 折算）；官服表空白的单品回退类别档。
+func TestDrinkRulesOfficialBonuses(t *testing.T) {
+	for item, want := range map[string]struct {
+		peak     float64
+		duration time.Duration
+	}{
+		"rd_ice_vine":       {.25, 12 * gameHourReal},
+		"AV_shamp_tsr":      {.20, 12 * gameHourReal},
+		"XXIVA_bottle_vdka": {.16, 12 * gameHourReal},
+		"gorilka":           {.085, 9 * gameHourReal},
+		"pm_medovuha":       {.059, 8 * gameHourReal},
+		"lb_bottle_eks_ny":  {.029, 6 * gameHourReal},
+		// 官服表空白（—）/未收录：回退本地类别档位。
+		"rot_bottle_porto": {.10, 10 * time.Minute},
+		"kvas_bottle":      {.05, 5 * time.Minute},
+		"barrel_honey":     {.20, 20 * time.Minute},
+	} {
+		t.Run(item, func(t *testing.T) {
+			rule, ok := drinkRuleForItem(item)
+			if !ok || rule.Peak != want.peak || rule.Duration != want.duration {
+				t.Fatalf("%s rule = %+v, %v; want %g %s", item, rule, ok, want.peak, want.duration)
+			}
+		})
+	}
+	if len(officialDrinkBonuses) != 30 {
+		t.Fatalf("official bonuses cover %d item ids, want 30", len(officialDrinkBonuses))
 	}
 }
 

@@ -131,7 +131,8 @@ func TestDrinkUseAtomicQuantityAndF13(t *testing.T) {
 				FROM drink_bonus_effect WHERE uid=1000001 AND category='wine'`).Scan(&remaining, &duration, &source); err != nil {
 				t.Fatal(err)
 			}
-			if remaining != 600000 || duration != remaining || source != row.GUID {
+			// 官服单瓶值：rd_red_vine 19% / 12 游戏小时（24:1 折算 30 现实分钟）。
+			if remaining != 1800000 || duration != remaining || source != row.GUID {
 				t.Fatalf("wine effect: remaining=%d duration=%d source=%s", remaining, duration, source)
 			}
 			drinkUseTestCount(t, s, `SELECT COUNT(*) FROM kv WHERE k LIKE 'drink-use:%'`, 1)
@@ -263,7 +264,8 @@ func TestDrinkUseDifferentCallsRefreshSameCategory(t *testing.T) {
 	}
 	drinkUseTestQty(t, s, row.GUID, 1, 0)
 	var remaining int64
-	if err := s.DB.SQL.QueryRow(`SELECT remaining_millis FROM drink_bonus_effect WHERE category='spirit'`).Scan(&remaining); err != nil || remaining != 900000 {
+	// 官服单瓶值：tungus_vodka 10% / 9 游戏小时（24:1 折算 22.5 现实分钟）。
+	if err := s.DB.SQL.QueryRow(`SELECT remaining_millis FROM drink_bonus_effect WHERE category='spirit'`).Scan(&remaining); err != nil || remaining != 1350000 {
 		t.Fatalf("same category did not refresh: %d %v", remaining, err)
 	}
 	drinkUseTestCount(t, s, `SELECT COUNT(*) FROM drink_bonus_effect`, 1)
