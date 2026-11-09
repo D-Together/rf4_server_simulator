@@ -72,6 +72,19 @@ func TestReelPartWearRatesMatchSpecCalibration(t *testing.T) {
 	}
 }
 
+func TestReelPartSlipWearUsesElapsedSeconds(t *testing.T) {
+	byTicks := reelPartCounts{SlipTicks: 10}
+	bySeconds := reelPartCounts{SlipSecs: 10 * reelSlipCalibrationSeconds}
+	for _, category := range reelWearPartCategories {
+		gotTicks := reelPartWearFor(category, 50, byTicks)
+		gotSeconds := reelPartWearFor(category, 50, bySeconds)
+		if math.Abs(gotTicks-gotSeconds) > 1e-12 {
+			t.Fatalf("品类 %d 打滑秒数应折算成同寿命：ticks=%.9f seconds=%.9f",
+				category, gotTicks, gotSeconds)
+		}
+	}
+}
+
 const wearTestUID = int64(1000001)
 
 // wearReelFixture 造一只六件俱全的轮子（Spark 2 2000S）并同步出出厂物理参数。

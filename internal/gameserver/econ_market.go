@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1029,6 +1030,20 @@ func (s *Server) partAlternatives(ctx context.Context, reelItemID string, part r
 				}
 			}
 			rows.Close()
+			reelBrand := ""
+			if reelDef, derr := s.DB.GetItemDefByItemID(ctx, reelItemID); derr == nil && reelDef != nil {
+				reelBrand = reelDef.Brand
+			}
+			// 品牌专用油排在同品质通用油前面，客户端工坊列表会优先展示
+			// 当前轮子最匹配的保养品；不匹配油仍保留可用性。
+			sort.SliceStable(oils, func(i, j int) bool {
+				mi := reelOilMatchFactor(reelItemID, reelBrand, oils[i])
+				mj := reelOilMatchFactor(reelItemID, reelBrand, oils[j])
+				if mi != mj {
+					return mi < mj
+				}
+				return oils[i] < oils[j]
+			})
 			for _, id := range oils {
 				addJob(id)
 			}
