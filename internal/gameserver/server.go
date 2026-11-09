@@ -70,6 +70,11 @@ type Server struct {
 	tunText  map[string]string
 	tunAt    time.Time
 
+	// 鱼饵规则覆盖缓存（后台可编辑，TTL 兜底 + 写操作主动失效）
+	baitOvMu    sync.RWMutex
+	baitOvCache map[string]baitOverrideEntry
+	baitOvAt    time.Time
+
 	// 搏鱼曲线池
 	curves  map[string][][19]float64
 	curveMu sync.Mutex

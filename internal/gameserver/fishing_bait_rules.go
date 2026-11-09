@@ -79,6 +79,23 @@ func ExportedBaitRules(fishZh string) (BaitRuleInfo, bool) {
 // ExportedBaitRuleCount 规则表条目数（前端展示用）。
 func ExportedBaitRuleCount() int { return len(fishBaitRules) }
 
+// deriveConditionFlags 从规则文本解析出判鱼要核对的硬条件：
+// 海图区号、顺水漂流、jig 阶梯、饵在水中运动、已上船。
+// 内置规则与后台覆盖共用同一套解析，避免两条路径判定不一致。
+func (r *fishBaitRule) deriveConditionFlags() {
+	r.chartZones, r.chartAny = fishChartCondition(r.condition)
+	r.needDrift = strings.Contains(r.condition, "顺水漂流")
+	needJig := strings.Contains(r.condition, "jig阶梯")
+	needMotion := strings.Contains(r.condition, "饵在水中运动")
+	r.needJig, r.needMotion, r.needBoat, r.jigOrMotion = false, false, false, false
+	if needJig && needMotion && strings.Contains(r.condition, "或") {
+		r.jigOrMotion = true
+		return
+	}
+	r.needJig, r.needMotion = needJig, needMotion
+	r.needBoat = strings.Contains(r.condition, "已上船")
+}
+
 func parseFishBaitRules(raw string) map[string]fishBaitRule {
 	out := map[string]fishBaitRule{}
 	for _, line := range strings.Split(raw, "\n") {
@@ -93,16 +110,7 @@ func parseFishBaitRules(raw string) map[string]fishBaitRule {
 		bait = strings.NewReplacer("（", "(", "）", ")").Replace(bait)
 		allowed, extra, _ := strings.Cut(bait, "(")
 		r := fishBaitRule{allow: strings.Split(strings.TrimSpace(allowed), "/"), condition: strings.TrimSpace(condition)}
-		r.chartZones, r.chartAny = fishChartCondition(r.condition)
-		r.needDrift = strings.Contains(r.condition, "顺水漂流")
-		needJig := strings.Contains(r.condition, "jig阶梯")
-		needMotion := strings.Contains(r.condition, "饵在水中运动")
-		if needJig && needMotion && strings.Contains(r.condition, "或") {
-			r.jigOrMotion = true
-		} else {
-			r.needJig, r.needMotion = needJig, needMotion
-			r.needBoat = strings.Contains(r.condition, "已上船")
-		}
+		r.deriveConditionFlags()
 		if _, denied, ok := strings.Cut(extra, "不吃"); ok {
 			denied = strings.FieldsFunc(denied, func(c rune) bool { return c == ')' || c == '；' || c == ';' })[0]
 			r.deny = strings.Split(denied, "/")
@@ -222,6 +230,8 @@ func (s *Server) loadRuleBait(ctx context.Context, id string) (ruleBait, bool) {
 
 func (s *Server) loadFishNames(ctx context.Context) (map[string]string, bool) {
 	names := map[string]string{}
+	// 先取覆盖，再开游标：连接池可能只有一条连接，游标未关时再查询会互相等待。
+	overrides := s.baitOverrides(ctx)
 	rows, err := s.DB.SQL.QueryContext(ctx, `SELECT fish_key,fish_zh FROM loc_wiki_fish
 		UNION SELECT fish_key,name_zh FROM loc_fish`)
 	if err != nil {
@@ -232,6 +242,11 @@ func (s *Server) loadFishNames(ctx context.Context) (map[string]string, bool) {
 		var key, name string
 		if rows.Scan(&key, &name) == nil {
 			if _, known := fishBaitRules[ruleName(name)]; known {
+				names[key] = name
+				continue
+			}
+			// 后台新增规则覆盖的鱼种同样参与严格模式判鱼。
+			if _, ok := overrides[ruleName(name)]; ok {
 				names[key] = name
 			}
 		}
@@ -301,7 +316,10 @@ func (s *Server) filterFishBaitSet(loc string, ids []string, keys []string, weig
 		if weights[i] <= 0 {
 			continue
 		}
-		r := fishBaitRules[ruleName(names[key])]
+		r, rot := s.resolveBaitRule(ctx, names[key])
+		// 轮换：按时间桶取当前组；strict 只认当前组，soft 组外降权但仍可咬。
+		activeGroup := activeBaitGroup(rot, now)
+		strictRotation := activeGroup != nil && rot.mode == "strict"
 		if !ruleConditionAllows(r, c) {
 			continue
 		}
@@ -309,6 +327,9 @@ func (s *Server) filterFishBaitSet(loc string, ids []string, keys []string, weig
 		best := 0.0
 		preferred := 0
 		for j, b := range baits {
+			if !rotationKeepsBait(activeGroup, strictRotation, b) {
+				continue // strict 轮换：组外的饵本轮不咬
+			}
 			if bottomRigTypes[c.rigType] && len(r.bottomOnly) > 0 && !b.matchesAny(r.bottomOnly) {
 				denied = true
 				break
@@ -329,6 +350,10 @@ func (s *Server) filterFishBaitSet(loc string, ids []string, keys []string, weig
 					break
 				}
 			}
+			// 当前轮换组的饵视为本轮主推，即使不在静态允许列表里。
+			if activeGroup != nil && b.matchesAny(activeGroup) {
+				allowed = true
+			}
 			score := 0.0
 			variation := fishVariation(fmt.Sprintf("%s/%s/%s/%d", loc, key, b.id, period))
 			if allowed || evidence[j][key] > 0 || localEvidence[j][key] {
@@ -336,6 +361,9 @@ func (s *Server) filterFishBaitSet(loc string, ids []string, keys []string, weig
 				score = 1.0 + 0.5*variation
 			} else if b.legalAlternative(r) {
 				score = maxBaitPreference * 0.05
+			}
+			if activeGroup != nil {
+				score *= rotationScoreMultiplier(activeGroup, b)
 			}
 			best = math.Max(best, score)
 		}

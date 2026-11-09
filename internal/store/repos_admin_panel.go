@@ -82,6 +82,15 @@ type FishConfigRow struct {
 	Weight      float64 `json:"weight"`
 	Enabled     bool    `json:"enabled"`
 	HasOverride bool    `json:"has_override"`
+
+	// 鱼饵规则覆盖带来的轮换信息（来自 fish_bait_override）。
+	// 钓场鱼口页需要看出"这个鱼种配了轮换、当前生效哪一组"，
+	// 否则在鱼饵偏好页设好的轮换在钓场页完全不可见。
+	BaitSource  string     `json:"bait_source"`  // default | override
+	BaitEnabled bool       `json:"bait_enabled"` // 覆盖是否启用
+	BaitGroups  [][]string `json:"bait_groups"`  // 轮换组
+	BaitRotSec  int64      `json:"bait_rotate_sec"`
+	BaitRotMode string     `json:"bait_rotate_mode"`
 }
 
 type FishBiteSetting struct {
@@ -533,6 +542,14 @@ func (d *DB) GetAdminFishConfig(ctx context.Context, loc string) (*AdminFishConf
 	if err != nil {
 		return nil, err
 	}
+	// 鱼饵规则覆盖：钓场页要展示每个鱼种的轮换配置与当前生效组。
+	// 读失败不阻断鱼口编辑（鱼饵规则是附加信息），降级为无轮换。
+	baitOvs := map[string]FishBaitOverride{}
+	if list, berr := d.ListFishBaitOverrides(ctx); berr == nil {
+		for _, o := range list {
+			baitOvs[o.FishZh] = o
+		}
+	}
 	names := map[string]string{}
 	rows, err := d.SQL.QueryContext(ctx, `
 		SELECT fish_key, COALESCE(NULLIF(name_zh,''),fish_key) FROM loc_fish WHERE loc=?
@@ -560,6 +577,7 @@ func (d *DB) GetAdminFishConfig(ctx context.Context, loc string) (*AdminFishConf
 		if ov, ok := ovs[r.FishKey]; ok {
 			row.Weight, row.Enabled, row.HasOverride = ov.Weight, ov.Enabled, true
 		}
+		applyBaitRotation(&row, baitOvs[name])
 		cfg.Fish = append(cfg.Fish, row)
 		cfg.FishPool = append(cfg.FishPool, r.FishKey)
 	}
@@ -571,12 +589,27 @@ func (d *DB) GetAdminFishConfig(ctx context.Context, loc string) (*AdminFishConf
 		if name == "" {
 			name = key
 		}
-		cfg.Fish = append(cfg.Fish, FishConfigRow{
+		row := FishConfigRow{
 			FishKey: key, NameZh: name, BaseWeight: 0, Weight: ov.Weight,
 			Enabled: ov.Enabled, HasOverride: true,
-		})
+		}
+		applyBaitRotation(&row, baitOvs[name])
+		cfg.Fish = append(cfg.Fish, row)
 	}
 	return cfg, nil
+}
+
+// applyBaitRotation 把鱼饵规则覆盖里的轮换信息填进行，供钓场页展示。
+func applyBaitRotation(row *FishConfigRow, o FishBaitOverride) {
+	row.BaitSource = "default"
+	if o.FishZh == "" {
+		return
+	}
+	row.BaitSource = "override"
+	row.BaitEnabled = o.Enabled
+	row.BaitGroups = o.Groups
+	row.BaitRotSec = o.RotateSec
+	row.BaitRotMode = o.RotateMode
 }
 
 func (d *DB) SaveAdminFishConfig(ctx context.Context, in FishConfigSave, updatedBy string) error {
