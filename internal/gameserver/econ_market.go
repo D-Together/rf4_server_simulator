@@ -1306,6 +1306,7 @@ func hWorkshopOrder(ctx *Ctx) ([]byte, bool) {
 
 	silver, gold := int64(0), int64(0)
 	changed := false
+	allRepairs := len(orders) > 0
 	for _, o := range orders {
 		idx := -1
 		for i := range fields {
@@ -1318,6 +1319,7 @@ func hWorkshopOrder(ctx *Ctx) ([]byte, bool) {
 			}
 		}
 		if idx < 0 {
+			allRepairs = false
 			continue
 		}
 		// 同型号 = 修理（恢复耐久，按磨损计价）；不同型号 = 更换。
@@ -1332,6 +1334,7 @@ func hWorkshopOrder(ctx *Ctx) ([]byte, bool) {
 			changed = true
 			continue
 		}
+		allRepairs = false
 		def, derr := srv.DB.GetItemDefByItemID(cctx, o.SysID)
 		if derr != nil || def == nil {
 			continue
@@ -1351,6 +1354,15 @@ func hWorkshopOrder(ctx *Ctx) ([]byte, bool) {
 	}
 	if !changed {
 		return nil, false
+	}
+	wholeItemRepair := allRepairs
+	if allRepairs {
+		if def, derr := srv.itemDefForRow(cctx, row); derr == nil && def != nil && def.Category == gearCatReel {
+			if _, ierr := srv.restoreReelInternalsInFields(cctx, row, fields); ierr != nil {
+				ctx.Log.Warn("工坊修理：轮内零件恢复失败", "guid", shortGUID(row.GUID), "err", ierr)
+				return nil, false
+			}
+		}
 	}
 	costSilver, costGold := silver, gold
 	if clientCost > 0 {
@@ -1398,6 +1410,13 @@ func hWorkshopOrder(ctx *Ctx) ([]byte, bool) {
 		return nil, false
 	}
 	row.FieldsJSON = fj
+	if wholeItemRepair {
+		if err := srv.DB.SetItemDurability(cctx, row.GUID, 1.0); err != nil {
+			ctx.Log.Warn("工坊修理：本体耐久写库失败", "guid", shortGUID(row.GUID), "err", err)
+			return nil, false
+		}
+		row.Durability = 1.0
+	}
 	if def, derr := srv.itemDefForRow(cctx, row); derr == nil && def != nil && def.Category == gearCatReel {
 		// 本体那一格是轮内零件的综合：换掉烧穿的摩擦片必须能把它抬回来，
 		// 否则“换件修好”永远修不好。抬完本体再写物理参数表，表里的承力与

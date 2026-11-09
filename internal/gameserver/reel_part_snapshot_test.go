@@ -215,13 +215,23 @@ func TestReelPartSnapshotWorkshop(t *testing.T) {
 				}
 				previousRatio = ratio
 			}
-			// Same-model gear repair restores only the installed gear's durability.
+			// Same-model repair is a full reel service, not a single-part patch.
 			fresh := mustItem(t, db, reel.GUID)
 			fs := snapshotFields(t, fresh.FieldsJSON)
 			gear, _ := snapshotPart(t, srv, fs, 52)
 			setWireFloat(gear.Fields, gear.Class, fieldIdxByCS(gear.Class, csDurability), .4)
+			bearing, _ := snapshotPart(t, srv, fs, 7)
+			setWireFloat(bearing.Fields, bearing.Class, fieldIdxByCS(bearing.Class, csDurability), .4)
+			washer, washerDef := snapshotPart(t, srv, fs, 9)
+			setWireFloat(washer.Fields, washer.Class, fieldIdxByCS(washer.Class, csDurability), .4)
+			if _, present, idx := frictionWasherDrag(washer); present {
+				setWireFloat(washer.Fields, washer.Class, idx, itemDefF32(washerDef, gearAttrDragMax)*fresh.Workmanship*.4)
+			}
 			raw = snapshotJSON(t, fs)
 			if err := db.UpdateItemFields(ctx, fresh.GUID, raw, fresh.Qty, fresh.Durability, fresh.Workmanship, fresh.RigGUID); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.SetItemDurability(ctx, reel.GUID, .6); err != nil {
 				t.Fatal(err)
 			}
 			c := &Ctx{Sess: newProbeSess(srv), Tree: snapshotWorkshopRequest(reel.GUID, "rgm_ef_spark10021"), Log: logging.Discard()}
@@ -240,11 +250,27 @@ func TestReelPartSnapshotWorkshop(t *testing.T) {
 			if repairedDef.ItemID != "rgm_ef_spark10021" {
 				t.Fatal("gear repair response model")
 			}
-			fresh = assertReelSnapshot(t, srv, reel.GUID, "rgm_ef_spark10021", drag)
+			fresh = assertReelSnapshot(t, srv, reel.GUID, "rgm_ef_spark10021",
+				itemDefF32(washerDef, gearAttrDragMax)*fresh.Workmanship)
+			if fresh.Durability != 1 {
+				t.Fatalf("same-model repair should restore body durability, got %v", fresh.Durability)
+			}
 			fs = snapshotFields(t, fresh.FieldsJSON)
 			gear, _ = snapshotPart(t, srv, fs, 52)
 			if snapshotFloat(gear.Fields, gear.Class, csDurability) != 1 {
 				t.Fatal("gear not repaired")
+			}
+			bearing, _ = snapshotPart(t, srv, fs, 7)
+			if snapshotFloat(bearing.Fields, bearing.Class, csDurability) != 1 {
+				t.Fatal("bearing should be repaired with the reel")
+			}
+			washer, washerDef = snapshotPart(t, srv, fs, 9)
+			if snapshotFloat(washer.Fields, washer.Class, csDurability) != 1 {
+				t.Fatal("friction washer durability should be restored with the reel")
+			}
+			if current, present, _ := frictionWasherDrag(washer); !present ||
+				math.Abs(current-itemDefF32(washerDef, gearAttrDragMax)*fresh.Workmanship) > 1e-6 {
+				t.Fatalf("friction washer drag should be restored, got %v", current)
 			}
 			if err := db.SetItemDurability(ctx, reel.GUID, .6); err != nil {
 				t.Fatal(err)
