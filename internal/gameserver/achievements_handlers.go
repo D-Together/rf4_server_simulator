@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"rf4server/internal/proto"
+	"rf4server/internal/store"
 	"rf4server/internal/wiregen"
 )
 
@@ -32,44 +33,11 @@ func hPlayerRewards2015(ctx *Ctx) ([]byte, bool) {
 	}
 	items := make([]*proto.Value, 0, len(rows))
 	for _, it := range rows {
-		if it.WireClass != "enikeammfen" && it.TypeID != 2015 {
+		// wire 类与 type_id 必须同时匹配，任一不符的异常行都不得混入 2015 响应。
+		if it.WireClass != "enikeammfen" || it.TypeID != 2015 {
 			continue
 		}
-		kind := uint32(0) // 0=背包/其它
-		if it.Container == "house" {
-			kind = 10 // 房/家（奖杯陈列位）
-		}
-		created := netTicksNow()
-		updatedFT := proto.WindowsFiletimeNow()
-		if it.CreatedTS > 0 {
-			created = netTicksFromUnix(it.CreatedTS)
-			updatedFT = proto.UnixToFiletime(int64(it.CreatedTS))
-		}
-		wm := it.Workmanship
-		if wm <= 0 {
-			wm = 1
-		}
-		du := it.Durability
-		if du <= 0 {
-			du = 1
-		}
-		obj, merr := wiregen.MakeObj("enikeammfen", map[int]*proto.Value{
-			0:  proto.U32(placeOfItem(it.ItemID)),
-			1:  proto.U32(0), // 0=对其他玩家可见、1=隐藏
-			2:  proto.Guid(it.GUID),
-			3:  proto.Guid(""),
-			4:  proto.U32(kind),
-			5:  proto.U32(uint32(it.NumericID)),
-			6:  proto.U32(uint32(wm)),
-			7:  proto.U32(uint32(du)),
-			8:  proto.U64(uint64(created)),
-			9:  proto.U64(uint64(updatedFT)),
-			10: proto.U32(0),
-			11: proto.Null(),
-			12: proto.Null(),
-			13: proto.U32(uint32(it.Qty)),
-			14: proto.U32(0),
-		})
+		obj, merr := makeRewardEntry(it)
 		if merr != nil {
 			ctx.Log.Error("3/16 奖赏条目编码失败", "err", merr, "guid", it.GUID)
 			continue
@@ -82,6 +50,50 @@ func hPlayerRewards2015(ctx *Ctx) ([]byte, bool) {
 		return encodeArgsCode(ctx, "185")
 	}
 	return body, true
+}
+
+// makeRewardEntry 由物品行统一构造 enikeammfen(2015) 对象，3/16 列表与
+// 3/40 详情共用，避免两处字段口径漂移。
+//
+// 注意 f6/f7：wire op 虽为 U32，但客户端 onobdmohahp 把 hjilekjlgbk(工艺) 与
+// nmidlgejlcp(耐久) 声明为 float，即 4 字节承载 IEEE754 位模式；必须走
+// proto.F32（内部写 F32Bits），用 proto.U32 送整数会被客户端读成接近 0。
+func makeRewardEntry(it *store.Item) (*proto.Value, error) {
+	kind := uint32(0) // 0=背包/其它
+	if it.Container == "house" {
+		kind = 10 // 房/家（奖杯陈列位）
+	}
+	created := netTicksNow()
+	updatedFT := proto.WindowsFiletimeNow()
+	if it.CreatedTS > 0 {
+		created = netTicksFromUnix(it.CreatedTS)
+		updatedFT = proto.UnixToFiletime(int64(it.CreatedTS))
+	}
+	wm := it.Workmanship
+	if wm <= 0 {
+		wm = 1
+	}
+	du := it.Durability
+	if du <= 0 {
+		du = 1
+	}
+	return wiregen.MakeObj("enikeammfen", map[int]*proto.Value{
+		0:  proto.U32(placeOfItem(it.ItemID)),
+		1:  proto.U32(0), // 0=对其他玩家可见、1=隐藏
+		2:  proto.Guid(it.GUID),
+		3:  proto.Guid(""),
+		4:  proto.U32(kind),
+		5:  proto.U32(uint32(it.NumericID)),
+		6:  proto.F32(float32(wm)),
+		7:  proto.F32(float32(du)),
+		8:  proto.U64(uint64(created)),
+		9:  proto.U64(uint64(updatedFT)),
+		10: proto.U32(0),
+		11: proto.Null(),
+		12: proto.Null(),
+		13: proto.U32(uint32(it.Qty)),
+		14: proto.U32(0),
+	})
 }
 
 // placeOfItem 从奖牌 item_id 推「名次」（enikeammfen.f0 = ijahnpdddfc，

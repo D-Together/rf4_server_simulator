@@ -546,27 +546,8 @@ func hDynamicRewardEntry(ctx *Ctx) ([]byte, bool) {
 	}
 	if srv := ctx.Sess.Srv; srv != nil && srv.DB != nil && guid != "" && guid != zeroGUID {
 		if row, err := srv.DB.GetItemByGUID(ctx.Sess.pushCtx(), guid); err == nil && row != nil && row.UID == ctx.Sess.Userid {
-			containerKind := uint32(10) // 房/家
-			if row.Container != "house" {
-				containerKind = 0
-			}
-			obj, merr := wiregen.MakeObj("enikeammfen", map[int]*proto.Value{
-				0:  proto.U32(placeOfItem(row.ItemID)),
-				1:  proto.U32(0), // 0=可见、1=隐藏
-				2:  proto.Guid(row.GUID),
-				3:  proto.Guid(""),
-				4:  proto.U32(containerKind),
-				5:  proto.U32(uint32(row.NumericID)),
-				6:  proto.U32(0),
-				7:  proto.U32(0),
-				8:  proto.U64(uint64(netTicksNow())),
-				9:  proto.U64(uint64(proto.WindowsFiletimeNow())),
-				10: proto.U32(0),
-				11: proto.Null(),
-				12: proto.Null(),
-				13: proto.U32(uint32(row.Qty)),
-				14: proto.U32(0),
-			})
+			// 与 3/16 共用构造器：工艺/耐久/时间一律取物品行的真实值。
+			obj, merr := makeRewardEntry(row)
 			if merr == nil {
 				if body, e := proto.EncodeValue(obj, ctx.Sess.Table()); e == nil {
 					return body, true
@@ -574,6 +555,8 @@ func hDynamicRewardEntry(ctx *Ctx) ([]byte, bool) {
 			}
 		}
 	}
+	// 未命中真实物品：回显 guid 的空壳，不编造时间/数值。
+	// f6/f7 仍按 float 位模式填 0，与 enikeammfen 字段语义保持一致。
 	obj, err := wiregen.MakeObj("enikeammfen", map[int]*proto.Value{
 		0:  proto.U32(0),
 		1:  proto.U32(0),
@@ -581,8 +564,8 @@ func hDynamicRewardEntry(ctx *Ctx) ([]byte, bool) {
 		3:  proto.Guid(""),
 		4:  proto.U32(10),
 		5:  proto.U32(0),
-		6:  proto.U32(0),
-		7:  proto.U32(0),
+		6:  proto.F32(0),
+		7:  proto.F32(0),
 		8:  proto.U64(0),
 		9:  proto.U64(0),
 		10: proto.U32(0),

@@ -7,9 +7,24 @@ import (
 	"rf4server/internal/proto"
 )
 
+const rewardTestCreatedTS = 1700000000
+
+// assertRewardFloat 断言 U32 槽里承载的是 IEEE754 float 位模式，且解析值等于 want。
+// 客户端 onobdmohahp 把工艺/耐久声明为 float，用 proto.U32 送整数会读成接近 0。
+func assertRewardFloat(t *testing.T, f proto.Field, want float32, name string) {
+	t.Helper()
+	if f.Num == nil {
+		t.Fatalf("%s: Num 为空", name)
+	}
+	bits := uint32(u64Of(f.Num))
+	if got := proto.F32FromBits(bits); got != want {
+		t.Fatalf("%s=%v (位模式 0x%08x), 期望 %v", name, got, bits, want)
+	}
+}
+
 // TestPlayerRewards2015ReturnsOwnedMedal 验证 3/16 奖赏列表：
 // 返回 proto.Args("185", enikeammfen...)，包含玩家 house 里的奖牌物品，
-// 且 f0(名次)/f1(可见性) 正确。
+// 且 f0(名次)/f1(可见性)/f6/f7(float 工艺耐久)/f8/f9(物品时间) 正确。
 func TestPlayerRewards2015ReturnsOwnedMedal(t *testing.T) {
 	srv, db := newRigTestServer(t)
 	registerAchievementHandlers(srv.dispatch)
@@ -21,7 +36,7 @@ func TestPlayerRewards2015ReturnsOwnedMedal(t *testing.T) {
 	_, err := db.SQL.ExecContext(context.Background(),
 		`INSERT INTO item (guid, uid, item_id, numeric_id, wire_class, type_id, container, slot, qty, durability, workmanship, created_ts)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		medalGUID, uid, "ft_big_bear_cup_medal_2", 6808, "enikeammfen", 2015, "house", 0, 1, 1.0, 1.0, 1700000000)
+		medalGUID, uid, "ft_big_bear_cup_medal_2", 6808, "enikeammfen", 2015, "house", 0, 1, 1.0, 1.0, rewardTestCreatedTS)
 	if err != nil {
 		t.Fatalf("插入测试奖牌失败: %v", err)
 	}
@@ -58,6 +73,96 @@ func TestPlayerRewards2015ReturnsOwnedMedal(t *testing.T) {
 	}
 	if got := u64Of(found.Fields[1].Num); got != 0 {
 		t.Fatalf("3/16 奖牌 f1(可见性)=%d, 期望 0(可见)", got)
+	}
+	assertRewardFloat(t, found.Field(6), 1.0, "3/16 f6(工艺)")
+	assertRewardFloat(t, found.Field(7), 1.0, "3/16 f7(耐久)")
+	if want := uint64(netTicksFromUnix(rewardTestCreatedTS)); u64Of(found.Fields[8].Num) != want {
+		t.Fatalf("3/16 奖牌 f8(创建 .NET ticks)=%d, 期望 %d", u64Of(found.Fields[8].Num), want)
+	}
+	if want := uint64(proto.UnixToFiletime(rewardTestCreatedTS)); u64Of(found.Fields[9].Num) != want {
+		t.Fatalf("3/16 奖牌 f9(更新 FILETIME)=%d, 期望 %d", u64Of(found.Fields[9].Num), want)
+	}
+}
+
+// TestPlayerRewards2015RejectsMismatchedRows 验证 wire 类与 type_id 必须同时匹配：
+// 只满足其中一个条件的异常行不得进入 2015 响应。
+func TestPlayerRewards2015RejectsMismatchedRows(t *testing.T) {
+	srv, db := newRigTestServer(t)
+	registerAchievementHandlers(srv.dispatch)
+	c := dynamicTestCtx(srv, nil)
+	uid := c.Sess.Userid
+
+	rows := []struct {
+		guid, wireClass string
+		typeID          int
+	}{
+		{"11111111111111111111111111111111", "enikeammfen", 305},  // 类对、type 错
+		{"22222222222222222222222222222222", "otherclass", 2015},  // type 对、类错
+		{"33333333333333333333333333333333", "enikeammfen", 2015}, // 两者都对
+	}
+	for _, r := range rows {
+		if _, err := db.SQL.ExecContext(context.Background(),
+			`INSERT INTO item (guid, uid, item_id, numeric_id, wire_class, type_id, container, slot, qty, durability, workmanship, created_ts)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+			r.guid, uid, "ft_test_medal", 6807, r.wireClass, r.typeID, "house", 0, 1, 1.0, 1.0, rewardTestCreatedTS); err != nil {
+			t.Fatalf("插入测试行 %s 失败: %v", r.guid, err)
+		}
+	}
+
+	body, ok := hPlayerRewards2015(c)
+	if !ok {
+		t.Fatal("3/16 未处理")
+	}
+	dec, _, err := proto.DecodeValue(body, 0, srv.Table())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dec.Items) != 1 {
+		t.Fatalf("3/16 返回 %d 条, 期望只返回 1 条同时匹配的行", len(dec.Items))
+	}
+	f2 := dec.Items[0].Field(2)
+	if got := f2.GuidHex(); got != "33333333333333333333333333333333" {
+		t.Fatalf("3/16 返回了异常行 guid=%s", got)
+	}
+}
+
+// TestDynamicRewardEntryUsesItemFields 验证 3/40 详情命中真实物品时
+// 与 3/16 列表口径一致：f6/f7 取物品工艺/耐久，f8/f9 取物品 created_ts。
+func TestDynamicRewardEntryUsesItemFields(t *testing.T) {
+	srv, db := newRigTestServer(t)
+	c := dynamicTestCtx(srv, nil)
+	uid := c.Sess.Userid
+
+	guid := "fedcba9876543210fedcba9876543210"
+	if _, err := db.SQL.ExecContext(context.Background(),
+		`INSERT INTO item (guid, uid, item_id, numeric_id, wire_class, type_id, container, slot, qty, durability, workmanship, created_ts)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		guid, uid, "ft_big_bear_cup_medal_1", 6807, "enikeammfen", 2015, "house", 0, 3, 0.5, 0.75, rewardTestCreatedTS); err != nil {
+		t.Fatalf("插入测试奖牌失败: %v", err)
+	}
+
+	c.Tree = rigRequestTree(t, proto.Guid(guid), proto.Bool(true))
+	body, ok := hDynamicRewardEntry(c)
+	if !ok {
+		t.Fatal("3/40 未处理")
+	}
+	dec, _, err := proto.DecodeValue(body, 0, srv.Table())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec.Class != "enikeammfen" || dec.TypeID != 2015 {
+		t.Fatalf("3/40 响应类型=%s/%d", dec.Class, dec.TypeID)
+	}
+	if got := u64Of(dec.Field(13).Num); got != 3 {
+		t.Fatalf("3/40 f13(数量)=%d, 期望 3", got)
+	}
+	assertRewardFloat(t, dec.Field(6), 0.75, "3/40 f6(工艺)")
+	assertRewardFloat(t, dec.Field(7), 0.5, "3/40 f7(耐久)")
+	if want := uint64(netTicksFromUnix(rewardTestCreatedTS)); u64Of(dec.Field(8).Num) != want {
+		t.Fatalf("3/40 f8(创建 .NET ticks)=%d, 期望 %d", u64Of(dec.Field(8).Num), want)
+	}
+	if want := uint64(proto.UnixToFiletime(rewardTestCreatedTS)); u64Of(dec.Field(9).Num) != want {
+		t.Fatalf("3/40 f9(更新 FILETIME)=%d, 期望 %d", u64Of(dec.Field(9).Num), want)
 	}
 }
 
