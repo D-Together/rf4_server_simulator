@@ -367,3 +367,26 @@ func TestCleanupDrinkUseReceiptsRollsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+func TestDrinkBonusPersistsPerBottlePeak(t *testing.T) {
+	db, _ := newDrinkBonusDB(t)
+	ctx := context.Background()
+	tx, err := db.SQL.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := RefreshDrinkBonusTxWithPeak(ctx, tx, 107, "spirit", .10, 1350000*time.Millisecond, "vodka"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := db.AdvanceDrinkBonuses(ctx, 107, "run", time.UnixMilli(100000), false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := drinkBonusByCategory(t, statuses, "spirit")
+	if status.Peak != .10 || status.DurationMillis != 1350000 || status.SourceGUID != "vodka" {
+		t.Fatalf("persisted drink effect = %+v", status)
+	}
+}

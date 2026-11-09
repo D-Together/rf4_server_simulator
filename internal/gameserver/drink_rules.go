@@ -163,12 +163,20 @@ func consumableRestoreForItem(itemID string) (string, bool) {
 // drinkRate 前 75% 时间为峰值，最后 25% 时间线性降至零。
 func drinkRate(category string, remaining time.Duration) float64 {
 	rule, ok := drinkRuleForCategory(category)
-	if !ok || remaining <= 0 {
+	if !ok {
 		return 0
 	}
-	tail := rule.Duration / 4
-	if remaining >= tail {
-		return rule.Peak
+	return drinkRateFor(rule.Peak, rule.Duration, remaining)
+}
+
+// drinkRateFor 按效果记录里的单瓶峰值和自身时长算当前倍率。
+func drinkRateFor(peak float64, duration, remaining time.Duration) float64 {
+	if peak <= 0 || duration <= 0 || remaining <= 0 {
+		return 0
 	}
-	return rule.Peak * float64(remaining) / float64(tail)
+	tail := duration / 4
+	if remaining >= tail {
+		return peak
+	}
+	return peak * float64(remaining) / float64(tail)
 }

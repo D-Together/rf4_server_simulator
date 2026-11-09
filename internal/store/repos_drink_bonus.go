@@ -10,6 +10,7 @@ import (
 
 type DrinkBonusStatus struct {
 	Category        string
+	Peak            float64
 	RemainingMillis int64
 	DurationMillis  int64
 	SourceGUID      string
@@ -74,7 +75,7 @@ func AdvanceDrinkBonusesTx(ctx context.Context, tx *sql.Tx, uid int64, runKey st
 		return nil, err
 	}
 
-	rows, err := tx.QueryContext(ctx, `SELECT category,remaining_millis,duration_millis,source_guid
+	rows, err := tx.QueryContext(ctx, `SELECT category,peak,remaining_millis,duration_millis,source_guid
 		FROM drink_bonus_effect WHERE uid=? AND remaining_millis>0 ORDER BY category`, uid)
 	if err != nil {
 		return nil, err
@@ -83,7 +84,7 @@ func AdvanceDrinkBonusesTx(ctx context.Context, tx *sql.Tx, uid int64, runKey st
 	statuses := make([]DrinkBonusStatus, 0)
 	for rows.Next() {
 		var status DrinkBonusStatus
-		if err := rows.Scan(&status.Category, &status.RemainingMillis, &status.DurationMillis, &status.SourceGUID); err != nil {
+		if err := rows.Scan(&status.Category, &status.Peak, &status.RemainingMillis, &status.DurationMillis, &status.SourceGUID); err != nil {
 			return nil, err
 		}
 		statuses = append(statuses, status)
@@ -91,16 +92,22 @@ func AdvanceDrinkBonusesTx(ctx context.Context, tx *sql.Tx, uid int64, runKey st
 	return statuses, rows.Err()
 }
 
-// RefreshDrinkBonusTx 同类刷新为完整时长，其他分类保持原样。
+// RefreshDrinkBonusTx 兼容旧调用：不保存单瓶峰值，结算时回退类别默认值。
 func RefreshDrinkBonusTx(ctx context.Context, tx *sql.Tx, uid int64, category string, duration time.Duration, sourceGUID string) error {
-	if tx == nil || uid <= 0 || strings.TrimSpace(category) == "" || duration.Milliseconds() <= 0 {
+	return RefreshDrinkBonusTxWithPeak(ctx, tx, uid, category, 0, duration, sourceGUID)
+}
+
+// RefreshDrinkBonusTxWithPeak 同类刷新为完整时长与单瓶峰值，其他分类保持原样。
+func RefreshDrinkBonusTxWithPeak(ctx context.Context, tx *sql.Tx, uid int64, category string, peak float64, duration time.Duration, sourceGUID string) error {
+	if tx == nil || uid <= 0 || strings.TrimSpace(category) == "" || peak < 0 || peak > 1 || duration.Milliseconds() <= 0 {
 		return errors.New("饮品效果参数无效")
 	}
 	// 先写后读的调用方可与物品消耗共用这笔事务。
-	_, err := tx.ExecContext(ctx, `INSERT INTO drink_bonus_effect(uid,category,remaining_millis,duration_millis,source_guid)
-		VALUES(?,?,?,?,?) ON CONFLICT(uid,category) DO UPDATE SET
-		remaining_millis=excluded.remaining_millis,duration_millis=excluded.duration_millis,source_guid=excluded.source_guid`,
-		uid, category, duration.Milliseconds(), duration.Milliseconds(), sourceGUID)
+	_, err := tx.ExecContext(ctx, `INSERT INTO drink_bonus_effect(uid,category,peak,remaining_millis,duration_millis,source_guid)
+		VALUES(?,?,?,?,?,?) ON CONFLICT(uid,category) DO UPDATE SET
+		peak=excluded.peak,remaining_millis=excluded.remaining_millis,
+		duration_millis=excluded.duration_millis,source_guid=excluded.source_guid`,
+		uid, category, peak, duration.Milliseconds(), duration.Milliseconds(), sourceGUID)
 	return err
 }
 
