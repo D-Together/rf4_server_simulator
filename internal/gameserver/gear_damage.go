@@ -336,16 +336,15 @@ func (s *Server) validateBreakReport(ctx context.Context, uid int64, rodGUID, re
 
 	part, err := s.DB.GetItemByGUID(ctx, reportedGUID)
 	if errors.Is(err, sql.ErrNoRows) {
-		// 出厂竿件只存在于母竿内，继续交由整组承力规则裁决。
-		tree, treeErr := s.ItemToTree(ctx, rod)
+		// 出厂竿件和拟饵出厂钩只存在于母物品树内，不是独立 item 行。
+		// 必须按整棵竿树深扫，不能只看竿坯/竿柄/导环三槽；否则客户端上报
+		// 拟饵钩 GUID 会被误判成“不存在”，17/9 连续失败，满力度也不断件。
+		embedded, treeErr := s.embeddedGUIDMountedOnRod(ctx, uid, rod, reportedGUID)
 		if treeErr != nil {
 			return validatedBreakReport{}, treeErr
 		}
-		for i := 0; i < 3; i++ {
-			if child := tree.Field(i).Val; child != nil &&
-				child.Field(fieldIdxByCS(child.Class, csGUID)).Hex == reportedGUID {
-				return validatedBreakReport{embedded: true}, nil
-			}
+		if embedded {
+			return validatedBreakReport{embedded: true}, nil
 		}
 		return validatedBreakReport{}, sql.ErrNoRows
 	}
@@ -380,6 +379,56 @@ func (s *Server) validateBreakReport(ctx context.Context, uid int64, rodGUID, re
 		return validatedBreakReport{terminalCategory: def.Category, category: def.Category}, nil
 	}
 	return validatedBreakReport{category: def.Category}, nil
+}
+
+// embeddedGUIDMountedOnRod 检查一个没有独立 item 行的 GUID 是否属于该竿的
+// 子物品树。出厂竿件在竿树里；拟饵出厂钩则在已挂拟饵自己的树里，因此不能只扫
+// 竿树顶层的三个槽。
+func (s *Server) embeddedGUIDMountedOnRod(ctx context.Context, uid int64, rod *store.Item, want string) (bool, error) {
+	if s == nil || s.DB == nil || rod == nil || rod.UID != uid || want == "" {
+		return false, nil
+	}
+	seen := map[string]bool{}
+	check := func(row *store.Item) (bool, error) {
+		if row == nil || row.UID != uid || seen[row.GUID] {
+			return false, nil
+		}
+		seen[row.GUID] = true
+		tree, err := s.ItemToTree(ctx, row)
+		if err != nil {
+			return false, err
+		}
+		return containsGUID(deepGUIDs(tree), want), nil
+	}
+	if ok, err := check(rod); err != nil || ok {
+		return ok, err
+	}
+	components, err := s.DB.ListRigComponents(ctx, rod.GUID)
+	if err != nil {
+		return false, err
+	}
+	for _, comp := range components {
+		row, rerr := s.DB.GetItemByGUID(ctx, comp.GUID)
+		if rerr != nil {
+			if errors.Is(rerr, sql.ErrNoRows) {
+				continue
+			}
+			return false, rerr
+		}
+		if ok, cerr := check(row); cerr != nil || ok {
+			return ok, cerr
+		}
+	}
+	if lureGUID := s.mountedLureGUID(ctx, rod.GUID); lureGUID != "" {
+		row, rerr := s.DB.GetItemByGUID(ctx, lureGUID)
+		if rerr == nil {
+			return check(row)
+		}
+		if !errors.Is(rerr, sql.ErrNoRows) {
+			return false, rerr
+		}
+	}
+	return false, nil
 }
 
 type breakReportQueryer interface {
