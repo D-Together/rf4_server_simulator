@@ -621,7 +621,7 @@ func TestLureHookMountRollsBackOnWriteFailure(t *testing.T) {
 	// 绑定参数，GUID 为十六进制串可安全内联）。
 	if _, err := db.SQL.ExecContext(t.Context(),
 		`CREATE TRIGGER fail_lure_write BEFORE UPDATE OF fields_json ON item
-		 WHEN NEW.guid='` + lure.GUID + `' BEGIN SELECT RAISE(ABORT, 'injected'); END`); err != nil {
+		 WHEN NEW.guid='`+lure.GUID+`' BEGIN SELECT RAISE(ABORT, 'injected'); END`); err != nil {
 		t.Fatal(err)
 	}
 	hook, err := s.CreateItem(t.Context(), uid, "c_hook_20712", "backpack", 1)
