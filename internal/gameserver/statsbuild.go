@@ -130,7 +130,7 @@ func (s *Server) buildStats321(ctx context.Context, uid int64) (*proto.Value, er
 	// 拉力回溯：与 14/14 发鱼的拉力同源（鱼种搏鱼曲线 × 重量），
 	// 历史渔获无落库变值，用基准力确定性重算——纪录卡只比排序维度。
 	pullOf := func(r catchStatRow) float64 {
-		f := &RolledFish{Species: r.FishKey, WeightG: r.WeightG}
+		f := &RolledFish{Species: r.FishKey, WeightG: r.WeightG, Grade: r.Grade}
 		return s.fishFightPullFor(f, s.fishFightProfileFor(f))
 	}
 	cards := buildRecordCards(rows, pullOf, isLure)
@@ -217,13 +217,13 @@ func (s *Server) buildStats321(ctx context.Context, uid int64) (*proto.Value, er
 		}))
 	}
 
-	// 字段槽位语义按客户端解析器 jahbacemfof.plphdfehkjl 的解码顺序对齐：
+	// 字段槽位语义按客户端 UI 消费链对齐：
 	// 0 总钓获 1 稀有 2 蓝冠 3 脱钩 4 单日条数 5 单日重量(kg) 6 鱼种卡列表
-	// 7 最大渔获 8 最优竞争力（拉力） 9 捕捞量（钓得最多的鱼种） 10 最多银币
-	// 11 U64 12 最多经验 13 U64 14 浮钓最大 15 路亚最大 16 最长渔获
+	// 7 最大渔获 8 最优竞争力（拉力） 9 冒险鱼卡 10 最多银币
+	// 11 U64 12 最多经验 13 U64 14 浮钓最大 15 路亚最大 16 底钓最大鱼
 	// 17 竿类聚合 18 钓法聚合 19/20 数组(语义未证) 21 诱饵聚合 22 int。
-	// 8/14/15/16 曾共用「全场最重」一条鱼（维度重复）；9/16 曾发 Null
-	//（客户端纪要卡槽位空白）。2026-11-09 修正。
+	// 当前 catch_log 没有可靠的钓法/钓组快照，无法区分浮钓与底钓，也缺少
+	// 冒险鱼口径，因此 f9/f16 继续保持 null，不用其他维度占位。
 	return wiregen.MustMakeObj("jahbacemfof", map[int]*proto.Value{
 		0: proto.U32(uint32(total)),
 		1: proto.U32(uint32(rare)),
@@ -236,14 +236,14 @@ func (s *Server) buildStats321(ctx context.Context, uid int64) (*proto.Value, er
 		6:  fishArgs,
 		7:  biggest,
 		8:  card("strongest"),
-		9:  card("catch_count"),
+		9:  proto.Null(),
 		10: card("max_silver"),
 		11: proto.U64(0),
 		12: card("max_xp"),
 		13: proto.U64(0),
 		14: card("max_float"),
 		15: card("max_spin"),
-		16: card("longest"),
+		16: proto.Null(),
 		17: rodArgs,
 		18: rigArgs,
 		19: proto.Null(),
@@ -291,18 +291,14 @@ func sortedCountKeys(m map[int64]int64) []int64 {
 	return out
 }
 
-// buildRecordCards 只为 bait 非空的日志生成纪录卡。八张卡各归维度
-// （2026-11-09 修正：此前 strongest/max_float 与全场最重同一条鱼、
-// catch_count/longest 构建了却从未下发）：
+// buildRecordCards 只为 bait 非空的日志生成纪录卡。当前可可靠计算的六张卡：
 //
 //	biggest      全场最重
 //	strongest    搏鱼拉力最强（鱼种冲刺倍率 × 重量，与 14/14 拉力同源）
-//	catch_count  钓得最多的鱼种（卡面取该鱼种最重一条）
 //	max_xp       单条经验最多
 //	max_silver   单条银币最多
-//	max_float    浮钓（非拟饵）最重
+//	max_float    非拟饵最重（底钓方法快照缺失，暂沿用旧口径）
 //	max_spin     路亚（拟饵品类 17）最重
-//	longest      体长最长
 func buildRecordCards(rows []catchStatRow, pullOf func(catchStatRow) float64, isLure func(string) bool) map[string]catchStatRow {
 	out := map[string]catchStatRow{}
 	var usable []catchStatRow
@@ -314,32 +310,24 @@ func buildRecordCards(rows []catchStatRow, pullOf func(catchStatRow) float64, is
 	if len(usable) == 0 {
 		return out
 	}
-	bySpecies := map[string][]catchStatRow{}
-	speciesOrder := make([]string, 0)
-	for _, r := range usable {
-		if _, ok := bySpecies[r.FishKey]; !ok {
-			speciesOrder = append(speciesOrder, r.FishKey)
-		}
-		bySpecies[r.FishKey] = append(bySpecies[r.FishKey], r)
-	}
-	var topSpecies []catchStatRow
-	for _, key := range speciesOrder {
-		rs := bySpecies[key]
-		if len(rs) > len(topSpecies) {
-			topSpecies = rs
-		}
-	}
-	sort.SliceStable(topSpecies, func(i, j int) bool { return topSpecies[i].WeightG > topSpecies[j].WeightG })
 	byWeight := append([]catchStatRow(nil), usable...)
 	sort.SliceStable(byWeight, func(i, j int) bool { return byWeight[i].WeightG > byWeight[j].WeightG })
 	byXP := append([]catchStatRow(nil), usable...)
 	sort.SliceStable(byXP, func(i, j int) bool { return byXP[i].XP > byXP[j].XP })
 	bySilver := append([]catchStatRow(nil), usable...)
 	sort.SliceStable(bySilver, func(i, j int) bool { return bySilver[i].Silver > bySilver[j].Silver })
-	byPull := append([]catchStatRow(nil), usable...)
-	sort.SliceStable(byPull, func(i, j int) bool { return pullOf(byPull[i]) > pullOf(byPull[j]) })
-	byLength := append([]catchStatRow(nil), usable...)
-	sort.SliceStable(byLength, func(i, j int) bool { return byLength[i].LengthM > byLength[j].LengthM })
+	// 先为每条渔获算一次拉力，避免 comparator 反复查 species_weight。
+	byPull := make([]struct {
+		row  catchStatRow
+		pull float64
+	}, len(usable))
+	for i, r := range usable {
+		byPull[i] = struct {
+			row  catchStatRow
+			pull float64
+		}{row: r, pull: pullOf(r)}
+	}
+	sort.SliceStable(byPull, func(i, j int) bool { return byPull[i].pull > byPull[j].pull })
 	var floatC, spinC []catchStatRow
 	for _, r := range usable {
 		if isLure(r.Bait) {
@@ -352,8 +340,7 @@ func buildRecordCards(rows []catchStatRow, pullOf func(catchStatRow) float64, is
 	sort.SliceStable(spinC, func(i, j int) bool { return spinC[i].WeightG > spinC[j].WeightG })
 
 	out["biggest"] = byWeight[0]
-	out["strongest"] = byPull[0]
-	out["catch_count"] = topSpecies[0]
+	out["strongest"] = byPull[0].row
 	out["max_xp"] = byXP[0]
 	out["max_silver"] = bySilver[0]
 	if len(floatC) > 0 {
@@ -362,7 +349,6 @@ func buildRecordCards(rows []catchStatRow, pullOf func(catchStatRow) float64, is
 	if len(spinC) > 0 {
 		out["max_spin"] = spinC[0]
 	}
-	out["longest"] = byLength[0]
 	return out
 }
 
