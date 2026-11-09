@@ -121,6 +121,51 @@ func TestWorkshopDiagWasherConditionHealthyUnchanged(t *testing.T) {
 	t.Fatal("21/2 内件清单中没有摩擦片")
 }
 
+// 回归：额定制动力必须乘母轮工艺质量。否则工艺 0.8 的正常摩擦片会被
+// 误报成 80% 完好，而磨损账本实际以 rated * Workmanship 为满值。
+func TestWorkshopDiagWasherConditionHonorsReelWorkmanship(t *testing.T) {
+	srv, db := newStaticRigTestServer(t)
+	defer db.Close()
+	ctx := t.Context()
+	const uid = int64(1000001)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	reel, _ := seedWornWorkshopReel(t, srv, db, 1, .8, 1, 1)
+	reel.Workmanship = .8
+	if err := db.UpdateItemFields(ctx, reel.GUID, reel.FieldsJSON,
+		reel.Qty, reel.Durability, reel.Workmanship, reel.RigGUID); err != nil {
+		t.Fatal(err)
+	}
+
+	diagBody, ok := hWorkshopDiag(&Ctx{
+		Sess: newProbeSess(srv),
+		Tree: proto.Args524(proto.Guid(reel.GUID)),
+		Log:  logging.Discard(),
+	})
+	if !ok || len(diagBody) == 0 {
+		t.Fatal("21/2 未返回诊断")
+	}
+	diag, _, err := proto.DecodeValue(diagBody, 0, srv.Table())
+	if err != nil {
+		t.Fatal(err)
+	}
+	washerGUID := frictionWasherGUID(t, srv, reel.GUID)
+	for _, item := range diag.Field(1).Val.Items {
+		guidField := item.Field(0)
+		if guidField.GuidHex() != washerGUID {
+			continue
+		}
+		condField := item.Field(1)
+		got := proto.F32FromBits(condField.U32())
+		if math.Abs(float64(got)-1) > 1e-3 {
+			t.Fatalf("工艺 0.8 的正常摩擦片 f1=%v，期望 1", got)
+		}
+		return
+	}
+	t.Fatal("21/2 内件清单中没有摩擦片")
+}
+
 // frictionWasherGUID 取轮内摩擦片子实例的 guid。
 func frictionWasherGUID(t *testing.T, srv *Server, reelGUID string) string {
 	t.Helper()

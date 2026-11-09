@@ -733,7 +733,7 @@ func (s *Server) repairPartsOf(ctx context.Context, it *store.Item) []repairPart
 				if nidx := fieldIdxByCS(v.Class, csNumericID); nidx >= 0 && nidx < v.FieldCount() {
 					if def, derr := s.DB.GetItemDef(ctx, int64(u64Of(v.Fields[nidx].Num))); derr == nil &&
 						def != nil && def.Category == reelPartCatWasher {
-						if rated := itemDefF32(def, gearAttrDragMax); rated > 0 {
+						if rated := itemDefF32(def, gearAttrDragMax) * it.Workmanship; rated > 0 {
 							return clampUnit(cur / rated)
 						}
 					}
