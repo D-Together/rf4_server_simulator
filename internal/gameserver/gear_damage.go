@@ -1223,6 +1223,12 @@ func (s *Server) lineLossTx(ctx context.Context, uid int64, rodGUID, brokenGUID 
 					// 官服清杯口径：主线被拉断时整条丢失（含挂线配件）。
 					// afterLength=0 走下方"线耗尽删除"分支，f3 引用一并清理。
 					lossLength = beforeLength
+					// 断主线按实际放出量扣线（tunable line_break_loss_m，米）。
+					// 官方口径是清杯全丢，但客户端断线时通常只放出十几米，
+					// 整卷清零会把没下水的线一起判死。设 0 恢复清杯口径。
+					if fixed := s.tunableF("line_break_loss_m", 0); fixed > 0 {
+						lossLength = int64(fixed)
+					}
 				}
 				if lossLength > beforeLength {
 					lossLength = beforeLength
