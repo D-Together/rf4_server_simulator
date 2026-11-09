@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"rf4server/internal/proto"
+	"rf4server/internal/store"
 )
 
 func TestFishHuntStageWeights(t *testing.T) {
@@ -21,7 +22,7 @@ func TestFishHuntStageWeights(t *testing.T) {
 		{fishHuntGiant, 10, 64, 20, 6},
 	}
 	for _, tc := range tests {
-		w1, w2, w3, w4, force := fishHuntWeights(tc.stage, &fishHuntState{}, 0, .5, false)
+		w1, w2, w3, w4, force := fishHuntWeights(tc.stage, &fishHuntState{}, 0, false)
 		if force || math.Abs(w1-tc.w1) > 1e-9 || math.Abs(w2-tc.w2) > 1e-9 ||
 			math.Abs(w3-tc.w3) > 1e-9 || math.Abs(w4-tc.w4) > 1e-9 {
 			t.Fatalf("stage=%d weights=(%.1f,%.1f,%.1f,%.1f) force=%v", tc.stage, w1, w2, w3, w4, force)
@@ -30,11 +31,11 @@ func TestFishHuntStageWeights(t *testing.T) {
 }
 
 func TestFishHuntPityForcesTrophy(t *testing.T) {
-	_, _, _, _, force := fishHuntWeights(fishHuntActive, &fishHuntState{Pity: 60}, 0, .5, false)
+	_, _, _, _, force := fishHuntWeights(fishHuntActive, &fishHuntState{Pity: 60}, 0, false)
 	if !force {
 		t.Fatal("60 尾未出奖杯时必须触发奖杯硬保底")
 	}
-	_, _, w3, _, force := fishHuntWeights(fishHuntActive, &fishHuntState{Pity: 30}, 0, .5, false)
+	_, _, w3, _, force := fishHuntWeights(fishHuntActive, &fishHuntState{Pity: 30}, 0, false)
 	if force || w3 <= 6.8 {
 		t.Fatalf("30 尾软保底应提高奖杯权重，w3=%.2f force=%v", w3, force)
 	}
@@ -82,7 +83,25 @@ func TestHuntBaitMultiplierKeepsSelectedGrade(t *testing.T) {
 	}
 }
 
-func TestFishHuntBlueProbabilityIsHookIndependent(t *testing.T) {
+func TestHookSpawnCompatibilityPrefersMatchingFish(t *testing.T) {
+	small := gearPhysicsSpec{HookPresent: true, HookSize: 6, HookLengthMM: 3.3}
+	large := gearPhysicsSpec{HookPresent: true, HookSize: 14, HookLengthMM: 6}
+	huge := gearPhysicsSpec{HookPresent: true, HookSize: 28, HookLengthMM: 24}
+	if got := hookSpawnCompatibility(300, small); got != 1 {
+		t.Fatalf("6 号钩遇 300g 应完全匹配，实得 %.3f", got)
+	}
+	if got := hookSpawnCompatibility(1737, small); got >= .40 {
+		t.Fatalf("6 号钩遇 1737g 应显著降权，实得 %.3f", got)
+	}
+	if got := hookSpawnCompatibility(1737, large); got < .95 {
+		t.Fatalf("14 号钩遇 1737g 应基本匹配，实得 %.3f", got)
+	}
+	if got := hookSpawnCompatibility(50, huge); got >= .60 {
+		t.Fatalf("特大钩遇 50g 应降权，实得 %.3f", got)
+	}
+}
+
+func TestHookSpawnMatchBiasesGradesAndPreservesBlue(t *testing.T) {
 	blueProbability := func(w1, w2, w3, w4 float64) float64 {
 		total := w1 + w2 + w3 + w4
 		if total <= 0 {
@@ -97,19 +116,47 @@ func TestFishHuntBlueProbabilityIsHookIndependent(t *testing.T) {
 	}{
 		{name: "active", h: &fishHuntState{}},
 		{name: "giant", h: &fishHuntState{Pity: 55}},
-		{name: "hardPity", h: &fishHuntState{Pity: 60}},
 		{name: "blueComp", h: &fishHuntState{CompFish: 4, CompGrade: 4}, comp: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			small1, small2, small3, small4, _ := fishHuntWeights(fishHuntActive, tc.h, 0, .1, tc.comp)
-			large1, large2, large3, large4, _ := fishHuntWeights(fishHuntActive, tc.h, 0, .9, tc.comp)
-			smallP := blueProbability(small1, small2, small3, small4)
-			largeP := blueProbability(large1, large2, large3, large4)
-			if math.Abs(smallP-largeP) > 1e-12 {
-				t.Fatalf("归一化后的蓝冠概率不能受钩型影响: small=%.12f large=%.12f", smallP, largeP)
+			w1, w2, w3, w4, _ := fishHuntWeights(fishHuntActive, tc.h, 0, tc.comp)
+			before := blueProbability(w1, w2, w3, w4)
+			small1, small2, small3, small4 := w1, w2, w3, w4
+			applyHookSpawnMatch(&small1, &small2, &small3, &small4, [4]float64{1, .5, .1, 1}, 1)
+			large1, large2, large3, large4 := w1, w2, w3, w4
+			applyHookSpawnMatch(&large1, &large2, &large3, &large4, [4]float64{.2, .5, 1, 1}, 1)
+			if small3/small1 >= large3/large1 {
+				t.Fatalf("小钩应降低奖杯相对权重: small=%.3f large=%.3f", small3/small1, large3/large1)
+			}
+			for name, w := range map[string][4]float64{
+				"small": {small1, small2, small3, small4},
+				"large": {large1, large2, large3, large4},
+			} {
+				if got := blueProbability(w[0], w[1], w[2], w[3]); math.Abs(got-before) > 1e-12 {
+					t.Fatalf("%s 软匹配改变了蓝冠概率: before=%.12f after=%.12f", name, before, got)
+				}
 			}
 		})
+	}
+}
+
+func TestHookNibbleSwitchKeepsProfileHoldMultiplier(t *testing.T) {
+	s := &Server{
+		tunCache: map[string]float64{tunableHookNibbleEnabled: 0},
+		tunAt:    time.Now(),
+		hookProfiles: map[string]store.HookBiteProfile{
+			"small": {ItemID: "small", SolidScale: 1, HoldScale: .5},
+		},
+	}
+	spec := gearPhysicsSpec{HookPresent: true, HookItemID: "small", HookSize: 6, HookLengthMM: 3.3}
+	f := &RolledFish{Grade: 2, WeightG: 1737}
+	s.applyHookBiteQuality(f, spec)
+	if f.BiteQuality != "solid" {
+		t.Fatalf("关闭嘬饵后不得再产生 nibble: %+v", f)
+	}
+	if math.Abs(f.HookHoldP-.25) > 1e-9 {
+		t.Fatalf("后台保持率倍率仍应生效，HookHoldP=%.4f", f.HookHoldP)
 	}
 }
 
@@ -230,6 +277,31 @@ func TestNibbleDoesNotEnterHookedState(t *testing.T) {
 	if !cleared {
 		t.Fatalf("嘬饵不应进入 Hooked 状态: pending=%v hooked=%v timer=%v",
 			st.Pending != nil, st.Hooked, st.biteTimer != nil)
+	}
+}
+
+func TestDisabledNibbleStillHooksPendingNibble(t *testing.T) {
+	s, _ := newRigTestServer(t)
+	sess, _ := newTunnelProbe(t, s)
+	setWeatherTestTunable(t, s, tunableHookNibbleEnabled, "0")
+	st := s.stateFor(sess.Userid)
+	fish := &RolledFish{Species: "crucian", Grade: 1, WeightG: 120,
+		BiteQuality: "nibble", HookHoldP: 1}
+	st.mu.Lock()
+	st.CastActive, st.InWater, st.Resolved, st.Pending = true, true, false, fish
+	st.mu.Unlock()
+
+	if _, ok := hFishingHooked(miscCtx(sess, 14, 11, nil)); !ok {
+		t.Fatal("关闭嘬饵后的 14/11 处理失败")
+	}
+	st.mu.Lock()
+	hooked := st.Hooked && st.Pending == fish && fish.HookConfirmed
+	st.cancelBiteTimerLocked()
+	st.cancelPendingTimerLocked()
+	st.mu.Unlock()
+	if !hooked {
+		t.Fatalf("关闭嘬饵后，在途 nibble 也必须正常中钩: pending=%v hooked=%v confirmed=%v",
+			st.Pending != nil, st.Hooked, fish.HookConfirmed)
 	}
 }
 

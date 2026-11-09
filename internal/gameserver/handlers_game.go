@@ -1231,7 +1231,7 @@ func hFishingPull(ctx *Ctx) ([]byte, bool) {
 	reconfirm := marineRigType(rigType) && pending != nil && pending.HookConfirmed && !wasHooked && castActive && !resolved
 	nibble := false
 	if needsConfirmation {
-		nibble = !pending.LuckProtected && pending.BiteQuality == "nibble"
+		nibble = srv.hookNibbleEnabled() && !pending.LuckProtected && pending.BiteQuality == "nibble"
 		if !wasHooked && !nibble {
 			nibble = hookRetentionFails(pending)
 		}
@@ -1306,7 +1306,7 @@ func hFishingHooked(ctx *Ctx) ([]byte, bool) {
 	}
 	// 钩型保持率只在首次中钩确认时抽样一次；已经 Hooked 的早期确认
 	// 或登录恢复不再重抽，但仍需为这尾鱼记录一次确认完成。
-	nibble := pending != nil && !pending.LuckProtected && pending.BiteQuality == "nibble"
+	nibble := pending != nil && srv.hookNibbleEnabled() && !pending.LuckProtected && pending.BiteQuality == "nibble"
 	if pending != nil && !wasHooked && !nibble && hookRetentionFails(pending) {
 		pending.BiteQuality = "nibble"
 		nibble = true

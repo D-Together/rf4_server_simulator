@@ -15,8 +15,49 @@ import (
 )
 
 func TestFishingRuleSwitchAPIAndRestart(t *testing.T) {
-	for _, key := range []string{"fish_ecology_enabled", "fish_bait_rules_enabled", "fish_distribution_enabled", "fish_weather_enabled", "happy_hour_enabled", "grade_ratio_enabled"} {
+	for _, key := range []string{"fish_ecology_enabled", "fish_bait_rules_enabled", "fish_distribution_enabled", "fish_weather_enabled", "happy_hour_enabled", "grade_ratio_enabled", "hook_nibble_enabled"} {
 		t.Run(key, func(t *testing.T) { testFishingSwitchAPIAndRestart(t, key) })
+	}
+}
+
+func TestHookSpawnMatchStrengthAPI(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	if err := db.EnsureAdmin(ctx, "admin", "hook-strength-test"); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(config.Admin{JWTSecret: "hook-strength-test"}, db, logging.Discard(), WebFS())
+	call := func(method, path, token, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, r)
+		return w
+	}
+	var login struct {
+		Token string `json:"token"`
+	}
+	w := call("POST", "/api/login", "", `{"username":"admin","password":"hook-strength-test"}`)
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &login) != nil || login.Token == "" {
+		t.Fatalf("login=%s", w.Body)
+	}
+	for _, value := range []string{"-0.1", "2.1", "NaN", ""} {
+		if got := call("POST", "/api/tunables", login.Token, `{"key":"hook_spawn_match_strength","value":"`+value+`"}`).Code; got != 400 {
+			t.Fatalf("invalid strength %q=%d", value, got)
+		}
+	}
+	for _, value := range []string{"0", "1", "1.5", "2"} {
+		w = call("POST", "/api/tunables", login.Token, `{"key":"hook_spawn_match_strength","value":"`+value+`"}`)
+		if w.Code != 200 {
+			t.Fatalf("save %q=%d %s", value, w.Code, w.Body)
+		}
+		if got, ok, err := db.TunableGet(ctx, "hook_spawn_match_strength"); err != nil || !ok || got != value {
+			t.Fatalf("saved %q got=%q err=%v", value, got, err)
+		}
+		assertQueueContains(t, db, "reload_tunables")
 	}
 }
 func testFishingSwitchAPIAndRestart(t *testing.T, key string) {

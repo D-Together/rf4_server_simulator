@@ -27,6 +27,15 @@ const (
 	fishHuntSpotResetM        = 20.0
 )
 
+const (
+	tunableHookNibbleEnabled      = "hook_nibble_enabled"
+	tunableHookSpawnMatchStrength = "hook_spawn_match_strength"
+)
+
+func (s *Server) hookNibbleEnabled() bool {
+	return s == nil || s.tunableF(tunableHookNibbleEnabled, 1) != 0
+}
+
 type fishHuntState struct {
 	UID           int64
 	Loc           string
@@ -424,6 +433,80 @@ func hookSolidHold(weightG int64, spec gearPhysicsSpec) (solid, hold float64) {
 	return
 }
 
+// hookSpawnCompatibility 是发鱼阶段的几何软匹配权重，只描述鱼重与钩入口容量
+// 的适配程度，不读取后台钩型咬口/保持倍率。小于 1 表示该档位不匹配，但仍
+// 允许以较低权重出现，避免变成按钩号硬截断。
+func hookSpawnCompatibility(weightG int64, spec gearPhysicsSpec) float64 {
+	if weightG <= 0 || !spec.HookPresent {
+		return 1
+	}
+	gape := hookGapeG(spec)
+	if gape <= 0 {
+		return 1
+	}
+	r := float64(weightG) / gape
+	if r < .25 {
+		return groundbaitClamp(.35+2.6*r, .35, 1)
+	}
+	if r <= 1 {
+		return 1
+	}
+	return groundbaitClamp(1/(1+.80*(r-1)), .10, 1)
+}
+
+// applyHookSpawnMatch 对非蓝冠档位应用钩型软匹配，并同比缩放 w4，保持蓝冠
+// 的绝对概率不受钩型影响。strength=0 时不改变任何档位权重。
+func applyHookSpawnMatch(w1, w2, w3, w4 *float64, compat [4]float64, strength float64) {
+	if w1 == nil || w2 == nil || w3 == nil || w4 == nil || strength <= 0 {
+		return
+	}
+	strength = groundbaitClamp(strength, 0, 2)
+	baseNonBlue := *w1 + *w2 + *w3
+	if baseNonBlue <= 0 {
+		return
+	}
+	adjusted := [3]float64{}
+	weights := [3]*float64{w1, w2, w3}
+	matchedNonBlue := 0.0
+	for i := 0; i < 3; i++ {
+		c := groundbaitClamp(compat[i], 0, 1)
+		c = groundbaitClamp(1-strength*(1-c), .02, 1)
+		adjusted[i] = c
+		matchedNonBlue += *weights[i] * c
+	}
+	if matchedNonBlue <= 0 {
+		return
+	}
+	*w4 *= matchedNonBlue / baseNonBlue
+	for i := 0; i < 3; i++ {
+		*weights[i] *= adjusted[i]
+	}
+}
+
+// hookSpawnCompatibilityByGrade 用每个档位的代表重量计算软匹配。档位内部仍
+// 使用原分布；蓝冠档固定为 1，由 applyHookSpawnMatch 单独保持其绝对概率。
+func (s *Server) hookSpawnCompatibilityByGrade(ctx context.Context, c fishRollContext,
+	key string, scale, modeMult float64) [4]float64 {
+	compat := [4]float64{1, 1, 1, 1}
+	if scale <= 0 {
+		scale = 1
+	}
+	mult := 1.0
+	if modeMult > 0 {
+		mult = math.Min(modeMult, 2)
+	}
+	lines := s.cachedSettleStatics(ctx, c, key)
+	for grade := int64(1); grade <= 3; grade++ {
+		_, _, mode, ok := huntBandBounds(float64(lines[0]), float64(lines[1]), float64(lines[2]), grade)
+		if !ok {
+			continue
+		}
+		weight := int64(math.Round(mode * scale * mult))
+		compat[grade-1] = hookSpawnCompatibility(weight, c.hook)
+	}
+	return compat
+}
+
 func (s *Server) applyHookBiteQuality(f *RolledFish, spec gearPhysicsSpec) {
 	if f == nil {
 		return
@@ -440,7 +523,7 @@ func (s *Server) applyHookBiteQuality(f *RolledFish, spec gearPhysicsSpec) {
 		solid, hold = applyHookBiteProfile(f.WeightG, spec, p, solid, hold)
 	}
 	f.HookHoldP = hold
-	if rand.Float64() > solid {
+	if s.hookNibbleEnabled() && rand.Float64() > solid {
 		f.BiteQuality = "nibble"
 	}
 }
@@ -498,7 +581,7 @@ func (s *Server) fishFreshwaterHuntReadiness(ctx context.Context, key string, c 
 	return out
 }
 
-func fishHuntWeights(stage int, h *fishHuntState, trophyLuck, hookMatch float64,
+func fishHuntWeights(stage int, h *fishHuntState, trophyLuck float64,
 	comp bool) (w1, w2, w3, w4 float64, forceTrophy bool) {
 	switch stage {
 	case fishHuntGather:
@@ -526,26 +609,6 @@ func fishHuntWeights(stage int, h *fishHuntState, trophyLuck, hookMatch float64,
 		}
 		if h.Pity >= 60 || h.BigMiss >= 2 {
 			forceTrophy = true
-		}
-	}
-	// 小钩只改变普通入口内部的奖杯占比，不能顺带改变蓝冠的绝对概率。
-	// 非硬保底时按非蓝冠总权重同比缩放 w4；硬保底只比较奖杯/蓝冠，
-	// 因此直接跳过钩型偏置，保持原奖杯与蓝冠比例。
-	if !forceTrophy {
-		baseNonBlue := w1 + w2 + w3
-		hookMatch = groundbaitClamp(hookMatch, 0, 1)
-		if hookMatch < .5 {
-			t := (.5 - hookMatch) / .5
-			w1 *= 1 + .15*t
-			w3 *= 1 - .35*t
-		} else if hookMatch > .5 {
-			t := (hookMatch - .5) / .5
-			w1 *= 1 - .20*t
-			w3 *= 1 + .30*t
-		}
-		biasedNonBlue := w1 + w2 + w3
-		if baseNonBlue > 0 && biasedNonBlue > 0 {
-			w4 *= biasedNonBlue / baseNonBlue
 		}
 	}
 	return
@@ -660,8 +723,11 @@ func (s *Server) sampleHuntBand(ctx context.Context, key string, grade int64, mo
 func (s *Server) sampleHuntWeight(ctx context.Context, key string, modeMult, scale, capG float64, c fishRollContext,
 	h *fishHuntState) (int64, int64, fishHuntReadiness) {
 	readiness := s.fishHuntReadiness(ctx, key, c, h)
-	w1, w2, w3, w4, force := fishHuntWeights(readiness.Stage, h, c.skill.TrophyLuck,
-		hookScore(c.hook), readiness.Comp)
+	w1, w2, w3, w4, force := fishHuntWeights(readiness.Stage, h, c.skill.TrophyLuck, readiness.Comp)
+	if strength := s.tunableF(tunableHookSpawnMatchStrength, 1); strength > 0 && !force {
+		compat := s.hookSpawnCompatibilityByGrade(ctx, c, key, scale, modeMult)
+		applyHookSpawnMatch(&w1, &w2, &w3, &w4, compat, strength)
+	}
 	if capG > 0 {
 		lines := s.cachedSettleStatics(ctx, c, key)
 		if capG/math.Max(scale, .0001) < float64(lines[2]) {
