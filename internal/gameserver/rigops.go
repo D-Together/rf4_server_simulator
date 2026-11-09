@@ -1815,6 +1815,7 @@ type rigDetachResult struct {
 	CompGUID     string       // 被拆下的组件 guid
 	DeletedGUID  string       // 整条删除的子实例 guid（f2 移除段素材；退回路径为空）
 	ReturnedTree *proto.Value // 退回背包物品的新树（f1 更新段素材）
+	RefundTree   *proto.Value // 拆出厂钩物化退包的新物品树（新 guid → f0 新增段素材）
 	SourceTree   *proto.Value // 拆分子实例来源堆 +1 后的新树（f1 更新段素材）
 	SourceGUID   string       // 拆分子实例的来源堆 guid（回包后强制刷新客户端计数）
 }
@@ -2901,7 +2902,11 @@ func hRigBaitMount(ctx *Ctx) ([]byte, bool) {
 }
 
 // hLureSetComp 处理 15/1：[容器, 父 GUID, 容器, 物品 GUID, int]。
-// 请求不带槽位，尾部整数作为 extra 保存；返回全量快照。
+// 尾部 int 是 0 基槽位下标（客户端 dump：agfonbnkeoh.dihplofkffm 按
+// 数组 Length 循环 new ogilnngmlnp(父, i)，i 即下标；发送端
+// bbpmdcodcee.hbckkobipmd 把它作为最后一个参数）。旧实现读 ints[1]
+// ——那是容器枚举，永远解析不中，多槽拟饵只能换活动钩 0。
+// 返回全量快照；钩的列表归属回包后用 4/21+4/22 重建。
 func hLureSetComp(ctx *Ctx) ([]byte, bool) {
 	srv := ctx.Sess.Srv
 	if !srv.requireDB(ctx) {
@@ -2912,18 +2917,40 @@ func hLureSetComp(ctx *Ctx) ([]byte, bool) {
 		return emptyArgsBody(), true
 	}
 	extra := int64(0)
-	if len(ints) > 1 {
-		extra = int64(ints[1])
+	if len(ints) > 0 {
+		extra = int64(ints[len(ints)-1])
 	}
+	ctx.Log.Info("15/1 拟饵换钩请求", "lure", shortGUID(guids[0]), "hook", shortGUID(guids[1]), "ints", ints)
 	cctx := ctx.Sess.pushCtx()
 	res := srv.rigSetComponent(cctx, ctx.Sess.Userid, guids[0], 0, guids[1], extra,
 		rigSetOpts{ParentType: familyLure, EnforceCategory: true, SplitStack: true})
-	body, err := proto.EncodeValue(srv.buildRigSnapshotFull(cctx, ctx.Sess.Userid), ctx.Sess.Table())
+	// 三段增量响应（与 17/2 装配件同构）：f0=新装钩树+出厂钩退包新物品，
+	// f1=拟饵/退回旧钩树。全量快照会把同 guid 树放进 f0 新增段，客户端
+	// 面板与背包都不按预期刷新（rigops.go 13/1 教训）。
+	var snap *proto.Value
+	if res.hasMaterials() {
+		snap = buildRigSnapshot800(res.AddedTrees, res.UpdatedTrees, res.RemovedGUIDs)
+	} else {
+		snap = srv.buildRigSnapshotFull(cctx, ctx.Sess.Userid)
+	}
+	body, err := proto.EncodeValue(snap, ctx.Sess.Table())
 	if err != nil {
 		return nil, false
 	}
 	srv.queueSplitSourceRefresh(ctx, res)
 	srv.queueReleasedStackRefresh(ctx, res.Released)
+	// 被替换的玩家钩（带物品行）从拟饵挪回背包：f1 更新段不重建列表
+	// 归属，补一次 4/21+4/22。新装钩由响应 f0 完成归属重建、出厂钩退包
+	// 是新 guid 走 f0——这两者绝不能推送：重加新装钩会让客户端把它挂回
+	// 背包（v4 实测），清合成 GUID 会让注册表查不到重物化的钩。
+	if res.ReplacedGUID != "" {
+		for _, t := range res.UpdatedTrees {
+			if treeRootGUID(t) == res.ReplacedGUID {
+				srv.queueStackRefresh(ctx, []string{res.ReplacedGUID}, []*proto.Value{t})
+				break
+			}
+		}
+	}
 	return body, true
 }
 
@@ -2986,12 +3013,76 @@ func hRigRemoveCompFamily(ctx *Ctx) ([]byte, bool) {
 		extra = int64(ints[2])
 	}
 	cctx := ctx.Sess.pushCtx()
-	srv.rigRemoveComponentInstance(cctx, ctx.Sess.Userid, guids[0], slot, itemGUID, extra)
+	res := srv.rigRemoveComponentInstance(cctx, ctx.Sess.Userid, guids[0], slot, itemGUID, extra)
+	// 拟饵拆钩走三段增量（与 17/3 同构）：f1=拟饵+退回钩树刷新详情面板
+	// 与背包；f0=出厂钩退包的新物品；f2 为空（退回不删除）。全量快照的
+	// 同 guid f0 段不刷新客户端；对正展示中的拟饵发 4/21 移除则会把
+	// 详情页弹回背包界面（2026-11-09 两轮实机验证）。
+	var snap *proto.Value
+	if res != nil && isLureGUID(cctx, srv, guids[0]) {
+		detachTrees := srv.lureDetachTrees(cctx, guids[0], res)
+		var added []*proto.Value
+		if res.RefundTree != nil {
+			added = append(added, res.RefundTree)
+		}
+		snap = buildRigSnapshot800(added, detachTrees, res.removedGUIDs())
+		body, err := proto.EncodeValue(snap, ctx.Sess.Table())
+		if err != nil {
+			return nil, false
+		}
+		// 仅当被拆的是玩家钩（带物品行、ReturnedTree 非空）时补 4/21+4/22
+		// 重进背包列表——f1 更新段不重建列表归属。拟饵树、出厂钩合成 GUID、
+		// 退包新实例一律不推：拟饵重加会弹掉详情页、清合成 GUID 会让注册
+		// 表查不到重物化的钩（v1/v4 两轮实测）。
+		if res.ReturnedTree != nil && res.CompGUID != "" {
+			srv.queueStackRefresh(ctx, []string{res.CompGUID}, []*proto.Value{res.ReturnedTree})
+		}
+		return body, true
+	}
 	body, err := proto.EncodeValue(srv.buildRigSnapshotFull(cctx, ctx.Sess.Userid), ctx.Sess.Table())
 	if err != nil {
 		return nil, false
 	}
 	return body, true
+}
+
+// treeRootGUID 提取树根对象的 GUID 字段；读不出返回空串。
+func treeRootGUID(t *proto.Value) string {
+	if t == nil || t.Kind != proto.KindObj {
+		return ""
+	}
+	if i := fieldIdxByCS(t.Class, csGUID); i >= 0 && i < len(t.Fields) && t.Fields[i].Hex != "" {
+		return t.Fields[i].Hex
+	}
+	return ""
+}
+
+// isLureGUID 判断 guid 是否为拟饵实例（读不到或非拟饵返回 false）。
+func isLureGUID(ctx context.Context, srv *Server, guid string) bool {
+	row, err := srv.DB.GetItemByGUID(ctx, guid)
+	return err == nil && isLureRow(row)
+}
+
+// lureTreeByGUID 重新读取拟饵实例的完整树；读不到返回 nil。
+func (s *Server) lureTreeByGUID(ctx context.Context, guid string) *proto.Value {
+	row, err := s.DB.GetItemByGUID(ctx, guid)
+	if err != nil || row == nil {
+		return nil
+	}
+	t, err := s.itemTree(ctx, row)
+	if err != nil {
+		return nil
+	}
+	return t
+}
+
+// lureDetachTrees 组装 15/2 拟饵拆钩响应的 f1 更新段：退回钩树 + 拟饵树。
+func (s *Server) lureDetachTrees(ctx context.Context, lureGUID string, res *rigDetachResult) []*proto.Value {
+	updated := res.trees()
+	if t := s.lureTreeByGUID(ctx, lureGUID); t != nil {
+		updated = append(updated, t)
+	}
+	return updated
 }
 
 // hHanditemSetComp 处理 13/1：[容器, 父 GUID, 容器, 物品 GUID]。

@@ -225,8 +225,10 @@ func (s *Server) mountedLureHookFallback(ctx context.Context, rodGUID string) st
 	return s.lureActiveHookGUID(ctx, lureGUID)
 }
 
-// lureActiveHookGUID 返回拟饵实例中活动出厂钩的 GUID。
-// 活动下标缺省为 0，越界时回退到第 0 颗；没有落库钩时返回空字符串。
+// lureActiveHookGUID 返回拟饵实例中活动钩的 GUID。
+// 卸钩走短缩语义（lure_hooks.go 文件头）：数组元素恒为真钩，活动下标
+// 越界（数组缩短后）时跳到第一个非空槽；数组为空返回空字符串
+// （客户端物品状态行此时报「钩未安装」）。
 func (s *Server) lureActiveHookGUID(ctx context.Context, lureGUID string) string {
 	row, err := s.DB.GetItemByGUID(ctx, lureGUID)
 	if err != nil || row == nil {
@@ -236,40 +238,22 @@ func (s *Server) lureActiveHookGUID(ctx context.Context, lureGUID string) string
 	if err != nil || len(fields) == 0 {
 		return ""
 	}
-	active := 0
-	if len(fields) > 1 && fields[1].Num != nil {
-		if v := int(u64Of(fields[1].Num)); v >= 0 {
-			active = v
-		}
+	if fields[0].Val == nil || fields[0].Val.Kind != proto.KindArgs {
+		return ""
 	}
-	// 落库出厂钩：f0 args(60) 每项的第一个 GUID 字段。
-	if hooks := storedLureHookGUIDs(&fields[0]); len(hooks) > 0 {
-		if active >= len(hooks) {
-			active = 0
+	items := fields[0].Val.Items
+	if len(items) == 0 {
+		return ""
+	}
+	if g := lureHookItemGUID(items, lureActiveOrdinal(fields, len(items))); g != "" {
+		return g
+	}
+	for i := range items {
+		if g := lureHookItemGUID(items, i); g != "" {
+			return g
 		}
-		return hooks[active]
 	}
 	return ""
-}
-
-// storedLureHookGUIDs 按顺序提取拟饵 f0 args(60) 中每颗出厂钩的 GUID。
-func storedLureHookGUIDs(field0 *proto.Field) []string {
-	if field0 == nil || field0.Val == nil {
-		return nil
-	}
-	out := make([]string, 0, 4)
-	for _, it := range field0.Val.Items {
-		if it == nil {
-			continue
-		}
-		for i := range it.Fields {
-			if it.Fields[i].Op == "GUID16" && it.Fields[i].Hex != "" {
-				out = append(out, it.Fields[i].Hex)
-				break
-			}
-		}
-	}
-	return out
 }
 
 // currentBait 返回当前钩上或拟饵位的 item_id，用于选择鱼种。

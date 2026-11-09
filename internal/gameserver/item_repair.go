@@ -19,6 +19,102 @@ const craftedLeaderQuarantineContainer = "craft_quarantine"
 // reelFrictionZeroMigrationKey 标记"存量零值制动力"迁移只执行一次。
 const reelFrictionZeroMigrationKey = "migration:reel_friction_zero:v1"
 
+// lureHookSlotsMigrationKey 标记"存量拟饵钩槽数组"迁移只执行一次。
+// v5：转向官方短缩语义后的存量清理——剥离 v3~v7 实验期间写入的垫底
+// 钩（:r 命名空间）与幻影空槽（:e 命名空间）元素，恢复真实占用状态。
+const lureHookSlotsMigrationKey = "migration:lure_hook_slots:v5"
+
+// repairLureHookSlots 清理拟饵钩槽数组的历史实验残留。
+//
+// v3~v7 期间卸钩曾回填「恢复版出厂钩」（lureRestoredHookKey）或「幻影
+// 空槽钩」（lurePhantomHookKey）以保数组长度——两者都没有对应物品行，
+// 剥掉即恢复该槽真实状态。官方短缩语义下空数组/短数组是合法状态
+// （Length==0 时客户端物品状态行报「钩未安装」），不做任何补齐。
+// 历史 null/elem_null 损坏形态已由 v1~v4 迁移清干净，此处不再处理。
+func (s *Server) repairLureHookSlots(ctx context.Context) (int, error) {
+	_, done, err := s.DB.KVGet(ctx, lureHookSlotsMigrationKey)
+	if err == nil && done {
+		return 0, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("读取拟饵钩槽迁移标记: %w", err)
+	}
+	rows, err := s.DB.SQL.QueryContext(ctx, `SELECT guid FROM item WHERE wire_class=?`, lureWireClass)
+	if err != nil {
+		return 0, err
+	}
+	var guids []string
+	for rows.Next() {
+		var guid string
+		if err := rows.Scan(&guid); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		guids = append(guids, guid)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	fixed := 0
+	for _, guid := range guids {
+		row, rerr := s.DB.GetItemByGUID(ctx, guid)
+		if rerr != nil || row == nil {
+			continue
+		}
+		fields, ferr := FieldsFromJSON(row.FieldsJSON)
+		if ferr != nil || len(fields) == 0 {
+			continue
+		}
+		idx := lureHookFieldIndex(row.WireClass)
+		if idx < 0 || idx >= len(fields) {
+			continue
+		}
+		list := fields[idx].Val
+		if list == nil || list.Kind != proto.KindArgs || len(list.Items) == 0 {
+			continue
+		}
+		items := list.Items
+		stripped := make([]*proto.Value, 0, len(items))
+		keptOld := make([]int, 0, len(items))
+		dropped := 0
+		for i, it := range items {
+			// 与下标无关的全空间匹配（PR#339 评审 P2：短缩后下标漂移）。
+			if isLureLegacyArtifactGUID(guid, lureHookItemGUID(items, i)) {
+				dropped++
+				continue
+			}
+			stripped = append(stripped, it)
+			keptOld = append(keptOld, i)
+		}
+		if dropped == 0 {
+			continue
+		}
+		list.Items = stripped
+		fields[idx] = proto.Field{Op: "VAL", Val: list}
+		// 活动钩下标按剥离映射随迁（PR#339 评审 P2）：垫底钩被剥掉时，
+		// 仍存在的活动钩不得被机械切回第一颗。
+		applyLureActiveOrdinal(row.WireClass, fields,
+			lureActiveOrdinalAfterStrip(lureActiveOrdinal(fields, len(items)), keptOld))
+		bumpCreatedTicks(fields, row.WireClass)
+		fj, jerr := FieldsToJSON(fields)
+		if jerr != nil {
+			continue
+		}
+		if uerr := s.DB.UpdateItemFields(ctx, row.GUID, fj, row.Qty, row.Durability, row.Workmanship, row.RigGUID); uerr != nil {
+			return fixed, uerr
+		}
+		fixed++
+		s.log.Info("拟饵钩槽数组残留已剥离", "guid", guid, "item", row.ItemID, "dropped", dropped, "kept", len(stripped))
+	}
+	if err := s.DB.KVSet(ctx, lureHookSlotsMigrationKey, "done"); err != nil {
+		return fixed, fmt.Errorf("写入拟饵钩槽迁移标记: %w", err)
+	}
+	return fixed, nil
+}
+
 // migrateLegacyZeroDragForce 处理升级前的存量零值摩擦片。
 //
 // 旧实现把 csDragForce=0 当成"未初始化"，每次打滑都从零件定义重算，因此
@@ -113,6 +209,13 @@ func (s *Server) RepairItemPhysics(ctx context.Context) error {
 	// 必须先于常规扫描：常规扫描只会补齐缺失字段，不会改写已存在的 0。
 	if _, err := s.migrateLegacyZeroDragForce(ctx); err != nil {
 		return fmt.Errorf("物品物理状态修复：摩擦片存量零值迁移: %w", err)
+	}
+	// 旧拆钩逻辑缩短数组的存量损坏：常规扫描的拟饵投影只处理 f0 为
+	// nil/null 的实例，空数组/长度不足只有这里能修。
+	if fixed, err := s.repairLureHookSlots(ctx); err != nil {
+		return fmt.Errorf("物品物理状态修复：拟饵钩槽迁移: %w", err)
+	} else if fixed > 0 {
+		s.log.Info("拟饵钩槽迁移完成", "lures_fixed", fixed)
 	}
 
 	rows, err := s.DB.SQL.QueryContext(ctx, `SELECT guid FROM item ORDER BY guid`)
