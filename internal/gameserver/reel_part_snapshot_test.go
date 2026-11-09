@@ -106,7 +106,7 @@ func assertReelSnapshot(t *testing.T, srv *Server, guid, gearID string, drag flo
 
 func snapshotWorkshopRequest(guid, id string) *proto.Value {
 	return proto.Args524(proto.StrVal("workshop_01"), wiregen.MustMakeObj("nfmkdcbnkhp", map[int]*proto.Value{
-		0: proto.Guid(guid), 1: proto.Args(proto.S("503"), wiregen.MustMakeObj("gcllbdkgkna", map[int]*proto.Value{0: proto.U32(52), 1: proto.StrVal(id)})), 2: proto.U32(0), 3: proto.U64(100)}))
+		0: proto.Guid(guid), 1: proto.Args(proto.S("503"), wiregen.MustMakeObj("gcllbdkgkna", map[int]*proto.Value{0: proto.U32(52), 1: proto.StrVal(id)})), 2: proto.U32(0), 3: proto.U64(0)}))
 }
 
 func TestReelPartSnapshotWorkshop(t *testing.T) {
@@ -172,8 +172,14 @@ func TestReelPartSnapshotWorkshop(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if balanceBefore.Silver-balanceAfter.Silver != 100 {
-					t.Fatal("workshop charge changed")
+				partDef, err := db.GetItemDefByItemID(ctx, id)
+				if err != nil || partDef == nil {
+					t.Fatalf("读取零件定义失败: %v", err)
+				}
+				wantSilver, _ := srv.partPrice(ctx, id, partDef.Category)
+				if balanceBefore.Silver-balanceAfter.Silver != wantSilver {
+					t.Fatalf("工坊扣费=%d，期望服务端价格=%d",
+						balanceBefore.Silver-balanceAfter.Silver, wantSilver)
 				}
 				fresh := assertReelSnapshot(t, srv, reel.GUID, id, drag)
 				reply, _, err := proto.DecodeValue(body, 0, srv.Table())
@@ -275,7 +281,7 @@ func TestReelPartSnapshotWorkshop(t *testing.T) {
 			if err := db.SetItemDurability(ctx, reel.GUID, .6); err != nil {
 				t.Fatal(err)
 			}
-			repair := proto.Args524(proto.StrVal("workshop_01"), wiregen.MustMakeObj("nfmkdcbnkhp", map[int]*proto.Value{0: proto.Guid(reel.GUID), 1: proto.Args524(proto.U32(52)), 2: proto.U32(0), 3: proto.U64(100)}))
+			repair := proto.Args524(proto.StrVal("workshop_01"), wiregen.MustMakeObj("nfmkdcbnkhp", map[int]*proto.Value{0: proto.Guid(reel.GUID), 1: proto.Args524(proto.U32(52)), 2: proto.U32(0), 3: proto.U64(0)}))
 			c = &Ctx{Sess: newProbeSess(srv), Tree: repair, Log: logging.Discard()}
 			repairBody, repaired := hWorkshopRepair(false)(c)
 			if !repaired {
@@ -465,7 +471,7 @@ func TestReelPartSnapshotBatchAndUnrelatedParts(t *testing.T) {
 				wiregen.MustMakeObj("gcllbdkgkna", map[int]*proto.Value{0: proto.U32(9), 1: proto.StrVal("ef-fb-sp.orig-5805")}),
 				wiregen.MustMakeObj("gcllbdkgkna", map[int]*proto.Value{0: proto.U32(52), 1: proto.StrVal("rgm_ef_spark10021")}),
 			)
-			request = proto.Args524(proto.StrVal("workshop_01"), wiregen.MustMakeObj("nfmkdcbnkhp", map[int]*proto.Value{0: proto.Guid(reel.GUID), 1: orders, 2: proto.U32(0), 3: proto.U64(100)}))
+			request = proto.Args524(proto.StrVal("workshop_01"), wiregen.MustMakeObj("nfmkdcbnkhp", map[int]*proto.Value{0: proto.Guid(reel.GUID), 1: orders, 2: proto.U32(0), 3: proto.U64(0)}))
 			requestBytes, err := proto.EncodeValue(request, srv.Table())
 			if err != nil {
 				t.Fatal(err)

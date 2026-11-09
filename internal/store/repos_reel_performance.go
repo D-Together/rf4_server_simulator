@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -24,12 +25,15 @@ type ReelPerformance struct {
 	UpdatedTS      float64
 }
 
-// UpsertReelPerformance 写入或刷新一只渔线轮的改装后参数。
-func (d *DB) UpsertReelPerformance(ctx context.Context, v ReelPerformance) error {
+type reelPerformanceExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func upsertReelPerformance(ctx context.Context, exec reelPerformanceExecer, v ReelPerformance) error {
 	if v.UpdatedTS <= 0 {
 		v.UpdatedTS = float64(time.Now().Unix())
 	}
-	_, err := d.SQL.ExecContext(ctx, `
+	_, err := exec.ExecContext(ctx, `
 		INSERT INTO reel_performance(
 			reel_guid, uid, base_drag_kg, locked_drag_kg, durability,
 			bearing_item_id, bearing_quality, bearing_factor,
@@ -56,6 +60,16 @@ func (d *DB) UpsertReelPerformance(ctx context.Context, v ReelPerformance) error
 		v.OilItemID, v.OilQuality, v.OilWearFactor,
 		v.CastFriction, v.CastEfficiency, v.WearProgress, v.UpdatedTS)
 	return err
+}
+
+// UpsertReelPerformance 写入或刷新一只渔线轮的改装后参数。
+func (d *DB) UpsertReelPerformance(ctx context.Context, v ReelPerformance) error {
+	return upsertReelPerformance(ctx, d.SQL, v)
+}
+
+// UpsertReelPerformanceTx 在已有事务内写入渔轮物理参数。
+func (d *DB) UpsertReelPerformanceTx(ctx context.Context, tx *sql.Tx, v ReelPerformance) error {
+	return upsertReelPerformance(ctx, tx, v)
 }
 
 // GetReelPerformance 读取一只渔线轮最近一次计算出的物理参数。

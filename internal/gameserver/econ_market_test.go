@@ -521,7 +521,7 @@ func TestLevelKeyOfLoc(t *testing.T) {
 	}
 }
 
-// TestRepairFlow 银修理闭环：磨损 → 21/3 按客户端报价扣费 → 耐久回 1.0 →
+// TestRepairFlow 银修理闭环：磨损 → 21/3 按服务端价格扣费 → 耐久回 1.0 →
 // 4/5 重建树耐久字段同步（durability 生命周期最小模型）。
 func TestRepairFlow(t *testing.T) {
 	t.Parallel()
@@ -546,14 +546,15 @@ func TestRepairFlow(t *testing.T) {
 	p0, _ := db.EnsureProfile(ctx, 1000001)
 	silver0 := p0.Silver
 
-	// 21/3 请求：args[str guid, obj(17510){GUID16, VAL, OPT, U64 价 120}]
+	// 21/3 请求：args[str guid, obj(17510){GUID16, VAL, OPT, U64 价 0}]
+	// f3=0 表示客户端不报价，由服务端按店铺倍率计算。
 	req := proto.Args524(
 		proto.StrVal(guid),
 		wiregen.MustMakeObj("nfmkdcbnkhp", map[int]*proto.Value{
 			0: proto.Guid(guid),
 			1: proto.TypedU32Arr("17", []uint32{11}),
 			2: proto.U32(0),
-			3: proto.U64(120),
+			3: proto.U64(0),
 		}),
 	)
 	body, err := proto.EncodeValue(req, sess.Table())
@@ -589,15 +590,15 @@ func TestRepairFlow(t *testing.T) {
 	if !foundRepairLog {
 		t.Fatalf("缺少修理历史: %+v", damageLogs)
 	}
-	// 按客户端报价扣费
+	// 按服务端价格扣费：0.5 磨损、1 槽、workshop_01 倍率 1.0。
 	p1, _ := db.EnsureProfile(ctx, 1000001)
-	if p1.Silver != silver0-120 {
-		t.Fatalf("应按客户端报价扣 120 银： %d -> %d", silver0, p1.Silver)
+	if p1.Silver != silver0-150 {
+		t.Fatalf("应按服务端价格扣 150 银： %d -> %d", silver0, p1.Silver)
 	}
 	var txnN int64
 	if err := db.SQL.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM txn WHERE uid=? AND kind=? AND silver_delta=?`,
-		int64(1000001), "repair", -120).Scan(&txnN); err != nil {
+		int64(1000001), "repair", -150).Scan(&txnN); err != nil {
 		t.Fatalf("txn 查询失败: %v", err)
 	}
 	if txnN != 1 {
