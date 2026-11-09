@@ -92,7 +92,7 @@ body.notice-on #view-fish.on{height:max(600px,calc(100vh - 204px))}
 @media(max-width:980px){.duo{grid-template-columns:minmax(0,1fr)!important}.tunable-fields{grid-template-columns:1fr}}
 
 /* 参数行式布局：左标签+说明，右数值+操作，双列排布 */
-.tunable-group+.tunable-group{margin-top:18px}.tunable-group h3{font-size:14px;margin:0 0 2px}.tunable-fields{display:grid;grid-template-columns:1fr 1fr;gap:0 34px}.tunable-field{display:flex;gap:14px;align-items:center;justify-content:space-between;min-width:0;padding:9px 0;border-bottom:1px solid var(--line)}.tunable-field>div:first-child{flex:1;min-width:0}.tunable-field label{display:block;color:var(--text);margin:0;font-weight:600;overflow-wrap:anywhere}.tunable-field .tunable-hint{margin-top:2px}.tunable-field>div:last-child{display:flex;gap:8px;align-items:center;flex:none}.tunable-field input{width:112px;min-width:0;flex:none;padding:7px 9px}.tunable-field button{flex:none}.section-head{flex-wrap:wrap}
+.tunable-group+.tunable-group{margin-top:18px}.tunable-group h3{font-size:14px;margin:0 0 2px}.tunable-fields{display:grid;grid-template-columns:1fr 1fr;gap:0 34px}.tunable-field{display:flex;gap:14px;align-items:center;justify-content:space-between;min-width:0;padding:9px 0;border-bottom:1px solid var(--line)}.tunable-field.tunable-wide{grid-column:1/-1}.tunable-field>div:first-child{flex:1;min-width:0}.tunable-field label{display:block;color:var(--text);margin:0;font-weight:600;overflow-wrap:anywhere}.tunable-field .tunable-hint{margin-top:2px}.tunable-field>div:last-child{display:flex;gap:8px;align-items:center;flex:none}.tunable-field.tunable-wide>div:last-child{flex-wrap:wrap;justify-content:flex-end}.tunable-field input{width:112px;min-width:0;flex:none;padding:7px 9px}.tunable-field button{flex:none}.section-head{flex-wrap:wrap}
 #storeSummary{max-width:100%;overflow-wrap:anywhere}
 #playerHappyHour{overflow-wrap:anywhere}
 .update-banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 18px;padding:12px 16px;border:1px solid var(--accent);border-radius:12px;background:#0e2438;color:#bfe3ff;font-size:13px}.update-banner[hidden]{display:none}.update-banner.muted{border-color:var(--line);background:#101c2b;color:var(--muted)}.update-banner.warn{border-color:var(--warn);background:#3a2b14;color:#ffd9a0}.update-banner .update-actions{display:flex;gap:8px;margin-left:auto;align-items:center}.update-banner a{text-decoration:none;display:inline-block}
@@ -585,17 +585,17 @@ async function loadTunables(){
   if(key==='event_anniversary_enabled'||key==='event_newyear_enabled'){
    const on=String(t[key]??def)==='1';
    const tag=key==='event_newyear_enabled'?'新年任务':'周年活动';
-   return `<div class="tunable-field"><div><label for="tun_${key}">${esc(label)}</label><div class="tunable-hint">${esc(hint)}；服务端最多 30 秒生效，活动节点只在全新登录下发，切换后要完整退出游戏重登。</div></div><div><button class="btn sm" id="tun_${key}" style="min-width:230px;${on?'background:#2f7d4f;border-color:#2f7d4f':'opacity:.6'}" onclick="saveEventSwitch('${key}',${on?0:1})">${on?tag+'：开（点击关闭）':tag+'：关（点击开启）'}</button></div></div>`;
+   return `<div class="tunable-field tunable-wide"><div><label for="tun_${key}">${esc(label)}</label><div class="tunable-hint">${esc(hint)}；服务端最多 30 秒生效，活动节点只在全新登录下发，切换后要完整退出游戏重登。</div></div><div><button class="btn sm" id="tun_${key}" style="min-width:230px;${on?'background:#2f7d4f;border-color:#2f7d4f':'opacity:.6'}" onclick="saveEventSwitch('${key}',${on?0:1})">${on?tag+'：开（点击关闭）':tag+'：关（点击开启）'}</button></div></div>`;
   }
   if(key==='event_branches'){
    const val=String(t[key]??def);
-   return `<div class="tunable-field"><div><label for="tun_event_branches">${esc(label)}</label><div class="tunable-hint">${esc(hint)}；当前 <b>${esc(val)||'（空）'}</b>。9/10=2024新年、11/12=7周年、13/14=2025新年、15/16=8周年、17/18=2026新年、19/20=9周年。保存后最多 30 秒生效，需完整退出游戏重登。</div></div><div><input type="text" id="tun_event_branches" value="${esc(val)}" style="min-width:230px" placeholder="9,10,..."><button class="btn sm" onclick="saveEventBranches()">保存</button><button class="btn alt sm" onclick="resetEventBranches()">恢复默认</button></div></div>`;
+   return `<div class="tunable-field tunable-wide"><div><label for="tun_event_branches">${esc(label)}</label><div class="tunable-hint">${esc(hint)}；当前 <b>${esc(val)||'（空）'}</b>。9/10=2024新年、11/12=7周年、13/14=2025新年、15/16=8周年、17/18=2026新年、19/20=9周年。保存后最多 30 秒生效，需完整退出游戏重登。</div></div><div><input type="text" id="tun_event_branches" value="${esc(val)}" style="min-width:230px" placeholder="9,10,..."><button class="btn sm" onclick="saveEventBranches()">保存</button><button class="btn alt sm" onclick="resetEventBranches()">恢复默认</button></div></div>`;
   }
   if(key==='event_anniversary_end_unix'){
    const ts=Number(String(t[key]??def))||def;
    const iso=new Date(ts*1000).toISOString().slice(0,16);
    const shown=iso.replace('T',' ')+' UTC';
-   return `<div class="tunable-field"><div><label for="tun_event_end">${esc(label)}</label><div class="tunable-hint">${esc(hint)}；当前 <b>${shown}</b>。保存后最多 30 秒生效，活动节点只在全新登录下发，改完要完整退出游戏重登。</div></div><div><input type="datetime-local" id="tun_event_end" value="${iso}" style="min-width:230px"><button class="btn sm" onclick="saveEventEnd()">保存</button><button class="btn alt sm" onclick="resetEventEnd(${def})">恢复默认</button></div></div>`;
+   return `<div class="tunable-field tunable-wide"><div><label for="tun_event_end">${esc(label)}</label><div class="tunable-hint">${esc(hint)}；当前 <b>${shown}</b>。保存后最多 30 秒生效，活动节点只在全新登录下发，改完要完整退出游戏重登。</div></div><div><input type="datetime-local" id="tun_event_end" value="${iso}" style="min-width:230px"><button class="btn sm" onclick="saveEventEnd()">保存</button><button class="btn alt sm" onclick="resetEventEnd(${def})">恢复默认</button></div></div>`;
   }
   if(key==='fish_hooked_chat'){
    const on=parseFloat(String(t[key]??def))>0;
