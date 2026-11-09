@@ -142,7 +142,7 @@ func TestLureHookRemoveRefundsFactoryHookOnce(t *testing.T) {
 	}
 	target := len(slots) - 1
 	targetGUID := lureHookItemGUID(slots, target)
-	if !lureIsOriginalFactoryHook(lure.GUID, targetGUID, target) {
+	if lureOriginalFactorySlot(lure.GUID, targetGUID) < 0 {
 		t.Fatalf("槽 %d 应是原装出厂钩，实得 %s", target, targetGUID)
 	}
 	targetObj := slots[target]
@@ -545,5 +545,103 @@ func TestLureHookSelectionTracksSwapAndRemove(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("拆钩后 bait_hook 关联应删除，实存 %d 行", n)
+	}
+}
+
+// PR#339 评审 P2 回归：多槽拟饵先卸一槽后，剩余原装出厂钩的当前下标已
+// 漂移（原槽 1 变当前下标 0）。替换它时必须仍按原装识别并退包。
+func TestLureHookOriginalRefundAfterShortenDrift(t *testing.T) {
+	t.Parallel()
+	s, _ := newRigTestServer(t)
+	const uid = int64(1000001)
+	lure, err := s.CreateItem(t.Context(), uid, "topwater_1928", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slots := lureTestHookSlots(t, s, lure.GUID)
+	if len(slots) < 2 {
+		t.Skipf("测试拟饵只有 %d 个钩槽", len(slots))
+	}
+	f0 := slots[0]
+	f1 := slots[1]
+	if lureOriginalFactorySlot(lure.GUID, lureHookItemGUID(items1(f0), 0)) < 0 ||
+		lureOriginalFactorySlot(lure.GUID, lureHookItemGUID(items1(f1), 0)) < 0 {
+		t.Fatal("测试拟饵槽位不是原装出厂钩")
+	}
+	wantNumeric := u64Of(f1.Fields[fieldIdxByCS(f1.Class, csNumericID)].Num)
+	before := lureBackpackHookQty(t, s, uid, int64(wantNumeric))
+
+	// 卸掉槽 0：数组缩短，原槽 1 的原装钩漂移到当前下标 0。
+	if det := s.rigRemoveComponentInstance(t.Context(), uid, lure.GUID, catHook,
+		lureHookItemGUID(items1(f0), 0), 0); det == nil {
+		t.Fatal("卸槽 0 失败")
+	}
+	if got := lureBackpackHookQty(t, s, uid, int64(wantNumeric)); got != before+1 {
+		t.Fatalf("卸槽 0 应退包 +1（两槽同型号时按同 numeric 计）: before=%d got=%d", before, got)
+	}
+
+	// 替换漂移后剩余的原装钩（当前下标 0，原槽 1）：必须仍识别为原装并退包。
+	hook, err := s.CreateItem(t.Context(), uid, "c_hook_20712", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := s.rigSetComponent(t.Context(), uid, lure.GUID, catHook, hook.GUID, 0,
+		rigSetOpts{ParentType: familyLure, EnforceCategory: true, SplitStack: true})
+	if res.Rejected {
+		t.Fatalf("替换剩余原装钩被拒: %+v", res)
+	}
+	if got := lureBackpackHookQty(t, s, uid, int64(wantNumeric)); got != before+2 {
+		t.Fatalf("短缩漂移后替换原装钩应再退包 +1（共 +2）: got=%d want=%d", got, before+2)
+	}
+}
+
+// items1 把单个钩对象包装成单元素数组供 lureHookItemGUID 取 GUID。
+func items1(v *proto.Value) []*proto.Value { return []*proto.Value{v} }
+
+// PR#339 评审 P1 回归：拟饵 f0 写回失败（UPDATE 触发器 ABORT）时，换钩
+// 整体回滚——不退包、不拆旧钩、数组不变，杜绝出厂钩复制。
+func TestLureHookMountRollsBackOnWriteFailure(t *testing.T) {
+	t.Parallel()
+	s, db := newRigTestServer(t)
+	const uid = int64(1000001)
+	lure, err := s.CreateItem(t.Context(), uid, "topwater_1928", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slots := lureTestHookSlots(t, s, lure.GUID)
+	if len(slots) == 0 {
+		t.Skip("测试拟饵没有出厂钩")
+	}
+	f0 := slots[0]
+	wantNumeric := u64Of(f0.Fields[fieldIdxByCS(f0.Class, csNumericID)].Num)
+	before := lureBackpackHookQty(t, s, uid, int64(wantNumeric))
+	arrayBefore := len(slots)
+
+	// 触发器：拟饵行的 fields_json 更新强制失败（SQLite 触发器不支持
+	// 绑定参数，GUID 为十六进制串可安全内联）。
+	if _, err := db.SQL.ExecContext(t.Context(),
+		`CREATE TRIGGER fail_lure_write BEFORE UPDATE OF fields_json ON item
+		 WHEN NEW.guid='` + lure.GUID + `' BEGIN SELECT RAISE(ABORT, 'injected'); END`); err != nil {
+		t.Fatal(err)
+	}
+	hook, err := s.CreateItem(t.Context(), uid, "c_hook_20712", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := s.rigSetComponent(t.Context(), uid, lure.GUID, catHook, hook.GUID, 0,
+		rigSetOpts{ParentType: familyLure, EnforceCategory: true, SplitStack: true})
+	if !res.Rejected {
+		t.Fatalf("写回失败必须整体拒绝: %+v", res)
+	}
+	// 退包未发生（无复制）、新钩仍在背包、数组不变。
+	if got := lureBackpackHookQty(t, s, uid, int64(wantNumeric)); got != before {
+		t.Fatalf("写回失败时不得退包: before=%d got=%d", before, got)
+	}
+	hookRow, err := s.DB.GetItemByGUID(t.Context(), hook.GUID)
+	if err != nil || hookRow == nil || hookRow.Container != "backpack" {
+		t.Fatalf("写回失败时新钩应留在背包: %+v %v", hookRow, err)
+	}
+	if got := lureTestHookSlots(t, s, lure.GUID); len(got) != arrayBefore {
+		t.Fatalf("写回失败时拟饵数组不应变化: before=%d after=%d", arrayBefore, len(got))
 	}
 }

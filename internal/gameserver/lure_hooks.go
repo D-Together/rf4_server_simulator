@@ -71,11 +71,52 @@ func isLurePhantomSlotGUID(lureGUID, guid string, i int) bool {
 	return guid != "" && guid == uuidLike(lureGUID, lurePhantomHookKey(i))
 }
 
-// lureIsOriginalFactoryHook 判断 guid 是否为第 ordinal 槽原装出厂钩
-// （唯一可退包的出厂钩形态）。
-func lureIsOriginalFactoryHook(lureGUID, hookGUID string, ordinal int) bool {
-	return hookGUID != "" && ordinal >= 0 &&
-		hookGUID == uuidLike(lureGUID, lureFactoryHookKey(ordinal))
+// maxLureHookSlots 出厂钩 key 空间上界（静态目录品类 17 最多 3 钩，留余量）。
+const maxLureHookSlots = 8
+
+// lureOriginalFactorySlot 返回钩 GUID 对应的原装出厂钩槽位（-1 = 非原装）。
+// 与当前数组下标无关：短缩后原槽位号会漂移（先卸槽 0，原槽 1 的原装钩
+// 变成当前下标 0），按下标单点匹配会把原装钩误判成普通钩导致替换时
+// 漏退（2026-11-09 PR#339 评审 P2）。key 空间小，全量扫描。
+func lureOriginalFactorySlot(lureGUID, hookGUID string) int {
+	if hookGUID == "" {
+		return -1
+	}
+	for i := 0; i < maxLureHookSlots; i++ {
+		if hookGUID == uuidLike(lureGUID, lureFactoryHookKey(i)) {
+			return i
+		}
+	}
+	return -1
+}
+
+// isLureLegacyArtifactGUID 判断 guid 是否为 v3~v7 实验残留（:r 垫底钩 /
+// :e 幻影空槽）——迁移剥离用，同样与下标无关（短缩后下标漂移）。
+func isLureLegacyArtifactGUID(lureGUID, guid string) bool {
+	for i := 0; i < maxLureHookSlots; i++ {
+		if guid != "" && (guid == uuidLike(lureGUID, lureRestoredHookKey(i)) ||
+			guid == uuidLike(lureGUID, lurePhantomHookKey(i))) {
+			return true
+		}
+	}
+	return false
+}
+
+// setWireParentFields 修改物品字段的父引用与容器枚举（纯字段操作，
+// 落库由调用方负责）。setWireParent 的无副作用内核，供事务路径复用。
+func setWireParentFields(fields []proto.Field, wireClass, parentGUID string) {
+	p := fieldIdxByCS(wireClass, csParent)
+	if p < 0 || p >= len(fields) || (fields[p].Op != "OPTGUID" && fields[p].Op != "GUID16") {
+		return // 字段不存在或类型不符时不修改
+	}
+	fields[p].Hex = parentGUID
+	if sidx := fieldIdxByCS(wireClass, csSlotEnum); sidx >= 0 && fieldOpAt(wireClass, sidx) == "BYTE" {
+		if parentGUID == "" {
+			fields[sidx].Num = ptrU64(0) // 背包
+		} else {
+			fields[sidx].Num = ptrU64(4) // rig
+		}
+	}
 }
 
 // isLureRow 判断物品行是否为拟饵实例。
@@ -174,20 +215,6 @@ func setLureChildRef(v *proto.Value, parent string) {
 	}
 }
 
-// dropLureHookRows 清掉拟饵钩位在 rig_component 里可能残留的行。
-// 拟饵钩的真源是实例 f0；索引行只由旧装配路径写入，留着会变成幽灵组件。
-func (s *Server) dropLureHookRows(ctx context.Context, lureGUID string) {
-	rows, err := s.DB.ListRigComponents(ctx, lureGUID)
-	if err != nil {
-		return
-	}
-	for _, rc := range rows {
-		if rc.Slot == catHook {
-			_ = s.DB.DeleteRigComponentAt(ctx, lureGUID, rc.Slot, rc.Ordinal)
-		}
-	}
-}
-
 // lureHookMount 把背包里的钩装到拟饵的某个钩位上（15/1）。
 // 旧钩返还规则见文件头：实例行退背包（f1）、原装出厂钩物化退包（f0）、
 // 恢复版出厂钩不退。
@@ -254,51 +281,120 @@ func (s *Server) lureHookMount(ctx context.Context, uid int64, lureGUID, hookGUI
 	}
 	setLureChildRef(tree, lureGUID)
 
+	// 旧钩预备（读侧）：有物品行的实例 vs 原装出厂钩（全 key 空间匹配，
+	// 与当前下标无关——PR#339 评审 P2：短缩后原槽位号漂移）。
 	oldGUID := ""
 	var oldTree *proto.Value
+	var oldRow *store.Item
+	var refundPrepared *store.Item
 	if ordinal < len(items) {
 		oldGUID = lureHookItemGUID(items, ordinal)
 		oldTree = items[ordinal]
 		items[ordinal] = tree
 	} else {
 		items = append(items, tree)
-		ordinal = len(items) - 1
+	}
+	if oldGUID != "" && oldGUID != hookGUID {
+		if prev, perr := s.DB.GetItemByGUID(ctx, oldGUID); perr == nil && prev != nil {
+			oldRow = prev
+		} else if lureOriginalFactorySlot(lureGUID, oldGUID) >= 0 {
+			refundPrepared = s.prepareLureFactoryRefund(ctx, uid, oldTree)
+		}
 	}
 	list.Items = items
 	fields[idx] = proto.Field{Op: "VAL", Val: list}
-	s.saveItemFields(ctx, lureRow, fields)
 
-	// 钩本体转为已装配：父引用指向拟饵，背包不再列出。新装钩树进 f0
-	// 新增段（与 17/2 装配件响应同构），重建客户端的父子归属。
-	_ = s.DB.SetItemRigLink(ctx, hookGUID, lureGUID, catHook)
+	// —— 事务：拟饵 f0 写回 + 新钩归属变更 + 旧钩退回/出厂钩退包入库，
+	// 一次提交（PR#339 评审 P1：saveItemFields 吞错且分步提交会让退包在
+	// 拟饵写回失败时仍发生，形成出厂钩复制）。任何一步失败整体回滚。 ——
+	tx, txErr := beginEconomyTx(ctx, s.DB)
+	if txErr != nil {
+		res.Rejected = true
+		return res
+	}
+	defer tx.Rollback()
+	reject := func(err error) *rigSetResult {
+		s.log.Warn("拟饵换钩被拒：事务失败", "lure", shortGUID(lureGUID), "err", err)
+		res.Rejected = true
+		return res
+	}
+	if err := updateItemFieldsTx(ctx, s.DB, tx, lureRow, fields); err != nil {
+		return reject(err)
+	}
+	// 新钩归属：挂到拟饵（行 + 字段父引用）。
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE item SET rig_guid=?, slot=?, container='rig' WHERE guid=?`,
+		lureGUID, catHook, hookGUID); err != nil {
+		return reject(err)
+	}
+	hookRow.RigGUID = lureGUID
+	hookFields, hfErr := FieldsFromJSON(hookRow.FieldsJSON)
+	if hfErr != nil {
+		return reject(hfErr)
+	}
+	setWireParentFields(hookFields, hookRow.WireClass, lureGUID)
+	if err := updateItemFieldsTx(ctx, s.DB, tx, hookRow, hookFields); err != nil {
+		return reject(err)
+	}
+	// 旧钩返还：带物品行的实例退回背包（行 + 字段清理）；原装出厂钩
+	// 物化退包入库（新 guid → f0 新增段）。恢复/幻影命名空间不退。
+	var refundGranted *store.Item
+	if oldGUID != "" && oldGUID != hookGUID {
+		res.ReplacedGUID = oldGUID
+		if oldRow != nil {
+			if err := s.DB.DetachReturnToBackpackTx(ctx, tx, oldGUID); err != nil {
+				return reject(err)
+			}
+			oldRow.RigGUID = ""
+			oldFields, ofErr := FieldsFromJSON(oldRow.FieldsJSON)
+			if ofErr != nil {
+				return reject(ofErr)
+			}
+			clearRigFieldsForBackpack(oldFields, oldRow.WireClass)
+			if err := updateItemFieldsTx(ctx, s.DB, tx, oldRow, oldFields); err != nil {
+				return reject(err)
+			}
+		} else if refundPrepared != nil {
+			granted, _, err := grantPreparedItemTx(ctx, tx, refundPrepared, true)
+			if err != nil {
+				return reject(err)
+			}
+			refundGranted = granted
+		}
+	}
+	// 幽灵组件行与 bait_hook 关联同事务清理。
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM rig_component WHERE rig_guid=? AND slot=?`, lureGUID, catHook); err != nil {
+		return reject(err)
+	}
+	// bait_hook 关联行由竿侧流程创建（key=bait_hook:<拟饵GUID> 全局唯
+	// 一，行主键是竿 GUID），此处只更新值，不建行。
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE rod_setting SET value=? WHERE key=?`, hookGUID, "bait_hook:"+lureGUID); err != nil {
+		return reject(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return reject(err)
+	}
+
+	// 提交后读 fresh 构建响应树：新装钩树进 f0 新增段（与 17/2 同构）。
 	if fresh, ferr := s.DB.GetItemByGUID(ctx, hookGUID); ferr == nil && fresh != nil {
-		s.setWireParent(ctx, fresh, lureGUID)
 		if t, terr2 := s.itemTree(ctx, fresh); terr2 == nil {
 			res.AddedTrees = append(res.AddedTrees, t)
 		}
 	}
-
-	// 旧钩返还三分支：带独立物品行的实例退回背包；原装出厂钩（合成
-	// GUID 无行）物化退包（新 guid → f0 新增段）；恢复版出厂钩不退
-	// （原装已退过一次，再退可循环刷钩）。
-	if oldGUID != "" && oldGUID != hookGUID {
-		res.ReplacedGUID = oldGUID
-		if prev, perr := s.DB.GetItemByGUID(ctx, oldGUID); perr == nil && prev != nil {
-			s.returnToBackpack(ctx, prev)
-			if fresh, ferr := s.DB.GetItemByGUID(ctx, oldGUID); ferr == nil && fresh != nil {
-				if t, terr2 := s.itemTree(ctx, fresh); terr2 == nil {
-					res.UpdatedTrees = append(res.UpdatedTrees, t)
-				}
-			}
-		} else if lureIsOriginalFactoryHook(lureGUID, oldGUID, ordinal) {
-			if t := s.refundLureFactoryHook(ctx, uid, oldTree); t != nil {
-				res.AddedTrees = append(res.AddedTrees, t)
+	if refundGranted != nil {
+		if t, terr2 := s.itemTree(ctx, refundGranted); terr2 == nil {
+			res.AddedTrees = append(res.AddedTrees, t)
+		}
+	}
+	if oldRow != nil {
+		if fresh, ferr := s.DB.GetItemByGUID(ctx, oldGUID); ferr == nil && fresh != nil {
+			if t, terr2 := s.itemTree(ctx, fresh); terr2 == nil {
+				res.UpdatedTrees = append(res.UpdatedTrees, t)
 			}
 		}
 	}
-
-	s.dropLureHookRows(ctx, lureGUID)
-	s.setLureHookSelection(ctx, lureGUID, hookGUID)
 	if lure, lerr := s.DB.GetItemByGUID(ctx, lureGUID); lerr == nil && lure != nil {
 		if t, terr2 := s.itemTree(ctx, lure); terr2 == nil {
 			res.UpdatedTrees = append(res.UpdatedTrees, t)
@@ -354,41 +450,94 @@ func (s *Server) lureHookRemove(ctx context.Context, uid int64, lureGUID, hookGU
 
 	removedGUID := lureHookItemGUID(items, ordinal)
 	removedTree := items[ordinal]
-	// 官方语义（文件头）：卸钩 = 元素从数组移除（缩短）。绝不置
-	// null/幻影保长度——三种保长空槽表示均实锤崩客户端。
+	// 官方语义（文件头）：卸钩 = 元素从数组移除（缩短）。绝不发任何
+	// 保长空槽表示（三种均实锤崩客户端）。
 	items = append(items[:ordinal], items[ordinal+1:]...)
 	list.Items = items
 	fields[idx] = proto.Field{Op: "VAL", Val: list}
-	s.saveItemFields(ctx, lureRow, fields)
-
-	res := &rigDetachResult{CompGUID: removedGUID}
-	if removedGUID != "" {
-		if row, rerr := s.DB.GetItemByGUID(ctx, removedGUID); rerr == nil && row != nil && row.UID == uid {
-			s.returnToBackpack(ctx, row)
-			if fresh, ferr := s.DB.GetItemByGUID(ctx, removedGUID); ferr == nil && fresh != nil {
-				if t, terr := s.itemTree(ctx, fresh); terr == nil {
-					res.ReturnedTree = t
-				}
-			}
-		} else if lureIsOriginalFactoryHook(lureGUID, removedGUID, ordinal) {
-			// 原装出厂钩只有子对象（GUID 合成、无独立物品行）：按拍板物化
-			// 独立背包实例退回（新 guid → f0 新增段）。
-			if t := s.refundLureFactoryHook(ctx, uid, removedTree); t != nil {
-				res.RefundTree = t
-			}
-		}
-	}
-	s.dropLureHookRows(ctx, lureGUID)
-	// 选中钩关联指向旧钩时必须让位，否则上鱼判定仍按旧钩（甚至是不存在的 GUID）。
-	s.setLureHookSelection(ctx, lureGUID, "")
-	// 活动钩下标 f1 是槽位下标：缩短后可能越界，回落 0。
+	// 活动钩下标 f1 是槽位下标：缩短后可能越界，回落 0（与数组写回
+	// 同一次提交，不再二次 saveItemFields）。
 	if len(items) > 0 {
 		if len(fields) > 1 && fields[1].Num != nil {
 			if k := fieldIdxByCS(lureRow.WireClass, "nkogmkobfng"); k >= 0 && k < len(fields) &&
 				u64Of(fields[1].Num) >= uint64(len(items)) {
 				fields[k].Num = ptrU64(0)
-				s.saveItemFields(ctx, lureRow, fields)
 			}
+		}
+	}
+
+	// 卸下钩预备（读侧）：有物品行的实例 vs 原装出厂钩（全 key 空间
+	// 匹配，与当前下标无关——PR#339 评审 P2）。
+	var removedRow *store.Item
+	var refundPrepared *store.Item
+	if removedGUID != "" {
+		if row, rerr := s.DB.GetItemByGUID(ctx, removedGUID); rerr == nil && row != nil && row.UID == uid {
+			removedRow = row
+		} else if lureOriginalFactorySlot(lureGUID, removedGUID) >= 0 {
+			refundPrepared = s.prepareLureFactoryRefund(ctx, uid, removedTree)
+		}
+	}
+
+	// —— 事务：拟饵 f0 写回 + 卸下钩归属退回/退包入库，一次提交
+	//（PR#339 评审 P1：写回失败时不得退包，防出厂钩复制）。——
+	tx, txErr := beginEconomyTx(ctx, s.DB)
+	if txErr != nil {
+		return nil
+	}
+	defer tx.Rollback()
+	abort := func(err error) *rigDetachResult {
+		s.log.Warn("拟饵拆钩失败：事务失败", "lure", shortGUID(lureGUID), "err", err)
+		return nil
+	}
+	if err := updateItemFieldsTx(ctx, s.DB, tx, lureRow, fields); err != nil {
+		return abort(err)
+	}
+	var refundGranted *store.Item
+	if removedRow != nil {
+		if err := s.DB.DetachReturnToBackpackTx(ctx, tx, removedGUID); err != nil {
+			return abort(err)
+		}
+		removedRow.RigGUID = ""
+		removedFields, rfErr := FieldsFromJSON(removedRow.FieldsJSON)
+		if rfErr != nil {
+			return abort(rfErr)
+		}
+		clearRigFieldsForBackpack(removedFields, removedRow.WireClass)
+		if err := updateItemFieldsTx(ctx, s.DB, tx, removedRow, removedFields); err != nil {
+			return abort(err)
+		}
+	} else if refundPrepared != nil {
+		granted, _, err := grantPreparedItemTx(ctx, tx, refundPrepared, true)
+		if err != nil {
+			return abort(err)
+		}
+		refundGranted = granted
+	}
+	// 幽灵组件行与 bait_hook 关联同事务清理（选中钩让位，由
+	// baitHookAssignments 按新活动钩重建）。
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM rig_component WHERE rig_guid=? AND slot=?`, lureGUID, catHook); err != nil {
+		return abort(err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM rod_setting WHERE key=?`, "bait_hook:"+lureGUID); err != nil {
+		return abort(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return abort(err)
+	}
+
+	res := &rigDetachResult{CompGUID: removedGUID}
+	if removedRow != nil {
+		if fresh, ferr := s.DB.GetItemByGUID(ctx, removedGUID); ferr == nil && fresh != nil {
+			if t, terr := s.itemTree(ctx, fresh); terr == nil {
+				res.ReturnedTree = t
+			}
+		}
+	}
+	if refundGranted != nil {
+		if t, terr := s.itemTree(ctx, refundGranted); terr == nil {
+			res.RefundTree = t
 		}
 	}
 	s.log.Info("拟饵拆钩", "lure", shortGUID(lureGUID), "hook", shortGUID(removedGUID), "ordinal", ordinal)
@@ -398,7 +547,10 @@ func (s *Server) lureHookRemove(ctx context.Context, uid int64, lureGUID, hookGU
 // refundLureFactoryHook 把出厂钩子对象物化为独立背包实例退回玩家背包。
 // 返回退包实例的完整树；定义查询在事务外（静态库隔离纪律），入库走短事务。
 // 任何一步失败只记日志返回 nil——拆钩本身已生效，不因退包失败回滚槽位变更。
-func (s *Server) refundLureFactoryHook(ctx context.Context, uid int64, hookTree *proto.Value) *proto.Value {
+// prepareLureFactoryRefund 构造出厂钩退包实例（读库准备，不落库）。
+// 落库由调用方经 grantPreparedItemTx 与拟饵 f0 写回放进同一事务
+// （PR#339 评审 P1）。任何一步准备失败只记日志返回 nil。
+func (s *Server) prepareLureFactoryRefund(ctx context.Context, uid int64, hookTree *proto.Value) *store.Item {
 	if hookTree == nil || hookTree.Kind != proto.KindObj {
 		return nil
 	}
@@ -420,40 +572,5 @@ func (s *Server) refundLureFactoryHook(ctx context.Context, uid int64, hookTree 
 		s.log.Warn("出厂钩退包失败：构造背包实例失败", "item", def.ItemID, "err", err)
 		return nil
 	}
-	tx, err := beginEconomyTx(ctx, s.DB)
-	if err != nil {
-		s.log.Warn("出厂钩退包失败：开事务失败", "err", err)
-		return nil
-	}
-	defer tx.Rollback()
-	granted, _, err := grantPreparedItemTx(ctx, tx, prepared, true)
-	if err != nil {
-		s.log.Warn("出厂钩退包失败：入库失败", "item", def.ItemID, "err", err)
-		return nil
-	}
-	if err := tx.Commit(); err != nil {
-		s.log.Warn("出厂钩退包失败：提交失败", "err", err)
-		return nil
-	}
-	if t, terr := s.itemTree(ctx, granted); terr == nil {
-		s.log.Info("出厂钩退包", "uid", uid, "item", def.ItemID, "guid", shortGUID(granted.GUID))
-		return t
-	}
-	return nil
-}
-
-// setLureHookSelection 同步竿上拟饵的 bait_hook 关联。
-// 关联行以竿 GUID 为主键、key=bait_hook:<拟饵GUID>、value=当前钩 GUID；
-// hookGUID 为空时删除关联，由后续 baitHookAssignments 按新活动钩重建。
-func (s *Server) setLureHookSelection(ctx context.Context, lureGUID, hookGUID string) {
-	key := "bait_hook:" + lureGUID
-	var err error
-	if hookGUID == "" {
-		_, err = s.DB.SQL.ExecContext(ctx, `DELETE FROM rod_setting WHERE key=?`, key)
-	} else {
-		_, err = s.DB.SQL.ExecContext(ctx, `UPDATE rod_setting SET value=? WHERE key=?`, hookGUID, key)
-	}
-	if err != nil {
-		s.log.Warn("拟饵钩位关联同步失败", "lure", shortGUID(lureGUID), "hook", shortGUID(hookGUID), "err", err)
-	}
+	return prepared
 }

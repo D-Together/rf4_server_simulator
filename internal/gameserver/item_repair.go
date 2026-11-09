@@ -80,8 +80,8 @@ func (s *Server) repairLureHookSlots(ctx context.Context) (int, error) {
 		stripped := make([]*proto.Value, 0, len(items))
 		dropped := 0
 		for i, it := range items {
-			g := lureHookItemGUID(items, i)
-			if g == uuidLike(guid, lureRestoredHookKey(i)) || isLurePhantomSlotGUID(guid, g, i) {
+			// 与下标无关的全空间匹配（PR#339 评审 P2：短缩后下标漂移）。
+			if isLureLegacyArtifactGUID(guid, lureHookItemGUID(items, i)) {
 				dropped++
 				continue
 			}
