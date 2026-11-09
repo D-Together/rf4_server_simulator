@@ -643,11 +643,15 @@ func (d *DB) ItemPriceGet(ctx context.Context, itemID string) (*ShopPrice, error
 	return p, nil
 }
 
-// ShelfPriceLowest 该商品在全部基础货架（shop_item）与后台覆盖价
-// （shop_item_override）中的最低非零银价。贩卖机配方（9/1/9/4）没有门店
-// 上下文，用全货架最低价保证"机器做不会比去店里买贵"；无定价时返回
-// sql.ErrNoRows，由调用方决定整体失败。
-func (d *DB) ShelfPriceLowest(ctx context.Context, itemID string) (int64, error) {
+// CraftIngredientSilverPrice 贩卖机配料的银币单价。
+// 先取全部基础货架（shop_item）与后台覆盖价（shop_item_override）的最低
+// 非零银价——贩卖机配方（9/1/9/4）没有门店上下文，用全货架最低价保证
+// "机器做不会比去店里买贵"；仍无价时（自制窝料的添加槽可选到未上架的
+// 成品饵，如 fplt_op_ccp7 只有金币价目）按商店货架补齐同款口径估价：
+// 同类同级最贵 → 同类型中位价 → 同品类中位价 → 1000，再按 item_id 稳定
+// 上浮 0~10%（与 augmentShopShelf 同公式，同一商品估价恒定）。全链路
+// 无价才返回 sql.ErrNoRows，由调用方决定整体失败。
+func (d *DB) CraftIngredientSilverPrice(ctx context.Context, itemID string) (int64, error) {
 	row := d.SQL.QueryRowContext(ctx, `
 		SELECT COALESCE(MIN(s), 0) FROM (
 			SELECT silver AS s FROM shop_item WHERE item_id=? AND silver>0
@@ -658,10 +662,27 @@ func (d *DB) ShelfPriceLowest(ctx context.Context, itemID string) (int64, error)
 	if err := row.Scan(&price); err != nil {
 		return 0, err
 	}
-	if price <= 0 {
+	if price > 0 {
+		return price, nil
+	}
+	if err := d.loadShopSupplement(ctx); err != nil {
+		return 0, err
+	}
+	m, ok := d.shopSupplement.metas[itemID]
+	if !ok {
 		return 0, sql.ErrNoRows
 	}
-	return price, nil
+	est := d.shopSupplement.seriesMax[shopSeriesKey(m.Kind, m.Name)]
+	if est <= 0 {
+		est = d.shopSupplement.medianByKind[m.Kind]
+	}
+	if est <= 0 {
+		est = d.shopSupplement.medianByCat[m.Category]
+	}
+	if est <= 0 {
+		est = 1000
+	}
+	return est + est*int64(stableHash(itemID)%11)/100, nil
 }
 
 // ItemPriceFallbackList 价目兜底货架（非空价前 N 件）。

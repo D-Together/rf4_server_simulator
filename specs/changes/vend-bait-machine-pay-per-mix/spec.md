@@ -34,10 +34,15 @@ Status: done
 
 - 配方判定：`recipe_id` 以 `_vend` 结尾。静态库共 22 条（feed 14 + pva_stick 3 +
   pva_stinger 5），全部是贩卖机商品，后缀规则无歧义。
-- 价格真源：新增 `store.DB.ShelfPriceLowest(itemID)` —— `shop_item` 基础货架与
-  `shop_item_override` 覆盖价中该商品的最低非零银价。9/1 载荷里没有门店 id，
-  用全货架最低价保证"机器做不会比去店里买贵"；各 kind-0 货架同物同价（290/120/50/170
-  在 fishing_store_01/02 与 craft_baits_012 一致）。
+- 价格真源：新增 `store.DB.CraftIngredientSilverPrice(itemID)`：
+  1. `shop_item` 基础货架与 `shop_item_override` 覆盖价中该商品的最低非零银价。
+     9/1 载荷里没有门店 id，用全货架最低价保证"机器做不会比去店里买贵"；
+     各 kind-0 货架同物同价（290/120/50/170 在 fishing_store_01/02 与 craft_baits_012 一致）。
+  2. 仍无价（2026-11-10 实机：自制窝料添加槽可选到未上架成品饵 fplt_op_ccp7
+     ——只有金币价目、cb_attr_cc 无任何货架行）按商店货架补齐同款口径估价：
+     同类同级最贵 → 同类型中位价 → 同品类中位价 → 1000，再按 item_id 稳定
+     上浮 0~10%（与 `augmentShopShelf` 同公式，同一商品估价恒定）。管理员可用
+     `shop_item_override` 对偏估价配料精确调价（阶梯第一腿即读覆盖价）。
 - 配料解析：需求带显式 `item_id` 直接采用（25 种配料全部有货架价，已核对）；
   类别/标签需求（craft_feed_universal/dry/pva_*_vend 的通用槽）取客户端材料槽
   f2 提交的具体物品（实抓报文 2026-11-09 20:32：槽 = {需求 id, 临时 GUID, 具体 item id}），
@@ -64,7 +69,10 @@ Status: done
   2. 余额不足：silver=100 → 失败，silver 不动、无产出（事务回滚不留痕）。
   3. 9/4 报价：qty=3 → f1=1890；qty=1000 → 收敛到上限 60，f1=37800、f3=60。
   4. 通用槽配料的 universal_vend：槽 f2 携带具体物品 → 总价 = 手算 840。
-  5. 回归钉：家用 craft_feed_carp 无材料仍失败（语义不变）。
+  5. 未上架配料的估价：ccp7/cat19、cb_attr_cc/cat20 在模板库（无 item_catalog
+     数据，medianByKind 跳过空 kind）落品类中位价 590/690，稳定上浮后
+     619/690，总价手算 1859（2026-11-10 追加）。
+  6. 回归钉：家用 craft_feed_carp 无材料仍失败（语义不变）。
 - 回滚后：用例 1/3/4 变红（贩卖机不再收费或报价），其余不受影响。
 
 ## Out of Scope
@@ -85,4 +93,11 @@ Status: done
 - `[推断]` 官方贩卖机 = 卖料+搅拌一步完成：由配方成对出现（craft_feed_carp 家用 /
   _vend 机器版、材料完全一致）、机器界面无需持有即可装槽、9/4 存在报价语义综合推断；
   无官方服务端抓包直接证据。
-- 未验证：金币购买通道的官方行为。
+- `[事实]` 2026-11-10 00:25 实机（新二进制）：craft_feed_lin_vend 制作成功
+  （显式配料链路通）；craft_feed_universal_vend 三次失败于
+  `配料 fplt_op_ccp7 没有货架价`——自制窝料添加槽可选中只有金币价目的成品饵。
+- `[推断]` 估价阶梯取 augmentShopShelf 同款公式是"与现有估价机制一致"的最小选择；
+  运行时 ccp7 落 seriesMax（自家金币价 3金×100=300+5%上浮=315 银，官方同款
+  5/12mm 货架银价 680），cb_attr_cc 落 misc 类型中位价 3590（偏贵，可用
+  shop_item_override 校准）。
+- 未验证：金币购买通道的官方行为；官方贩卖机对未上架配料的计价方式。

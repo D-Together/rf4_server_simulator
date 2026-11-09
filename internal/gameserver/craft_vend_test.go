@@ -200,6 +200,44 @@ func TestVendCraftGenericDemandsTakeSlotItems(t *testing.T) {
 	}
 }
 
+// TestVendCraftPricesUnshelvedIngredientByEstimate 覆盖 2026-11-10 实机问题：
+// 自制窝料（universal_vend）添加槽选到未上架成品饵时制作失败
+// （fplt_op_ccp7 只有金币价目、cb_attr_cc 无任何货架行）。
+// 估价阶梯与商店货架补齐（augmentShopShelf）同口径；模板库无 item_catalog
+// 与 item_price 数据，kind 全为空且 medianByKind 跳过空 kind：
+// seriesMax 无键、medianByKind 无 "" 键 → 落到品类中位价
+// （cat19=590、cat20=690，手算自静态 shop_item 首行口径，n=123/58）→
+// ccp7 稳定上浮 5%=619，cb_attr_cc 上浮 0%=690。
+// 总价 = 290 + 619 + 50 + 110 + 100 + 690 = 1859。
+// 运行时有 item_catalog 时走 kind/系列口径（如 ccp7=自家金币价折算 315），
+// 本用例固定的是阶梯顺序与确定性，不是运行时的绝对游戏价。
+func TestVendCraftPricesUnshelvedIngredientByEstimate(t *testing.T) {
+	db := openRecipeTestDB(t)
+	srv := newSkillsCraftServer(t, db)
+	ctx0 := context.Background()
+	const uid = int64(4207)
+	if _, err := db.EnsureProfile(ctx0, uid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SQL.Exec(`UPDATE profile SET silver=99999 WHERE uid=?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	slots := []craftSlot{
+		{ItemID: "craft_feed_generic_mix_1", GUID: "aa000000000000000000000000000011", Species: "mix_groundpeas"},
+		{ItemID: "craft_feed_generic_add_1", GUID: "aa000000000000000000000000000012", Species: "fplt_op_ccp7"},
+		{ItemID: "craft_feed_generic_add_2", GUID: "aa000000000000000000000000000013", Species: "feedadds_corn"},
+		{ItemID: "craft_feed_generic_add_3", GUID: "aa000000000000000000000000000014", Species: "feedadds_bloodworms"},
+		{ItemID: "craft_feed_pva_add_4", GUID: "aa000000000000000000000000000015", Species: "feedadds_peas"},
+		{ItemID: "craft_feed_generic_aroma_1", GUID: "aa000000000000000000000000000016", Species: "cb_attr_cc"},
+	}
+	if !vendOK(t, srv, uid, "craft_feed_universal_vend", slots, 1) {
+		t.Fatal("未上架配料应按估价阶梯定价并成功")
+	}
+	if got := silverOf(t, srv, uid); got != 99999-1859 {
+		t.Fatalf("应扣 1859 银币，余额应为 98140，实得 %d", got)
+	}
+}
+
 func TestHomeCarpCraftStillRequiresMaterials(t *testing.T) {
 	db := openRecipeTestDB(t)
 	srv := newSkillsCraftServer(t, db)
