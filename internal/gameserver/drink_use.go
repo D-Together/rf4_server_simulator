@@ -142,10 +142,8 @@ func (s *Server) useAlcoholDrink(ctx *Ctx) ([]byte, bool) {
 		case qerr == nil:
 			if satiety >= foodSatietyFullThreshold {
 				_ = tx.Rollback()
-				ctx.Sess.pushSystemChat("你已经吃饱了，吃不下更多食物")
 				// 官服结果码 55（kOperationResult_PlayerFull）：客户端显示
-				// 正规「已吃饱」文案。ReplyFailure 的普通异常名会被客户端
-				// 渲染成通用「内部错误」弹窗（2026-11-09 实机）。
+				// 正规「已吃饱」文案，弹窗即完整反馈，不再补聊天消息。
 				ctx.ReplyOperationResult(operationResultPlayerFull)
 				return nil, true
 			}
