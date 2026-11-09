@@ -709,6 +709,7 @@ func (s *Server) repairPartsOf(ctx context.Context, it *store.Item) []repairPart
 	}
 	var out []repairPart
 	seen := map[string]bool{}
+	hasWornPart := false
 	add := func(guid string, nid, cat uint32, cond float64) {
 		if guid == "" || seen[guid] {
 			return
@@ -777,7 +778,20 @@ func (s *Server) repairPartsOf(ctx context.Context, it *store.Item) []repairPart
 		if !workshopPartCategories[cat] {
 			continue
 		}
-		add(g, nid, cat, condOf(child))
+		cond := condOf(child)
+		if cond < 1 {
+			hasWornPart = true
+		}
+		add(g, nid, cat, cond)
+	}
+	// 本体耐久是轮内零件的综合。正常有磨损零件时让客户端选具体零件，
+	// 只有内部零件都还满、但本体已经掉耐久时，才补一行本体修理入口；
+	// 否则会和整机保养重复报价，也会把正常的零件修理界面挤乱。
+	if !hasWornPart {
+		if def, derr := s.DB.GetItemDefByItemID(ctx, it.ItemID); derr == nil && def != nil &&
+			def.Category == gearCatReel && it.Durability < 1 {
+			add(it.GUID, uint32(it.NumericID), uint32(gearCatReel), it.Durability)
+		}
 	}
 	return out
 }
@@ -1026,6 +1040,10 @@ func (s *Server) partAlternatives(ctx context.Context, reelItemID string, part r
 		}))
 	}
 	addJob(def.ItemID)
+	if def.Category == gearCatReel {
+		// 本体只允许修复，不允许把整只渔轮当作零件替换成另一型号。
+		return out
+	}
 	// 导环/杆坯只允许修复；轮子的轴承和线杯按精确兼容表提供替代型号。
 	if noReplaceCategories[def.Category] {
 		return out
@@ -1252,7 +1270,9 @@ func hWorkshopDiag(ctx *Ctx) ([]byte, bool) {
 		for _, p := range srv.repairPartsOf(cctx, row) {
 			// f3 = 该零件的修理报价（按磨损计价，完好度 1.0 → 0）；渔轮为整机保养价。
 			repairSilver := int64(math.Round(math.Max(0, 1-p.Cond) * 500))
-			if reelServiceSilver >= 0 {
+			// 本体行只在内部零件都满时出现，不能套用内件整机保养价，
+			// 否则本体 0.0 会显示成免费修理。
+			if reelServiceSilver >= 0 && p.Cat != uint32(gearCatReel) {
 				repairSilver = reelServiceSilver
 			}
 			comps.Items = append(comps.Items, wiregen.MustMakeObj("hlopebmchhp", map[int]*proto.Value{
@@ -1395,8 +1415,20 @@ func hWorkshopOrder(ctx *Ctx) ([]byte, bool) {
 	silver, gold := int64(0), int64(0)
 	changed := false
 	hasRepair := false
-	allRepairs := len(orders) > 0
+	bodyRepair := false
+	hasPartOrder := false
+	allRepairs := true
 	for _, o := range orders {
+		if o.Cat == uint32(gearCatReel) &&
+			(o.SysID == "" || strings.EqualFold(o.SysID, row.ItemID)) {
+			if !bodyRepair {
+				bodyRepair = true
+				hasRepair = true
+				changed = true
+			}
+			continue
+		}
+		hasPartOrder = true
 		idx := -1
 		for i := range fields {
 			if fields[i].Op != "VAL" || fields[i].Val == nil || fields[i].Val.Kind != proto.KindObj {
@@ -1449,17 +1481,24 @@ func hWorkshopOrder(ctx *Ctx) ([]byte, bool) {
 		ctx.Log.Warn("工坊修理：同型号修理仅支持银币支付", "guid", shortGUID(row.GUID))
 		return nil, false
 	}
-	wholeItemRepair := allRepairs
-	if allRepairs {
+	wholeItemRepair := bodyRepair || (hasPartOrder && allRepairs)
+	if hasPartOrder && allRepairs {
 		if isReel {
 			if _, ierr := srv.restoreReelInternalsInFields(cctx, row, fields); ierr != nil {
 				ctx.Log.Warn("工坊修理：轮内零件恢复失败", "guid", shortGUID(row.GUID), "err", ierr)
 				return nil, false
 			}
-			// 整机保养会恢复全部内件，费用必须覆盖实际恢复的全部磨损。
-			silver = int64(math.Round(reelWearBefore * 500))
+			// 整机保养会恢复全部内件。本体耐久是内件的综合，收费取
+			// “零件总磨损”和“本体磨损”的较大值，不能重复相加。
+			bodyWear := math.Max(0, 1-row.Durability)
+			silver = int64(math.Round(math.Max(reelWearBefore, bodyWear) * 500))
 			gold = 0
 		}
+	} else if bodyRepair && isReel {
+		// 内部零件都满、只有本体掉耐久：只收本体这一格的钱。
+		bodyWear := math.Max(0, 1-row.Durability)
+		silver += int64(math.Round(bodyWear * 500))
+		gold = 0
 	}
 	costSilver, costGold := silver, gold
 	if useGold {
