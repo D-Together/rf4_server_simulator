@@ -233,6 +233,36 @@ func (s *Server) reelPartLivesInFields(ctx context.Context, reel *store.Item, fi
 	return lives, true
 }
 
+// reelRepairWearInFields 返回整只渔轮一次整机保养会恢复的零件磨损总量。
+// 工坊同型号修理会恢复全部内件，因此计价不能只看客户端选中的那一个零件。
+func (s *Server) reelRepairWearInFields(ctx context.Context, reel *store.Item, fields []proto.Field) float64 {
+	lives, ok := s.reelPartLivesInFields(ctx, reel, fields)
+	if ok {
+		total := 0.0
+		for _, category := range []int64{
+			reelPartCatWasher, reelPartCatGear, reelPartCatBearing,
+			reelPartCatSpool, reelPartCatHandle, reelPartCatOil,
+		} {
+			total += math.Max(0, 1-lives[category])
+		}
+		return total
+	}
+
+	// 老档缺少摩擦片定义时仍按能读出的子件耐久计费，不能把整机恢复做成免费。
+	total := 0.0
+	for _, category := range []int64{
+		reelPartCatWasher, reelPartCatGear, reelPartCatBearing,
+		reelPartCatSpool, reelPartCatHandle, reelPartCatOil,
+	} {
+		part, _, _, found := s.selectedReelPart(ctx, fields, category)
+		if !found || part == nil {
+			continue
+		}
+		total += math.Max(0, 1-reelChildDurability(part))
+	}
+	return total
+}
+
 // reelBodyDurabilityInFields 按"本体耐久 = 内部零件综合"算出渔轮本体此刻的耐久：
 // 任一熔断件寿命归零就是 0；否则取 min(加权寿命, 最弱熔断件 + 容差)。
 // 缺件按满寿命处理，不会因为老存档少了某个件就误判成损坏。
@@ -282,17 +312,10 @@ func (s *Server) recalcReelBodyDurability(ctx context.Context, row *store.Item) 
 	return true
 }
 
-// restoreReelInternals 进店修理渔轮时把轮内零件一并恢复：摩擦片制动力回到额定、其余件
-// 耐久回满。本体修好了但摩擦片还是 0 的话，轮子照样收不了线，修理就成了白扣钱。
-// 只改零件字段，本体耐久由调用方按修理流程写。老档没有轮内零件时 changed=false 且
-// err=nil，修理照常生效；写库失败必须让调用方放弃这次修理，别只把本体刷回满值。
-func (s *Server) restoreReelInternals(ctx context.Context, row *store.Item) (bool, error) {
+// restoreReelInternalsInFields 把轮内零件恢复到额定状态，只改内存中的物品树。
+func (s *Server) restoreReelInternalsInFields(ctx context.Context, row *store.Item, fields []proto.Field) (bool, error) {
 	if s == nil || s.DB == nil || row == nil {
 		return false, nil
-	}
-	fields, err := FieldsFromJSON(row.FieldsJSON)
-	if err != nil {
-		return false, err
 	}
 	changed := false
 	child, def, _, ok := s.selectedReelPart(ctx, fields, reelPartCatWasher)
@@ -315,6 +338,25 @@ func (s *Server) restoreReelInternals(ctx context.Context, row *store.Item) (boo
 		if setReelChildDurability(part, 1) {
 			changed = true
 		}
+	}
+	return changed, nil
+}
+
+// restoreReelInternals 进店修理渔轮时把轮内零件一并恢复：摩擦片制动力回到额定、其余件
+// 耐久回满。本体修好了但摩擦片还是 0 的话，轮子照样收不了线，修理就成了白扣钱。
+// 只改零件字段，本体耐久由调用方按修理流程写。老档没有轮内零件时 changed=false 且
+// err=nil，修理照常生效；写库失败必须让调用方放弃这次修理，别只把本体刷回满值。
+func (s *Server) restoreReelInternals(ctx context.Context, row *store.Item) (bool, error) {
+	if s == nil || s.DB == nil || row == nil {
+		return false, nil
+	}
+	fields, err := FieldsFromJSON(row.FieldsJSON)
+	if err != nil {
+		return false, err
+	}
+	changed, err := s.restoreReelInternalsInFields(ctx, row, fields)
+	if err != nil {
+		return false, err
 	}
 	if !changed {
 		return false, nil

@@ -351,8 +351,9 @@ func (s *Server) reelPartQualityFromRow(ctx context.Context, row *store.Item, ca
 	return "", 100
 }
 
-// syncReelPerformance 重新计算并持久化一只轮子的基础/锁轮承力。
-func (s *Server) syncReelPerformance(ctx context.Context, row *store.Item) (*store.ReelPerformance, error) {
+// buildReelPerformance 按当前物品树计算轮子物理参数，但不写库。
+// 经济事务需要先完成所有依赖 item_def 的读取，再在事务内统一落盘。
+func (s *Server) buildReelPerformance(ctx context.Context, row *store.Item) (*store.ReelPerformance, error) {
 	base := s.reelBaseDragFromRow(ctx, row)
 	bearingItemID, bearingQuality, bearingDurability := s.reelPartStateFromRow(ctx, row, reelPartCatBearing)
 	_, gearQuality, gearDurability := s.reelPartStateFromRow(ctx, row, reelPartCatGear)
@@ -386,6 +387,15 @@ func (s *Server) syncReelPerformance(ctx context.Context, row *store.Item) (*sto
 	// 重算改装参数时不能清掉尚未跨档的润滑磨损进度。
 	if old, err := s.DB.GetReelPerformance(ctx, row.GUID); err == nil && old != nil {
 		v.WearProgress = old.WearProgress
+	}
+	return v, nil
+}
+
+// syncReelPerformance 重新计算并持久化一只轮子的基础/锁轮承力。
+func (s *Server) syncReelPerformance(ctx context.Context, row *store.Item) (*store.ReelPerformance, error) {
+	v, err := s.buildReelPerformance(ctx, row)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.DB.UpsertReelPerformance(ctx, *v); err != nil {
 		return nil, err

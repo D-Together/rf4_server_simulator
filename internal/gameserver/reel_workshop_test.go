@@ -95,7 +95,7 @@ func TestWorkshopOrderRefreshesDragVersionAndPerformance(t *testing.T) {
 			0: proto.Guid(reel.GUID),
 			1: proto.Args(proto.S("503"), order),
 			2: proto.U32(0),
-			3: proto.U64(100),
+			3: proto.U64(0),
 		}),
 	)
 	sess := newProbeSess(srv)
@@ -177,7 +177,7 @@ func TestReelWorkshopStatsSurviveRelogTreeBuild(t *testing.T) {
 			0: proto.Guid(reel.GUID),
 			1: orders,
 			2: proto.U32(0),
-			3: proto.U64(100),
+			3: proto.U64(0),
 		}),
 	)
 	sess := newProbeSess(srv)

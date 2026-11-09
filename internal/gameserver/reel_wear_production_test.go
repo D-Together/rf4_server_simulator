@@ -270,7 +270,7 @@ func TestRepairAbortsWhenReelInternalsFail(t *testing.T) {
 		t.Fatal(err)
 	}
 	repair := proto.Args524(proto.StrVal("workshop_01"), wiregen.MustMakeObj("nfmkdcbnkhp", map[int]*proto.Value{
-		0: proto.Guid(reel.GUID), 1: proto.Args524(proto.U32(52)), 2: proto.U32(0), 3: proto.U64(100)}))
+		0: proto.Guid(reel.GUID), 1: proto.Args524(proto.U32(52)), 2: proto.U32(0), 3: proto.U64(0)}))
 	c := &Ctx{Sess: newProbeSess(srv), Main: 21, Sub: 3, Tree: repair, DecodeOK: true, Log: logging.Discard()}
 	if _, ok := hWorkshopRepair(false)(c); ok {
 		t.Fatal("轮内零件恢复失败时修理不应成功")
