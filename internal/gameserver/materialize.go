@@ -125,72 +125,87 @@ func (s *Server) lureHooks(ctx context.Context, attrs map[string]any, lureGUID s
 		return nil
 	}
 	items := proto.Args(proto.S("60"))
-	for i, raw := range cfgs {
-		cfg, _ := raw.(map[string]any)
-		if cfg == nil {
-			continue
+	for i := range cfgs {
+		obj := s.lureHookAt(ctx, attrs, lureGUID, i, lureFactoryHookKey(i), workmanship, durability)
+		if obj != nil {
+			items.Items = append(items.Items, obj)
 		}
-		subID, _ := cfg["nhjofmmmngl"].(string)
-		if subID == "" {
-			continue
-		}
-		subDef, err := s.DB.GetItemDefByItemID(ctx, subID)
-		if err != nil || subDef == nil || subDef.NumericID == 0 {
-			continue
-		}
-		cls, ok := categoryWireClass[subDef.Category]
-		if !ok {
-			cls = wireClassEntry{fallbackWireClass, fallbackTypeID}
-		}
-		if wiregen.ClassOps[cls.Class] == nil {
-			continue
-		}
-		obj, err := wiregen.MakeObj(cls.Class, nil)
-		if err != nil {
-			continue
-		}
-		s.applyDefAttrs(subDef, cls.Class, obj)
-		setHex := func(cs, v string) {
-			if idx := fieldIdxByCS(cls.Class, cs); idx >= 0 && idx < len(obj.Fields) {
-				obj.Fields[idx].Hex = v
-			}
-		}
-		setNum := func(cs string, v uint64) {
-			if idx := fieldIdxByCS(cls.Class, cs); idx >= 0 && idx < len(obj.Fields) {
-				obj.Fields[idx].Num = ptrU64(v)
-			}
-		}
-		setFloat := func(cs string, v float64) {
-			idx := fieldIdxByCS(cls.Class, cs)
-			if idx < 0 {
-				return
-			}
-			if fieldIsFloat(cls.Class, idx) {
-				obj.Fields[idx].Float = v
-				return
-			}
-			if fieldOpAt(cls.Class, idx) == "U32" {
-				obj.Fields[idx].Num = ptrU64(uint64(math.Float32bits(float32(v))))
-			}
-		}
-		setHex(csGUID, uuidLike(lureGUID, "gpoaffnjbdo"+itoa(i)))
-		setNum(csNumericID, uint64(subDef.NumericID))
-		setHex(csParent, lureGUID)
-		setNum(csSlotEnum, 4)
-		if base, ok := cfg["hgaijieklek"].(float64); ok {
-			setNum(csStateEnum, uint64(base))
-		}
-		setFloat(csWorkmanship, workmanship)
-		setFloat(csDurability, durability)
-		if strength, ok := strengthBitsFor(subDef, durability); ok && strength > 0 {
-			setFloat(csStrength, strength)
-		}
-		items.Items = append(items.Items, obj)
 	}
 	if len(items.Items) == 0 {
 		return nil
 	}
 	return items
+}
+
+// lureHookAt 物化第 i 槽的出厂钩对象，GUID 由 lureGUID+key 派生。
+// key 选用两个命名空间：原装钩用 lureFactoryHookKey（拆下时可退包一次），
+// 卸钩后恢复的钩用 lureRestoredHookKey（已退过包，不再退）。配置缺失
+// 返回 nil。
+func (s *Server) lureHookAt(ctx context.Context, attrs map[string]any, lureGUID string, i int, key string, workmanship, durability float64) *proto.Value {
+	cfgs, _ := attrs["gpoaffnjbdo"].([]any)
+	if i < 0 || i >= len(cfgs) {
+		return nil
+	}
+	cfg, _ := cfgs[i].(map[string]any)
+	if cfg == nil {
+		return nil
+	}
+	subID, _ := cfg["nhjofmmmngl"].(string)
+	if subID == "" {
+		return nil
+	}
+	subDef, err := s.DB.GetItemDefByItemID(ctx, subID)
+	if err != nil || subDef == nil || subDef.NumericID == 0 {
+		return nil
+	}
+	cls, ok := categoryWireClass[subDef.Category]
+	if !ok {
+		cls = wireClassEntry{fallbackWireClass, fallbackTypeID}
+	}
+	if wiregen.ClassOps[cls.Class] == nil {
+		return nil
+	}
+	obj, err := wiregen.MakeObj(cls.Class, nil)
+	if err != nil {
+		return nil
+	}
+	s.applyDefAttrs(subDef, cls.Class, obj)
+	setHex := func(cs, v string) {
+		if idx := fieldIdxByCS(cls.Class, cs); idx >= 0 && idx < len(obj.Fields) {
+			obj.Fields[idx].Hex = v
+		}
+	}
+	setNum := func(cs string, v uint64) {
+		if idx := fieldIdxByCS(cls.Class, cs); idx >= 0 && idx < len(obj.Fields) {
+			obj.Fields[idx].Num = ptrU64(v)
+		}
+	}
+	setFloat := func(cs string, v float64) {
+		idx := fieldIdxByCS(cls.Class, cs)
+		if idx < 0 {
+			return
+		}
+		if fieldIsFloat(cls.Class, idx) {
+			obj.Fields[idx].Float = v
+			return
+		}
+		if fieldOpAt(cls.Class, idx) == "U32" {
+			obj.Fields[idx].Num = ptrU64(uint64(math.Float32bits(float32(v))))
+		}
+	}
+	setHex(csGUID, uuidLike(lureGUID, key))
+	setNum(csNumericID, uint64(subDef.NumericID))
+	setHex(csParent, lureGUID)
+	setNum(csSlotEnum, 4)
+	if base, ok := cfg["hgaijieklek"].(float64); ok {
+		setNum(csStateEnum, uint64(base))
+	}
+	setFloat(csWorkmanship, workmanship)
+	setFloat(csDurability, durability)
+	if strength, ok := strengthBitsFor(subDef, durability); ok && strength > 0 {
+		setFloat(csStrength, strength)
+	}
+	return obj
 }
 
 // itoa 小整数转串（下标派生用）。
