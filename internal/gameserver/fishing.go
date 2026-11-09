@@ -1688,6 +1688,53 @@ func (s *Server) buildFish27(f *RolledFish, hookGUID, gearGuid string) *proto.Va
 
 // ---- 搏鱼曲线（fight_curves_sets.json）----
 
+// tunableFishStaminaEnergyPenalty 玩家精力对鱼体力池的放大系数：
+// 精力为 0 时鱼池按 (1+系数) 放大，精力满时不放大。0 关闭该耦合。
+const tunableFishStaminaEnergyPenalty = "fish_stamina_energy_penalty"
+
+// defFishStaminaEnergyPenalty 是自设计标定值：精力见底时鱼约为 2 倍体力池。
+const defFishStaminaEnergyPenalty = 1.0
+
+// fishStaminaEnergyPenalty 读取耦合系数；状态机总开关关闭时返回 0（不生效）。
+func (s *Server) fishStaminaEnergyPenalty() float64 {
+	if s == nil {
+		return 0
+	}
+	if !s.conditionParams().Enabled {
+		return 0
+	}
+	return clampFloat(s.tunableF(tunableFishStaminaEnergyPenalty, defFishStaminaEnergyPenalty), 0, 4)
+}
+
+// energyRatioForCap 把当前精力换算成“相对有效上限”的比例（0~1）。
+// 上限必须用 conditionParamsForUID 的结果（含竿/轮加成），否则装备把上限
+// 抬到 1.0 后，0.85 的精力会被算成满值，玩家凭空少 15% 惩罚。
+func energyRatioForCap(primary, cap float64) float64 {
+	if cap <= 0 {
+		return 1
+	}
+	r := primary / cap
+	if r > 1 {
+		return 1
+	}
+	if r < 0 {
+		return 0
+	}
+	return r
+}
+
+// scaleFishStaminaForEnergy 按玩家精力放大鱼体力池：
+// 精力达到有效上限（>=1）不放大，精力 0 时放大到 (1+penalty) 倍，中间线性。
+func scaleFishStaminaForEnergy(base, energyRatio, penalty float64) float64 {
+	if penalty <= 0 || energyRatio >= 1 {
+		return base
+	}
+	if energyRatio < 0 {
+		energyRatio = 0
+	}
+	return base * (1 + (1-energyRatio)*penalty)
+}
+
 // Push14_14 发判鱼推送：args("524")[guid(钓组), 27]。
 func (s *Session) Push14_14(f *RolledFish, hookGUID, gearGuid string) bool {
 	if f == nil {
@@ -1703,6 +1750,15 @@ func (s *Session) Push14_14(f *RolledFish, hookGUID, gearGuid string) bool {
 	}
 	profile := s.Srv.fishFightProfileFor(f)
 	stamina := s.Srv.fishStaminaForProfile(f, profile)
+	// 玩家精力越低，鱼的体力池越大：客户端按 f5 模拟鱼体力消耗，
+	// 池子放大等价于“鱼更耐拉、体力掉得更慢”。系数 tunable，0 关闭。
+	// 分母用 conditionParamsForUID 的有效上限（含竿/轮加成），
+	// 不能用基础 conditionParams().EnergyMax，否则装备抬上限后玩家永远“满精力”。
+	if penalty := s.Srv.fishStaminaEnergyPenalty(); penalty > 0 {
+		params := s.Srv.conditionParamsForUID(s.pushCtx(), s.Userid)
+		ratio := energyRatioForCap(s.Srv.currentPlayerCondition(s.pushCtx(), s.Userid).Primary, params.EnergyMax)
+		stamina = scaleFishStaminaForEnergy(stamina, ratio, penalty)
+	}
 	initialStamina := s.Srv.fishInitialStaminaRatio()
 	force := s.Srv.fishFightPullFor(f, profile)
 	s.log.Info("14/14 发鱼",
