@@ -126,17 +126,49 @@ func TestDrinkUseAtomicQuantityAndF13(t *testing.T) {
 				t.Fatalf("inventory update lost quantity/f13: %+v", updated)
 			}
 			var remaining, duration int64
+			var peak float64
 			var source string
-			if err := s.DB.SQL.QueryRow(`SELECT remaining_millis,duration_millis,source_guid
-				FROM drink_bonus_effect WHERE uid=1000001 AND category='wine'`).Scan(&remaining, &duration, &source); err != nil {
+			if err := s.DB.SQL.QueryRow(`SELECT peak,remaining_millis,duration_millis,source_guid
+				FROM drink_bonus_effect WHERE uid=1000001 AND category='wine'`).Scan(&peak, &remaining, &duration, &source); err != nil {
 				t.Fatal(err)
 			}
-			if remaining != 600000 || duration != remaining || source != row.GUID {
-				t.Fatalf("wine effect: remaining=%d duration=%d source=%s", remaining, duration, source)
+			// 官服单瓶值：rd_red_vine 19% / 12 游戏小时（24:1 折算 30 现实分钟）。
+			if peak != .19 || remaining != 1800000 || duration != remaining || source != row.GUID {
+				t.Fatalf("wine effect: peak=%g remaining=%d duration=%d source=%s", peak, remaining, duration, source)
 			}
 			drinkUseTestCount(t, s, `SELECT COUNT(*) FROM kv WHERE k LIKE 'drink-use:%'`, 1)
 			drinkUseTestCount(t, s, `SELECT COUNT(*) FROM kv WHERE k LIKE 'drink-use:%' AND json_extract(v,'$.created_at') > 0`, 1)
 		})
+	}
+}
+
+func TestDrinkUseOfficialPeakAndDurationReachSettlement(t *testing.T) {
+	t.Parallel()
+	s := newDrinkUseTestServer(t)
+	const uid = int64(1000001)
+	row := drinkUseTestItem(t, s, "tungus_vodka", 2, 0)
+	if body, handled := hItemUse(drinkUseTestCtx(t, s, 3, row.GUID, 0)); !handled || len(body) == 0 {
+		t.Fatal("4/8 饮酒未成功")
+	}
+	// 4 分钟位于官服 22.5 分钟时长的最后 25% 衰减区；若误用类别 15 分钟时长会取峰值。
+	if _, err := s.DB.SQL.Exec(`UPDATE drink_bonus_effect SET remaining_millis=240000 WHERE uid=? AND category='spirit'`, uid); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DB.SQL.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	bonus, err := s.drinkXPBonusTx(t.Context(), tx, uid, 100, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bonus == nil {
+		t.Fatal("酒兴结算缺失")
+	}
+	wantRate := .10 * (4.0 / 5.625)
+	if math.Abs(bonus.Multiplier-wantRate) > 1e-12 || bonus.XP != int64(math.Round(100*wantRate)) {
+		t.Fatalf("酒兴结算=%+v, want rate=%g xp=%d", bonus, wantRate, int64(math.Round(100*wantRate)))
 	}
 }
 
@@ -263,7 +295,8 @@ func TestDrinkUseDifferentCallsRefreshSameCategory(t *testing.T) {
 	}
 	drinkUseTestQty(t, s, row.GUID, 1, 0)
 	var remaining int64
-	if err := s.DB.SQL.QueryRow(`SELECT remaining_millis FROM drink_bonus_effect WHERE category='spirit'`).Scan(&remaining); err != nil || remaining != 900000 {
+	// 官服单瓶值：tungus_vodka 10% / 9 游戏小时（24:1 折算 22.5 现实分钟）。
+	if err := s.DB.SQL.QueryRow(`SELECT remaining_millis FROM drink_bonus_effect WHERE category='spirit'`).Scan(&remaining); err != nil || remaining != 1350000 {
 		t.Fatalf("same category did not refresh: %d %v", remaining, err)
 	}
 	drinkUseTestCount(t, s, `SELECT COUNT(*) FROM drink_bonus_effect`, 1)
@@ -387,6 +420,10 @@ func TestConsumableRestoreClassification(t *testing.T) {
 		"ab_tea_can": "tea", "thermos_tea": "tea",
 		"food_cacao": "cocoa", "thermos_cacao": "cocoa",
 		"carrot": "food", "apples": "food", "cake_rf4": "food", "cf_squid": "food",
+		// 瓶装无酒精成品饮料：软饮口径（饱食度），不能两头落空
+		//（酒表与消耗品表都不收录 → 4/8 落通用 handler 不扣不恢复）。
+		"lb_bottle_lim": "food", "lim_ny25_bottle": "food",
+		"AV_shamp_tsr_a0": "food", "pm_medovuha_alcfree": "food", "lb_bottle_ale_ny_a0": "food",
 	} {
 		if got, ok := consumableRestoreForItem(item); !ok || got != want {
 			t.Fatalf("%s 分类错误: got=%q ok=%v", item, got, ok)

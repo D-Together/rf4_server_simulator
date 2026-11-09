@@ -48,7 +48,12 @@ func (s *Server) drinkXPBonusTx(ctx context.Context, tx *sql.Tx, uid, baseXP int
 	}
 	var best catchXPBonus
 	for _, state := range states {
-		rate := drinkRate(state.Category, time.Duration(state.RemainingMillis)*time.Millisecond)
+		remaining := time.Duration(state.RemainingMillis) * time.Millisecond
+		rate := drinkRateFor(state.Peak, time.Duration(state.DurationMillis)*time.Millisecond, remaining)
+		if state.Peak <= 0 {
+			// 兼容旧行：迁移新增的 peak 默认为 0，回退类别默认峰值与时长。
+			rate = drinkRate(state.Category, remaining)
+		}
 		if rate > best.Multiplier {
 			guid := state.SourceGUID
 			if guid == "" {

@@ -15,6 +15,10 @@ import (
 // 用略低于 1.0 的阈值，避免浮点累加尾差让玩家永远差一点点吃不饱。
 const foodSatietyFullThreshold = 0.995
 
+// operationResultPlayerFull 官服操作结果码 55：玩家已吃饱
+// （kOperationResult_PlayerFull，客户端枚举 abadjfbfdjb.lpkkndpoicm）。
+const operationResultPlayerFull = 55
+
 type drinkUseReceipt struct {
 	BodySHA256     string
 	ExpectResponse bool
@@ -137,8 +141,11 @@ func (s *Server) useAlcoholDrink(ctx *Ctx) ([]byte, bool) {
 			`SELECT COALESCE(secondary_value,0) FROM player_condition WHERE uid=?`, uid).Scan(&satiety); {
 		case qerr == nil:
 			if satiety >= foodSatietyFullThreshold {
-				ctx.Sess.pushSystemChat("你已经吃饱了，吃不下更多食物")
-				return fail("你已经吃饱了")
+				_ = tx.Rollback()
+				// 官服结果码 55（kOperationResult_PlayerFull）：客户端显示
+				// 正规「已吃饱」文案，弹窗即完整反馈，不再补聊天消息。
+				ctx.ReplyOperationResult(operationResultPlayerFull)
+				return nil, true
 			}
 		case !errors.Is(qerr, sql.ErrNoRows):
 			return failed(qerr)
@@ -154,7 +161,7 @@ func (s *Server) useAlcoholDrink(ctx *Ctx) ([]byte, bool) {
 		return failed(err)
 	}
 	if isDrink {
-		if err := store.RefreshDrinkBonusTx(cctx, tx, uid, rule.Category, rule.Duration, row.GUID); err != nil {
+		if err := store.RefreshDrinkBonusTxWithPeak(cctx, tx, uid, rule.Category, rule.Peak, rule.Duration, row.GUID); err != nil {
 			return failed(err)
 		}
 	}

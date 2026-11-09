@@ -24,7 +24,52 @@ func drinkRuleForCategory(category string) (drinkRule, bool) {
 	}
 }
 
+// gameHourReal 世界时钟 24 倍速：1 游戏小时 = 150 现实秒（world_clock.go）。
+const gameHourReal = 150 * time.Second
+
+// officialDrinkBonuses 官服单瓶经验加成（gamekee 官服酒表 2026-11-09
+// 存档，drink-bonus-official.docx，28 款有实测值 / 30 个 item_id）。
+// 峰值为单瓶经验加成小数，时长为游戏小时（按 gameHourReal 折算）。
+// 官服表空白（—）或待定（？）的单品不在表中，回退本地类别档位；
+// TUNGUS 伏特加总表 10% 与地图页 12% 冲突，取总表值。
+var officialDrinkBonuses = map[string]struct {
+	peak  float64
+	hours int
+}{
+	"rd_ice_vine":       {.25, 12},
+	"AV_shamp_tsr":      {.20, 12},
+	"rd_white_vine":     {.19, 12},
+	"rd_red_vine":       {.19, 12},
+	"XXIVA_bottle_vdka": {.16, 12},
+	"kala_vodka":        {.14, 10},
+	"hooch_corn":        {.10, 9},
+	"tungus_vodka":      {.10, 9},
+	"gorilka":           {.085, 9},
+	"zdn_bottle_cogn5":  {.08, 9},
+	"boyar_bottle_vdka": {.08, 9},
+	"hooch_potato":      {.07, 9},
+	"pervach":           {.065, 7},
+	"AV_shamp_1l":       {.06, 12},
+	"AV_shamp_p_6l":     {.06, 12},
+	"zdn_bottle_cogn3":  {.059, 6},
+	"pm_medovuha":       {.059, 8},
+	"vodka_glass":       {.055, 6},
+	"thermos_gwein":     {.05, 6},
+	"kr_pennik":         {.05, 6},
+	"zdn_bottle_vdka":   {.046, 6},
+	"AV_shamp_1l_8":     {.04, 7},
+	"AV_shamp_1lg":      {.04, 7},
+	"apple_sidr":        {.04, 6},
+	"vine_bottle_em":    {.04, 6},
+	"lb_bottle_krep":    {.039, 5},
+	"lb_bottle_krep_ny": {.039, 6},
+	"lb_bottle_trad_ny": {.035, 5},
+	"wood_can_dark":     {.033, 5},
+	"lb_bottle_eks_ny":  {.029, 6},
+}
+
 // 白名单按 4.0.25034 饮品定义和名称分类，不包含微量含酒食物或无酒精替代品。
+// 官服有实测值的单品用 officialDrinkBonuses 覆盖类别档位；其余回退类别档。
 func drinkRuleForItem(itemID string) (drinkRule, bool) {
 	var category string
 	switch itemID {
@@ -48,6 +93,10 @@ func drinkRuleForItem(itemID string) (drinkRule, bool) {
 		category = "mead"
 	default:
 		return drinkRule{}, false
+	}
+	if b, ok := officialDrinkBonuses[itemID]; ok {
+		return drinkRule{Category: category, Peak: b.peak,
+			Duration: time.Duration(b.hours) * gameHourReal}, true
 	}
 	return drinkRuleForCategory(category)
 }
@@ -99,7 +148,13 @@ func consumableRestoreForItem(itemID string) (string, bool) {
 		"pb_m_choc", "pb_m_choc25", "pb_m_choc26", "pb_m_choc_8", "pb_m_choc_g", "pb_m_chocg",
 		"sd_shoc_bar", "pryanik_ny26", "pack_marshm", "grilled_marshm",
 		"christmas_dish", "fishcookie",
-		"mc_bottle_cola", "mc_can_cola", "brand_softdrink", "mors_bottle_hm", "kisel_jug":
+		"mc_bottle_cola", "mc_can_cola", "brand_softdrink", "mors_bottle_hm", "kisel_jug",
+		// 瓶装无酒精成品饮料：柠檬汽水/节日柠檬水、无酒精香槟（_a0）、
+		// 无酒精蜜酒/麦芽（alcfree/_a0）。原料（ff_black_tea 等）与酒类
+		// 不进表——见 drink_rules_test 的排除清单。
+		"lb_bottle_lim", "lb_bottle_lim_ny", "lim_ny25_bottle",
+		"AV_shamp_p_a0", "AV_shamp_tsr_a0",
+		"pm_medovuha_alcfree", "pm_medovuha_alcfree_g", "lb_bottle_ale_ny_a0":
 		return "food", true
 	}
 	return "", false
@@ -108,12 +163,20 @@ func consumableRestoreForItem(itemID string) (string, bool) {
 // drinkRate 前 75% 时间为峰值，最后 25% 时间线性降至零。
 func drinkRate(category string, remaining time.Duration) float64 {
 	rule, ok := drinkRuleForCategory(category)
-	if !ok || remaining <= 0 {
+	if !ok {
 		return 0
 	}
-	tail := rule.Duration / 4
-	if remaining >= tail {
-		return rule.Peak
+	return drinkRateFor(rule.Peak, rule.Duration, remaining)
+}
+
+// drinkRateFor 按效果记录里的单瓶峰值和自身时长算当前倍率。
+func drinkRateFor(peak float64, duration, remaining time.Duration) float64 {
+	if peak <= 0 || duration <= 0 || remaining <= 0 {
+		return 0
 	}
-	return rule.Peak * float64(remaining) / float64(tail)
+	tail := duration / 4
+	if remaining >= tail {
+		return peak
+	}
+	return peak * float64(remaining) / float64(tail)
 }
