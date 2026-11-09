@@ -51,7 +51,7 @@ func rotationState(rot baitRotation, now time.Time) RotationState {
 		state.Mode = "soft"
 	}
 	state.IntervalSec = rot.rotateSec
-	if len(rot.groups) == 0 || rot.rotateSec < minBaitRotateSec {
+	if len(rot.groups) <= 1 || rot.rotateSec < minBaitRotateSec {
 		return state
 	}
 	bucket := now.Unix() / rot.rotateSec

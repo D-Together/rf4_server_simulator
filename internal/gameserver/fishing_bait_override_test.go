@@ -39,6 +39,9 @@ func TestExportedRotationState(t *testing.T) {
 	if d := ExportedRotationState(nil, 3600, "soft", base); d.Enabled {
 		t.Fatal("没有组不应启用")
 	}
+	if d := ExportedRotationState([][]string{{"甲"}}, 3600, "strict", base); d.Enabled || d.Active != -1 || d.NextSwitch != 0 || len(d.ActiveBaits) != 0 {
+		t.Fatalf("只有一组时不应启用轮换: %+v", d)
+	}
 	if d := ExportedRotationState(groups, 3600, "weird", base); d.Mode != "soft" {
 		t.Fatalf("未知模式应归一化为 soft，实得 %q", d.Mode)
 	}

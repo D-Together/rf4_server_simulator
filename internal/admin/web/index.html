@@ -199,11 +199,16 @@ function toast(msg,type='ok'){
   const d=document.createElement('div');d.className=type;d.textContent=msg;$('#toast').appendChild(d);
   setTimeout(()=>{d.style.opacity='0';d.style.transform='translateX(20px)';setTimeout(()=>d.remove(),220)},2600);
 }
-function showModal(title,sub,body){
+let MODAL_KIND='';
+function showModal(title,sub,body,kind=''){
+  MODAL_KIND=kind;
   $('#modal').innerHTML=`<div class="section-head"><div><h3>${esc(title)}</h3><div class="sub">${esc(sub||'')}</div></div><button class="btn alt sm" onclick="closeModal()">关闭</button></div>${body}`;
   $('#modalBg').classList.add('on');
 }
-function closeModal(){$('#modalBg').classList.remove('on');$('#modal').innerHTML=''}
+function closeModal(force=false){
+  if(!force&&MODAL_KIND==='bait'&&BR&&BR_INIT!==brSnapshot()&&!window.confirm('有未保存的修改，确定关闭吗？'))return;
+  $('#modalBg').classList.remove('on');$('#modal').innerHTML='';MODAL_KIND='';
+}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
 // ---- 版本更新提示（数据由 launcher 检测后随 /api/me、/api/dashboard 下发）----
 let UPDATE=null;
@@ -394,6 +399,7 @@ function toggleBaitRow(k){BAIT_OPEN.has(k)?BAIT_OPEN.delete(k):BAIT_OPEN.add(k);
 // 编辑鱼饵规则：吃/不吃/底钓只吃/轮换组都改成「先选分类，再选具体饵」，
 // 用户不需要记饵料名字；选完以标签形式展示，可单个删除。
 let BR=null;            // 当前编辑中的规则
+let BR_INIT='';         // 打开编辑器时的快照，用于未保存确认
 let BR_VIEW='edit';     // edit | pick
 let BR_PICK=null;       // {bucket,cat,sub,q}
 let BR_CATS=null;       // 分类树缓存
@@ -409,6 +415,7 @@ function editBaitRule(key){
       sec:r.rotate_sec||0,mode:r.rotate_mode||'soft',
       enabled:r.source==='override'?!!r.enabled:true,cond:r.condition||''};
   if(!BR.groups.length)BR.groups=[[]];
+  BR_INIT=brSnapshot();
   BR_VIEW='edit';
   renderBrEditor();
 }
@@ -434,6 +441,10 @@ function brChips(bucket){
     `<a href="javascript:void(0)" onclick="brRemove('${bucket}',${i})" style="margin-left:6px;color:#ff9aac;text-decoration:none">×</a></span>`).join('');
 }
 function brRemove(bucket,i){const l=brBucket(bucket);if(l){l.splice(i,1);renderBrEditor()}}
+function brSnapshot(){
+  if(!BR)return '';
+  return JSON.stringify({allow:BR.allow,deny:BR.deny,bottom:BR.bottom,groups:BR.groups,sec:BR.sec,mode:BR.mode,enabled:BR.enabled,cond:BR.cond});
+}
 function brReadOptions(){
   if(!BR)return;
   const iv=$('#brInterval'),md=$('#brMode'),en=$('#brEnabled'),cd=$('#brCond');
@@ -464,7 +475,7 @@ function renderBrEditor(){
     `<div class="actions"><button class="btn good" onclick="saveBaitRule()">保存</button>`+
       `<button class="btn alt" onclick="closeModal()">取消</button>`+
       `<button class="btn bad" onclick="resetBaitRule('${esc(BR.key)}')">恢复默认</button></div>`;
-  showModal('编辑鱼饵规则 · '+BR.name,'点「添加饵」先选分类、再选具体饵料；不需要记名字',html);
+  showModal('编辑鱼饵规则 · '+BR.name,'点「添加饵」先选分类、再选具体饵料；不需要记名字',html,'bait');
 }
 function brAddGroup(){
   brReadOptions();
@@ -507,7 +518,7 @@ function renderBrPicker(){
     (p.cat===-1?'':'<div class="field"><input id="brPickQ" placeholder="搜索名称 / ID" value="'+esc(p.q)+'" oninput="brPickSearch(this.value)" style="width:100%"></div>')+
     `<div class="results" id="brPickList"><div class="empty">读取中…</div></div>
      <div class="actions"><button class="btn alt" onclick="brPickBack()">返回编辑</button></div>`;
-  showModal('选择鱼饵 · 加入「'+brBucketLabel(p.bucket)+'」','先选分类，再点具体饵料即可加入',html);
+  showModal('选择鱼饵 · 加入「'+brBucketLabel(p.bucket)+'」','先选分类，再点具体饵料即可加入',html,'bait');
   brPickReload();
 }
 function brPickBack(){BR_VIEW='edit';renderBrEditor()}
@@ -546,7 +557,7 @@ async function saveBaitRule(){
     BR_INIT=brSnapshot();               // 已保存，关闭时不再弹"未保存"确认
     // 鱼饵偏好页改了规则/轮换，钓场鱼口页的饵料列必须跟着更新。
     invalidateBaitMap();
-    closeModal();toast('已保存，最多 30 秒生效');await loadBaitPrefs();
+    closeModal(true);toast('已保存，最多 30 秒生效');await loadBaitPrefs();
     if(VIEW==='fish')refreshCurrent();   // 正停在钓场页时立刻重绘，无需手动切换
   }catch(e){brShowErr('保存失败：'+e.message)}
 }
@@ -555,7 +566,7 @@ function resetBaitRule(name){
     try{
       await api('/api/bait/rules/reset',{method:'POST',body:JSON.stringify({fish_zh:name})});
       invalidateBaitMap();
-      closeModal();toast('已恢复默认');await loadBaitPrefs();
+      closeModal(true);toast('已恢复默认');await loadBaitPrefs();
       if(VIEW==='fish')refreshCurrent();
     }catch(e){toast(e.message,'bad')}
   });
