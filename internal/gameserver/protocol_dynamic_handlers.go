@@ -537,8 +537,30 @@ func hRodCutLine(ctx *Ctx) ([]byte, bool) {
 	return body, true
 }
 
-// hDynamicRewardEntry 处理 3/40，返回 2015 奖励条目并回显请求中的 guid。
-// 没有奖励持久化表时保留空物品 ID，不生成不存在的 systemID。
+// firstBoolValue 取请求树中的第一个 bool 参数；3/40 的第二个参数是可见性。
+func firstBoolValue(v *proto.Value) (bool, bool) {
+	if v == nil {
+		return false, false
+	}
+	if v.Kind == proto.KindBool {
+		return v.Bool, true
+	}
+	for _, it := range v.Items {
+		if got, ok := firstBoolValue(it); ok {
+			return got, true
+		}
+	}
+	for _, f := range v.Fields {
+		if got, ok := firstBoolValue(f.Val); ok {
+			return got, true
+		}
+	}
+	return false, false
+}
+
+// hDynamicRewardEntry 处理 3/40，按 guid 返回单条 2015 奖赏条目（enikeammfen）。
+// 命中库中真实奖赏物品则填 item_id/容器/数量/创建时间/名次，并把请求 bool
+// 写入 f1（可见性）；否则回显 guid（空物品 ID），不生成不存在的 systemID。
 func hDynamicRewardEntry(ctx *Ctx) ([]byte, bool) {
 	guid := zeroGUID
 	for _, g := range deepGUIDs(ctx.Tree) {
@@ -547,15 +569,36 @@ func hDynamicRewardEntry(ctx *Ctx) ([]byte, bool) {
 			break
 		}
 	}
+	visibility, hasVisibility := firstBoolValue(ctx.Tree)
+	if srv := ctx.Sess.Srv; srv != nil && srv.DB != nil && guid != "" && guid != zeroGUID {
+		if row, err := srv.DB.GetItemByGUID(ctx.Sess.pushCtx(), guid); err == nil && row != nil && row.UID == ctx.Sess.Userid &&
+			row.WireClass == "enikeammfen" && row.TypeID == 2015 {
+			if hasVisibility {
+				if err := setRewardVisibility(ctx.Sess.pushCtx(), srv.DB, row, visibility); err != nil {
+					ctx.Log.Error("3/40 奖赏可见性写库失败", "guid", shortGUID(guid), "err", err)
+					return nil, false
+				}
+			}
+			// 与 3/16 共用构造器：工艺/耐久/时间一律取物品行的真实值。
+			obj, merr := makeRewardEntry(row)
+			if merr == nil {
+				if body, e := proto.EncodeValue(obj, ctx.Sess.Table()); e == nil {
+					return body, true
+				}
+			}
+		}
+	}
+	// 未命中真实物品：回显 guid 的空壳，不编造时间/数值。
+	// f6/f7 仍按 float 位模式填 0，与 enikeammfen 字段语义保持一致。
 	obj, err := wiregen.MakeObj("enikeammfen", map[int]*proto.Value{
 		0:  proto.U32(0),
-		1:  proto.U32(1),
+		1:  proto.U32(0),
 		2:  proto.Guid(guid),
 		3:  proto.Guid(""),
 		4:  proto.U32(10),
 		5:  proto.U32(0),
-		6:  proto.U32(0),
-		7:  proto.U32(0),
+		6:  proto.F32(0),
+		7:  proto.F32(0),
 		8:  proto.U64(0),
 		9:  proto.U64(0),
 		10: proto.U32(0),
