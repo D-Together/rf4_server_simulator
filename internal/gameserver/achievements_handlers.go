@@ -1,6 +1,8 @@
 package gameserver
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	"rf4server/internal/proto"
@@ -69,6 +71,10 @@ func makeRewardEntry(it *store.Item) (*proto.Value, error) {
 		created = netTicksFromUnix(it.CreatedTS)
 		updatedFT = proto.UnixToFiletime(int64(it.CreatedTS))
 	}
+	visibility := uint32(0)
+	if fields, err := FieldsFromJSON(it.FieldsJSON); err == nil {
+		visibility = rewardVisibilityFromFields(fields)
+	}
 	wm := it.Workmanship
 	if wm <= 0 {
 		wm = 1
@@ -79,7 +85,7 @@ func makeRewardEntry(it *store.Item) (*proto.Value, error) {
 	}
 	return wiregen.MakeObj("enikeammfen", map[int]*proto.Value{
 		0:  proto.U32(placeOfItem(it.ItemID)),
-		1:  proto.U32(0), // 0=对其他玩家可见、1=隐藏
+		1:  proto.U32(visibility), // 0=对其他玩家可见、1=隐藏
 		2:  proto.Guid(it.GUID),
 		3:  proto.Guid(""),
 		4:  proto.U32(kind),
@@ -97,11 +103,13 @@ func makeRewardEntry(it *store.Item) (*proto.Value, error) {
 }
 
 // placeOfItem 从奖牌 item_id 推「名次」（enikeammfen.f0 = ijahnpdddfc，
-// 客户端本地化 kDlg_Rewards_Position = 第{0}名）。仅认竞赛类 _1/_2/_3 家族
-// （ft_*、weekly_medal_*），刻意排除 statuette_fisherman_10 / trophy_level_* 这类
-// 「计数/等级」后缀，避免把 10 当成第10名。非名次类返回 0。
+// 客户端本地化 kDlg_Rewards_Position = 第{0}名）。认竞赛类 _1~_5 家族
+// （ft_*、weekly_medal_*、ann_rec_*），刻意排除 statuette_fisherman_10 /
+// trophy_level_* 这类「计数/等级」后缀，避免把 10 当成第10名。非名次类返回 0。
 func placeOfItem(itemID string) uint32 {
-	if !strings.HasPrefix(itemID, "ft_") && !strings.HasPrefix(itemID, "weekly_medal_") {
+	if !strings.HasPrefix(itemID, "ft_") &&
+		!strings.HasPrefix(itemID, "weekly_medal_") &&
+		!strings.HasPrefix(itemID, "ann_rec_") {
 		return 0
 	}
 	switch {
@@ -111,8 +119,51 @@ func placeOfItem(itemID string) uint32 {
 		return 2
 	case strings.HasSuffix(itemID, "_3"):
 		return 3
+	case strings.HasSuffix(itemID, "_4"):
+		return 4
+	case strings.HasSuffix(itemID, "_5"):
+		return 5
 	}
 	return 0
+}
+
+// rewardVisibilityFromFields 读取 enikeammfen.f1；缺失时按可见处理。
+func rewardVisibilityFromFields(fields []proto.Field) uint32 {
+	if len(fields) <= 1 || fields[1].Num == nil {
+		return 0
+	}
+	return uint32(*fields[1].Num)
+}
+
+// setRewardVisibility 把 3/40 的可见性参数写入奖赏物品的 enikeammfen.f1。
+func setRewardVisibility(ctx context.Context, db *store.DB, it *store.Item, visibility bool) error {
+	if db == nil || it == nil || it.WireClass != "enikeammfen" || it.TypeID != 2015 {
+		return fmt.Errorf("不是奖赏物品")
+	}
+	fields, err := FieldsFromJSON(it.FieldsJSON)
+	if err != nil || len(fields) <= 1 {
+		// 历史/测试行可能只有基础列、没有完整 fields_json；补成标准
+		// enikeammfen 模板后再写 f1，避免可见性按钮永久无效。
+		obj, merr := wiregen.MakeObj("enikeammfen", nil)
+		if merr != nil {
+			return merr
+		}
+		fields = obj.Fields
+	}
+	value := uint64(0)
+	if visibility {
+		value = 1
+	}
+	fields[1].Num = ptrU64(value)
+	fj, err := FieldsToJSON(fields)
+	if err != nil {
+		return err
+	}
+	if err := db.UpdateItemFields(ctx, it.GUID, fj, it.Qty, it.Durability, it.Workmanship, it.RigGUID); err != nil {
+		return err
+	}
+	it.FieldsJSON = fj
+	return nil
 }
 
 func hAchievements305(ctx *Ctx) ([]byte, bool) {

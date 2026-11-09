@@ -174,6 +174,11 @@ func TestPlaceOfItem(t *testing.T) {
 		"weekly_medal_1":          1,
 		"weekly_medal_3":          3,
 		"ft_5th_anniversary_2":    2,
+		"ann_rec_1":               1,
+		"ann_rec_5":               5,
+		"ann_rec_bl_2":            2,
+		"ann_rec_sea_4":           4,
+		"ann_rec_ul_5":            5,
 		// 非名次类：计数/等级后缀不得误判
 		"statuette_fisherman_10":   0,
 		"statuette_supertrophy_50": 0,
@@ -186,5 +191,82 @@ func TestPlaceOfItem(t *testing.T) {
 		if got := placeOfItem(id); got != want {
 			t.Errorf("placeOfItem(%q)=%d, 期望 %d", id, got, want)
 		}
+	}
+}
+
+func TestDynamicRewardVisibilityPersistsToList(t *testing.T) {
+	srv, db := newStaticRigTestServer(t)
+	defer db.Close()
+	ctx := t.Context()
+	const uid = int64(1000001)
+	if err := srv.EnsurePlayer(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	item, err := srv.CreateItem(ctx, uid, "ft_big_bear_cup_medal_1", "house", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := dynamicTestCtx(srv, rigRequestTree(t, proto.Guid(item.GUID), proto.Bool(true)))
+	body, ok := hDynamicRewardEntry(c)
+	if !ok {
+		t.Fatal("3/40 隐藏请求未处理")
+	}
+	detail, _, err := proto.DecodeValue(body, 0, srv.Table())
+	if err != nil {
+		t.Fatal(err)
+	}
+	visibility := detail.Field(1)
+	if got := visibility.U32(); got != 1 {
+		t.Fatalf("3/40 隐藏后 f1=%d，期望 1", got)
+	}
+
+	fresh := mustItem(t, db, item.GUID)
+	fields, err := FieldsFromJSON(fresh.FieldsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visibility = fields[1]
+	if got := visibility.U32(); got != 1 {
+		t.Fatalf("隐藏状态未写入物品字段: %d", got)
+	}
+
+	c = dynamicTestCtx(srv, nil)
+	body, ok = hPlayerRewards2015(c)
+	if !ok {
+		t.Fatal("3/16 列表未处理")
+	}
+	list, _, err := proto.DecodeValue(body, 0, srv.Table())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *proto.Value
+	for _, entry := range list.Items {
+		guidField := entry.Field(2)
+		if guidField.GuidHex() == item.GUID {
+			found = entry
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("3/16 未返回奖赏")
+	}
+	visibility = found.Field(1)
+	if got := visibility.U32(); got != 1 {
+		t.Fatalf("3/16 列表未反映隐藏状态: %d", got)
+	}
+
+	c = dynamicTestCtx(srv, rigRequestTree(t, proto.Guid(item.GUID), proto.Bool(false)))
+	body, ok = hDynamicRewardEntry(c)
+	if !ok {
+		t.Fatal("3/40 显示请求未处理")
+	}
+	detail, _, err = proto.DecodeValue(body, 0, srv.Table())
+	if err != nil {
+		t.Fatal(err)
+	}
+	visibility = detail.Field(1)
+	if got := visibility.U32(); got != 0 {
+		t.Fatalf("3/40 显示后 f1=%d，期望 0", got)
 	}
 }
