@@ -305,6 +305,10 @@ func (s *Server) tryBaitDig(ctx *Ctx) ([]byte, bool) {
 		// 体力条不在 4/22 里，扣完立刻补推一条 2/2，否则要等下一拍保活才看得见。
 		ctx.AfterResponse(func() { pushKeepalive(ctx.Sess) })
 	}
+	// 同一次挖到多种饵时逐种上报，避免“挖到某饵”成就因只记录首件而漏判。
+	for _, key := range keys {
+		s.evaluateAchievements(ctx, achievementEvent{Kind: evBaitDug, BaitKey: key})
+	}
 	return body, true
 }
 

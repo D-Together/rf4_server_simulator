@@ -210,6 +210,56 @@ func TestBaitDigReportsGainAndKeepsStackTotal(t *testing.T) {
 	}
 }
 
+func TestBaitDigReportsAchievementForEveryProducedKind(t *testing.T) {
+	srv, db := newDetachTestServer(t)
+	ctx := t.Context()
+	const uid = int64(1000001)
+	tool, err := srv.CreateItem(ctx, uid, baitScoopItemID, "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hctx := &Ctx{Sess: newProbeSess(srv), Main: 9, Sub: 3,
+		Tree: proto.Args524(proto.Guid(tool.GUID)), DecodeOK: true, Log: logging.Discard()}
+	body, handled := hCraftMine2(hctx)
+	if !handled || len(body) == 0 {
+		t.Fatal("9/3 挖饵未处理")
+	}
+	result := decodeTreeValue(t, srv, body)
+	produced := baitDigItems(t, result.Field(1).Val)
+
+	achievementByBait := map[string]int64{
+		"worm_01":         250,
+		"bloodworm":       258,
+		"caddisfly":       259,
+		"naiad":           261,
+		"unibeetle_larva": 272,
+	}
+	states, err := db.PlayerAchievementStates(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, item := range produced {
+		guid := fieldGuidHex(item, fieldIdxByCS(item.Class, csGUID))
+		row, err := db.GetItemByGUID(ctx, guid)
+		if err != nil || row == nil {
+			t.Fatalf("产出的饵没有落库: guid=%s err=%v", guid, err)
+		}
+		achID, ok := achievementByBait[row.ItemID]
+		if !ok {
+			continue
+		}
+		checked++
+		st := states[achID]
+		if !st.Unlocked || !st.Claimed {
+			t.Fatalf("产出 %s 后成就 %d 未解锁: %+v", row.ItemID, achID, st)
+		}
+	}
+	if checked == 0 {
+		t.Fatalf("本次产出 %v 没有覆盖任何挖饵成就", produced)
+	}
+}
+
 func TestBaitDigInventoryPushKeepsStackTotal(t *testing.T) {
 	srv, db := newDetachTestServer(t)
 	ctx := t.Context()
