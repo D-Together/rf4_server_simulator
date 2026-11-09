@@ -364,6 +364,44 @@ func TestFightReelLoadTickUsesRealGaps(t *testing.T) {
 	}
 }
 
+func TestFightReelDragChangeKeepsLastLoadBoundary(t *testing.T) {
+	srv, _ := newRigTestServer(t)
+	ctx := t.Context()
+	const uid = int64(1000001)
+	rod, err := srv.CreateItem(ctx, uid, "feeder_10125_FD360", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reel, err := srv.CreateItem(ctx, uid, "spin_5820", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mountReelOnRod(t, srv, rod.GUID, reel.GUID)
+	fish := &RolledFish{FishGUID: "drag-change-time", Species: "carp", WeightG: 50_000, Grade: 3}
+	cached := srv.fightReelCache(ctx, uid, rod.GUID, fish)
+	if !cached.valid || cached.dragKg <= 0 || cached.pullKg <= cached.dragKg {
+		t.Fatalf("测试账本前置条件不成立: %+v", cached)
+	}
+	st := srv.stateFor(uid)
+	st.mu.Lock()
+	st.Pending, st.GearGuid = fish, rod.GUID
+	st.CastActive, st.InWater, st.Hooked = true, true, true
+	st.reelWear = cached
+	st.reelWear.lastLoadAt = time.Now().Add(-100 * time.Millisecond)
+	st.reelWear.invalidate()
+	st.mu.Unlock()
+
+	srv.recordFightReelLoad(&Ctx{Sess: newProbeSess(srv), Main: 14, Sub: 8, DecodeOK: true,
+		Log: logging.Discard()})
+
+	st.mu.Lock()
+	got := st.reelWear.SlipSecs
+	st.mu.Unlock()
+	if got >= 1.0 {
+		t.Fatalf("改摩擦档后真实间隔被按兜底计时: SlipSecs=%.2fs", got)
+	}
+}
+
 // TestFightReelBurnSecondsFollowRealGaps 断发热秒数不再假设“一条上报 = 1.9 秒”：
 // 客户端上报翻倍密集时，累计秒数仍只跟着真实时间走，摩擦片不会被虚增时长多烧。
 func TestFightReelBurnSecondsFollowRealGaps(t *testing.T) {

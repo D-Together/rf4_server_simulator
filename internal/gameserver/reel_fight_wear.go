@@ -401,8 +401,14 @@ func (s *Server) recordFightReelLoad(ctx *Ctx) {
 		return
 	}
 	if !cached.valid || cached.fishGUID != fish.FishGUID || cached.rodGUID != gear {
+		sameLedger := cached.fishGUID == fish.FishGUID && cached.rodGUID == gear
+		lastLoadAt := cached.lastLoadAt
 		changedAt := cached.protectionChangedAt
 		cached = s.fightReelCache(s.dbCtx(), uid, gear, fish)
+		if sameLedger {
+			// 改摩擦档只让承力缓存失效，不应把上一条 14/8 的真实时间边界清掉。
+			cached.lastLoadAt = lastLoadAt
+		}
 		cached.protectionChangedAt = changedAt
 	}
 	if !cached.valid || cached.ratedKg <= 0 {

@@ -1057,7 +1057,8 @@ func (s *Server) partAlternatives(ctx context.Context, reelItemID string, part r
 				if mi != mj {
 					return mi < mj
 				}
-				return oils[i] < oils[j]
+				// 同一匹配档保持查询原有的品质/编号顺序。
+				return false
 			})
 			for _, id := range oils {
 				addJob(id)
