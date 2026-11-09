@@ -14,17 +14,17 @@ func TestFishStats321FromCatchLog(t *testing.T) {
 	srv, db := newDetachTestServer(t)
 	ctx := context.Background()
 	const uid = int64(1000001)
-	insert := func(loc string, spot int64, key string, weight, grade, xp, silver int64, bait string) {
+	insert := func(loc string, spot int64, key string, weight, grade, xp, silver int64, bait string, length float64) {
 		t.Helper()
-		if err := db.CatchLogInsert(ctx, uid, loc, spot, key, "", weight, 0.2, "catch",
+		if err := db.CatchLogInsert(ctx, uid, loc, spot, key, "", weight, length, "catch",
 			bait, grade, xp, silver, "level_001_lake"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	insert("loc1_02", 1, "c.roach", 186, 1, 35, 0, "worm_01")
-	insert("loc1_02", 2, "bream", 650, 3, 260, 42, "worm_01")
-	insert("loc1_02", 3, "c.roach", 500, 2, 100, 10, "spinnerbaits_1103")
-	insert("loc1_02", 4, "perch", 800, 4, 300, 100, "worm_01")
+	insert("loc1_02", 1, "c.roach", 186, 1, 35, 0, "worm_01", 0.2)
+	insert("loc1_02", 2, "bream", 650, 3, 260, 42, "worm_01", 0.9)
+	insert("loc1_02", 3, "c.roach", 500, 2, 100, 10, "spinnerbaits_1103", 0.3)
+	insert("loc1_02", 4, "perch", 800, 4, 300, 100, "worm_01", 0.5)
 
 	sess := newProbeSess(srv)
 	body, ok := hFishStats(&Ctx{Sess: sess, Main: 3, Sub: 2, DecodeOK: true, Log: logging.Discard()})
@@ -120,6 +120,44 @@ func TestFishStats321FromCatchLog(t *testing.T) {
 	if got := f15.U32(); got != 500 {
 		t.Fatalf("f15 路亚最大=%d，期望500g", got)
 	}
+	// f8 最优竞争力：按搏鱼拉力维度（鱼种曲线×重量），不再与最重同卡。
+	pullOf := func(key string, weight int64) float64 {
+		f := &RolledFish{Species: key, WeightG: weight}
+		return srv.fishFightPullFor(f, srv.fishFightProfileFor(f))
+	}
+	type catchRow struct {
+		key    string
+		weight int64
+	}
+	all := []catchRow{{"c.roach", 186}, {"bream", 650}, {"c.roach", 500}, {"perch", 800}}
+	wantStrongest := all[0]
+	for _, r := range all[1:] {
+		if pullOf(r.key, r.weight) > pullOf(wantStrongest.key, wantStrongest.weight) {
+			wantStrongest = r
+		}
+	}
+	f8 := dec.Field(8).Val
+	f8Fish, f8Weight := f8.Field(0), f8.Field(2)
+	if got := f8Fish.StrOr(); got != wantStrongest.key || f8Weight.U32() != uint32(wantStrongest.weight) {
+		t.Fatalf("f8 最优竞争力=%v %d，期望按拉力维度 %v %d",
+			f8Fish.StrOr(), f8Weight.U32(), wantStrongest.key, wantStrongest.weight)
+	}
+	// f9 捕捞量纪录：钓得最多的鱼种（c.roach×2），卡面取该鱼种最重一条。
+	f9 := dec.Field(9).Val
+	f9Fish, f9Weight := f9.Field(0), f9.Field(2)
+	if got := f9Fish.StrOr(); got != "c.roach" || f9Weight.U32() != 500 {
+		t.Fatalf("f9 捕捞量卡=%v %d，期望 c.roach 500", f9Fish.StrOr(), f9Weight.U32())
+	}
+	// f16 最长渔获：按体长维度（bream 0.9m）。
+	f16 := dec.Field(16).Val
+	f16Fish := f16.Field(0)
+	if got := f16Fish.StrOr(); got != "bream" {
+		t.Fatalf("f16 最长渔获卡=%v，期望 bream", got)
+	}
+	f16Len := f16.Field(3)
+	if length := proto.F32FromBits(f16Len.U32()); length < 0.89 || length > 0.91 {
+		t.Fatalf("f16 体长=%f，期望0.9", length)
+	}
 	if got := dec.Field(17).Val.ArgCount(); got != 2 {
 		t.Fatalf("f17 竿类统计项=%d，期望2（浮钓/纺车）", got)
 	}
@@ -139,7 +177,7 @@ func TestRecordCardDefaultsAndCategory81(t *testing.T) {
 	card := recordCard320(catchStatRow{
 		TS: 1.25, FishKey: "roach", Grade: 0, WeightG: 100,
 		LengthM: 0.2, Bait: "worm", LocLevel: "level",
-	}, true)
+	}, true, func(string) bool { return false })
 	if card == nil {
 		t.Fatal("recordCard320 不应返回 nil")
 	}
