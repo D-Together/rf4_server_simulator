@@ -21,7 +21,9 @@ test('params page groups preserve edits and upstream embedded API routing',async
    await page.goto('http://127.0.0.1:19214'+prefix+'/#params');
    await page.locator('#tun_xp_gain').waitFor();
    assert.equal(await page.locator('#tun_fish_weight_cap').getAttribute('placeholder'),'默认 0');
-   assert.equal(await page.locator('.tunable-group').count(),4);
+   assert.equal(await page.locator('.tunable-group').count(),9);
+   assert.equal(await page.locator('#tun_electric_locked_multiplier').count(),1);
+   assert.equal(await page.locator('#tun_electric_motor_kg_per_power').count(),1);
    await page.locator('#tun_xp_gain').fill('2.5');
    await page.clock.fastForward(8100);
    await page.waitForTimeout(100);
