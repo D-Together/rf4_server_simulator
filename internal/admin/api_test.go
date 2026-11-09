@@ -289,3 +289,107 @@ func TestValidateEventBranches(t *testing.T) {
 		}
 	}
 }
+
+// 发鱼模式三选一：POST 原子写三个开关，GET 按优先级推导；非法模式 400，0/1 校验覆盖新键。
+func TestSpawnModeEndpoint(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	_ = db.EnsureAdmin(context.Background(), "admin", "admin123")
+	srv := NewServer(config.Admin{HTTPAddr: "127.0.0.1:0", JWTSecret: "test"}, db, logging.Discard(), WebFS())
+	if _, err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	base := "http://" + srv.Addr()
+	client := &http.Client{Timeout: 5 * time.Second}
+	call := func(method, path, token, body string) (int, string) {
+		r, _ := http.NewRequest(method, base+path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := client.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(resp.Body)
+		return resp.StatusCode, buf.String()
+	}
+
+	code, body := call("POST", "/api/login", "", `{"username":"admin","password":"admin123"}`)
+	if code != 200 {
+		t.Fatalf("登录应 200: %d %s", code, body)
+	}
+	var lr struct {
+		Token string `json:"token"`
+	}
+	_ = json.Unmarshal([]byte(body), &lr)
+	token := lr.Token
+
+	get := func(key string) string {
+		v, _, _ := db.TunableGet(context.Background(), key)
+		return v
+	}
+	mode := func() string {
+		code, body := call("GET", "/api/fish/spawn_mode", token, "")
+		if code != 200 {
+			t.Fatalf("读取发鱼模式应 200: %d %s", code, body)
+		}
+		var out struct {
+			Mode string `json:"mode"`
+		}
+		if err := json.Unmarshal([]byte(body), &out); err != nil {
+			t.Fatalf("解析模式响应: %v %s", err, body)
+		}
+		return out.Mode
+	}
+
+	if got := mode(); got != "legacy" {
+		t.Fatalf("全新库三个开关全空应报 legacy，实得 %q", got)
+	}
+	if code, _ := call("POST", "/api/fish/spawn_mode", token, `{"mode":"nope"}`); code != 400 {
+		t.Fatalf("非法模式应 400，实得 %d", code)
+	}
+	if code, _ := call("POST", "/api/fish/spawn_mode", token, `{"mode":"two_stage"}`); code != 200 {
+		t.Fatalf("切换两档制应 200")
+	}
+	if got := get("grade_ratio_enabled"); got != "0" {
+		t.Fatalf("切两档制后档位比例应为 0，实得 %q", got)
+	}
+	if got := get("fish_hunt_enabled"); got != "0" {
+		t.Fatalf("切两档制后鱼猎应为 0，实得 %q", got)
+	}
+	if got := get("two_stage_hunt_enabled"); got != "1" {
+		t.Fatalf("切两档制后两档开关应为 1，实得 %q", got)
+	}
+	if got := mode(); got != "two_stage" {
+		t.Fatalf("GET 应报 two_stage，实得 %q", got)
+	}
+	if code, _ := call("POST", "/api/fish/spawn_mode", token, `{"mode":"grade_ratio"}`); code != 200 {
+		t.Fatalf("切档位比例应 200")
+	}
+	if got := get("grade_ratio_enabled"); got != "1" {
+		t.Fatalf("切档位比例后应为 1，实得 %q", got)
+	}
+	if got := get("two_stage_hunt_enabled"); got != "0" {
+		t.Fatalf("切档位比例后两档开关应为 0，实得 %q", got)
+	}
+	if got := mode(); got != "grade_ratio" {
+		t.Fatalf("GET 应报 grade_ratio，实得 %q", got)
+	}
+
+	// 0/1 校验覆盖两个新开关键；两档制权重校验非负数字。
+	if code, _ := call("POST", "/api/tunables", token, `{"key":"fish_hunt_enabled","value":"7"}`); code != 400 {
+		t.Fatalf("fish_hunt_enabled 非法值应 400，实得 %d", code)
+	}
+	if code, _ := call("POST", "/api/tunables", token, `{"key":"two_stage_hunt_enabled","value":"x"}`); code != 400 {
+		t.Fatalf("two_stage_hunt_enabled 非法值应 400，实得 %d", code)
+	}
+	if code, _ := call("POST", "/api/tunables", token, `{"key":"two_stage_daily_below","value":"-1"}`); code != 400 {
+		t.Fatalf("两档制负权重应 400，实得 %d", code)
+	}
+	if code, _ := call("POST", "/api/tunables", token, `{"key":"two_stage_baited_trophy","value":"6"}`); code != 200 {
+		t.Fatalf("两档制合法权重应 200，实得 %d", code)
+	}
+}
