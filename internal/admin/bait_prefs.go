@@ -5,11 +5,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"rf4server/internal/gameserver"
+	"rf4server/internal/store"
 )
 
-// baitPrefRow 一条鱼的饵料偏好摘要（管理后台只读展示）。
+// baitPrefRow 一条鱼的饵料偏好摘要（管理后台只读展示 + 可编辑覆盖）。
 type baitPrefRow struct {
 	FishKey  string             `json:"fish_key"`
 	NameZh   string             `json:"name_zh"`
@@ -24,6 +26,14 @@ type baitPrefRow struct {
 	Baits    []baitPrefEvidence `json:"baits"`     // 证据最强的若干条
 	Locs     []string           `json:"locs"`      // 出现水域（截断）
 	InStrict bool               `json:"in_strict"` // 严格模式下是否还能咬（规则命中或 tier>0）
+
+	// 可编辑覆盖与轮换：source=override 表示该鱼已被后台规则覆盖。
+	Source     string                   `json:"source"` // default | override
+	Enabled    bool                     `json:"enabled"`
+	Groups     [][]string               `json:"groups"`
+	RotateSec  int64                    `json:"rotate_sec"`
+	RotateMode string                   `json:"rotate_mode"`
+	Rotation   gameserver.RotationState `json:"rotation"`
 }
 
 type baitPrefEvidence struct {
@@ -136,16 +146,31 @@ func (s *Server) handleBaitPrefs(w http.ResponseWriter, r *http.Request) {
 		locRows.Close()
 	}
 
-	// 4) 合并规则表（内存 map）
+	// 4) 后台覆盖：有覆盖时以覆盖为准，并把轮换状态一起带出去。
+	overrides := map[string]store.FishBaitOverride{}
+	if list, oerr := s.db.ListFishBaitOverrides(r.Context()); oerr == nil {
+		for _, o := range list {
+			overrides[o.FishZh] = o
+		}
+	}
+	now := time.Now()
 	out := make([]baitPrefRow, 0, len(fish))
 	for _, f := range fish {
-		row := baitPrefRow{FishKey: f.key, NameZh: f.name, Locs: locsByFish[f.key]}
+		row := baitPrefRow{FishKey: f.key, NameZh: f.name, Locs: locsByFish[f.key], Source: "default"}
 		if info, ok := gameserver.ExportedBaitRules(f.name); ok {
 			row.HasRule = true
 			row.Allow = info.Allow
 			row.Deny = info.Deny
 			row.BottomOh = info.BottomOnly
 			row.Cond = info.Condition
+		}
+		if o, ok := overrides[f.name]; ok {
+			row.Source, row.Enabled = "override", o.Enabled
+			row.HasRule = true
+			row.Allow, row.Deny = o.Allow, o.Deny
+			row.BottomOh, row.Cond = o.BottomOnly, o.Condition
+			row.Groups, row.RotateSec, row.RotateMode = o.Groups, o.RotateSec, o.RotateMode
+			row.Rotation = rotationView(o, now)
 		}
 		if a := byFish[f.key]; a != nil {
 			row.Tier3, row.Tier2, row.Total = a.tier3, a.tier2, a.total
@@ -158,9 +183,11 @@ func (s *Server) handleBaitPrefs(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(out, func(i, j int) bool { return out[i].FishKey < out[j].FishKey })
 
 	writeJSON(w, map[string]any{
-		"total":       len(out),
-		"rule_count":  gameserver.ExportedBaitRuleCount(),
-		"rows":        out,
-		"fish_key_ok": len(nameByKey),
+		"total":         len(out),
+		"rule_count":    gameserver.ExportedBaitRuleCount(),
+		"rows":          out,
+		"fish_key_ok":   len(nameByKey),
+		"rules_enabled": s.baitRulesEnabled(r.Context()),
+		"now":           now.Unix(),
 	})
 }
