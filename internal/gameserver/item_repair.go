@@ -78,6 +78,7 @@ func (s *Server) repairLureHookSlots(ctx context.Context) (int, error) {
 		}
 		items := list.Items
 		stripped := make([]*proto.Value, 0, len(items))
+		keptOld := make([]int, 0, len(items))
 		dropped := 0
 		for i, it := range items {
 			// 与下标无关的全空间匹配（PR#339 评审 P2：短缩后下标漂移）。
@@ -86,12 +87,17 @@ func (s *Server) repairLureHookSlots(ctx context.Context) (int, error) {
 				continue
 			}
 			stripped = append(stripped, it)
+			keptOld = append(keptOld, i)
 		}
 		if dropped == 0 {
 			continue
 		}
 		list.Items = stripped
 		fields[idx] = proto.Field{Op: "VAL", Val: list}
+		// 活动钩下标按剥离映射随迁（PR#339 评审 P2）：垫底钩被剥掉时，
+		// 仍存在的活动钩不得被机械切回第一颗。
+		applyLureActiveOrdinal(row.WireClass, fields,
+			lureActiveOrdinalAfterStrip(lureActiveOrdinal(fields, len(items)), keptOld))
 		bumpCreatedTicks(fields, row.WireClass)
 		fj, jerr := FieldsToJSON(fields)
 		if jerr != nil {

@@ -645,3 +645,314 @@ func TestLureHookMountRollsBackOnWriteFailure(t *testing.T) {
 		t.Fatalf("写回失败时拟饵数组不应变化: before=%d after=%d", arrayBefore, len(got))
 	}
 }
+
+// lureTestActiveOrdinal 读落库拟饵的活动钩下标（f1，nkogmkobfng）。
+func lureTestActiveOrdinal(t *testing.T, s *Server, lureGUID string) int {
+	t.Helper()
+	row, err := s.DB.GetItemByGUID(t.Context(), lureGUID)
+	if err != nil || row == nil {
+		t.Fatalf("读取拟饵 %s: %v", lureGUID, err)
+	}
+	fields, err := FieldsFromJSON(row.FieldsJSON)
+	if err != nil {
+		t.Fatalf("解析拟饵字段: %v", err)
+	}
+	k := fieldIdxByCS(row.WireClass, "nkogmkobfng")
+	if k < 0 || k >= len(fields) || fields[k].Num == nil {
+		return 0
+	}
+	return int(u64Of(fields[k].Num))
+}
+
+// setLureTestActiveOrdinal 直写活动钩下标（模拟客户端早已把 f1 指到
+// 后面的槽）。
+func setLureTestActiveOrdinal(t *testing.T, s *Server, lureGUID string, v int) {
+	t.Helper()
+	row, err := s.DB.GetItemByGUID(t.Context(), lureGUID)
+	if err != nil || row == nil {
+		t.Fatalf("读取拟饵 %s: %v", lureGUID, err)
+	}
+	fields, err := FieldsFromJSON(row.FieldsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := fieldIdxByCS(row.WireClass, "nkogmkobfng")
+	if k < 0 || k >= len(fields) {
+		t.Fatal("拟饵缺活动钩下标字段")
+	}
+	fields[k].Num = ptrU64(uint64(v))
+	fj, err := FieldsToJSON(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.UpdateItemFields(t.Context(), lureGUID, fj, row.Qty, row.Durability, row.Workmanship, row.RigGUID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// PR#339 评审 P2 回归：数组缩短后活动钩下标必须按剥离映射随迁，不得
+// 机械回落 0 把仍在的活动钩切走。3 槽拟饵 f1=2（第三颗活动）：
+//   - 卸中间槽 1 → 活动钩仍在，随之前移到新下标 1（旧实现会越界回落 0）；
+//   - 再卸活动钩本身 → 其后没有保留槽，收末位 0。
+func TestLureHookRemoveRecalculatesActiveOrdinal(t *testing.T) {
+	t.Parallel()
+	s, _ := newRigTestServer(t)
+	const uid = int64(1000001)
+	lure, err := s.CreateItem(t.Context(), uid, "crankbaits_1702", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slots := lureTestHookSlots(t, s, lure.GUID)
+	if len(slots) < 3 {
+		t.Skipf("测试拟饵只有 %d 个钩槽", len(slots))
+	}
+	setLureTestActiveOrdinal(t, s, lure.GUID, 2)
+
+	if det := s.rigRemoveComponentInstance(t.Context(), uid, lure.GUID, catHook,
+		lureHookItemGUID(slots, 1), 1); det == nil {
+		t.Fatal("卸槽 1 失败")
+	}
+	if got := lureTestActiveOrdinal(t, s, lure.GUID); got != 1 {
+		t.Fatalf("卸中间槽后活动钩应随迁到 1，实得 %d", got)
+	}
+
+	if det := s.rigRemoveComponentInstance(t.Context(), uid, lure.GUID, catHook,
+		lureHookItemGUID(slots, 2), 1); det == nil {
+		t.Fatal("卸活动钩失败")
+	}
+	if got := lureTestActiveOrdinal(t, s, lure.GUID); got != 0 {
+		t.Fatalf("卸活动钩后应收末位 0，实得 %d", got)
+	}
+}
+
+// PR#339 评审 P2 回归：槽内元素 GUID 命中原装出厂钩命名空间、但退包准备
+// 失败（元素树缺 NumericID 无法物化）时，装/拆必须整体拒绝——钩不得从
+// 数组消失而无退包。
+func TestLureHookRejectsWhenFactoryRefundPrepFails(t *testing.T) {
+	t.Parallel()
+	s, _ := newRigTestServer(t)
+	const uid = int64(1000001)
+	lure, err := s.CreateItem(t.Context(), uid, "spinnerbaits_1244", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := s.DB.GetItemByGUID(t.Context(), lure.GUID)
+	if err != nil || row == nil {
+		t.Fatal(err)
+	}
+	fields, err := FieldsFromJSON(row.FieldsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := lureHookFieldIndex(row.WireClass)
+	if idx < 0 || idx >= len(fields) || fields[idx].Val == nil || len(fields[idx].Val.Items) == 0 {
+		t.Skip("测试拟饵没有出厂钩")
+	}
+	factoryGUID := lureHookItemGUID(fields[idx].Val.Items, 0)
+	if lureOriginalFactorySlot(lure.GUID, factoryGUID) < 0 {
+		t.Fatalf("槽 0 应是原装出厂钩，实得 %s", factoryGUID)
+	}
+	// 槽 0 元素剥掉 NumericID 字段，模拟"识别为出厂钩但物化失败"。
+	elem := fields[idx].Val.Items[0]
+	if k := fieldIdxByCS(elem.Class, csNumericID); k >= 0 && k < len(elem.Fields) {
+		elem.Fields = append(elem.Fields[:k], elem.Fields[k+1:]...)
+	} else {
+		t.Skip("出厂钩元素缺 NumericID 字段")
+	}
+	fj, err := FieldsToJSON(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.UpdateItemFields(t.Context(), lure.GUID, fj, row.Qty, row.Durability, row.Workmanship, row.RigGUID); err != nil {
+		t.Fatal(err)
+	}
+
+	// 拆被拒：数组原样。
+	if det := s.rigRemoveComponentInstance(t.Context(), uid, lure.GUID, catHook, factoryGUID, 0); det != nil {
+		t.Fatalf("退包准备失败必须拒绝拆钩: %+v", det)
+	}
+	if got := len(lureTestHookSlots(t, s, lure.GUID)); got != 1 {
+		t.Fatalf("被拒后数组不应变化，实得 %d 个元素", got)
+	}
+
+	// 装到同槽（替换这颗退不出去的出厂钩）同样被拒，新钩留在背包。
+	hook, err := s.CreateItem(t.Context(), uid, "c_hook_20712", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res := s.rigSetComponent(t.Context(), uid, lure.GUID, catHook, hook.GUID, 0,
+		rigSetOpts{ParentType: familyLure, EnforceCategory: true, SplitStack: true}); !res.Rejected {
+		t.Fatalf("退包准备失败必须拒绝换钩: %+v", res)
+	}
+	if got := lureTestHookSlots(t, s, lure.GUID); lureHookItemGUID(got, 0) != factoryGUID {
+		t.Fatalf("被拒后槽 0 应原样保留 %s，实得 %s", factoryGUID, lureHookItemGUID(got, 0))
+	}
+	if row2, err := s.DB.GetItemByGUID(t.Context(), hook.GUID); err != nil || row2 == nil || row2.Container != "backpack" {
+		t.Fatalf("被拒后新钩应留在背包: %+v %v", row2, err)
+	}
+}
+
+// PR#339 评审 P1 回归（并发交错的可测形态）：预检后、提交前钓组被另一个
+// call_id 改动时，陈旧预检的提交必须整体拒绝，不得按陈旧快照退包。用
+// 「Prepare → 完整走一遍公开 API → Commit 陈旧 plan」确定性复现交错。
+func TestLureHookMountCommitRejectsStalePlan(t *testing.T) {
+	t.Parallel()
+	s, _ := newRigTestServer(t)
+	const uid = int64(1000001)
+	lure, err := s.CreateItem(t.Context(), uid, "topwater_1928", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slots := lureTestHookSlots(t, s, lure.GUID)
+	if len(slots) < 2 {
+		t.Skipf("测试拟饵只有 %d 个钩槽", len(slots))
+	}
+	factory1 := lureHookItemGUID(slots, 1)
+	f1obj := slots[1]
+	wantNumeric := u64Of(f1obj.Fields[fieldIdxByCS(f1obj.Class, csNumericID)].Num)
+	before := lureBackpackHookQty(t, s, uid, int64(wantNumeric))
+
+	hook, err := s.CreateItem(t.Context(), uid, "c_hook_20712", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 预检：装 hook 到槽 1，替换出厂钩 factory1（快照记下要退包）。
+	plan := s.lureHookMountPrepare(t.Context(), uid, lure.GUID, hook.GUID, 1)
+	if plan == nil || plan.oldGUID != factory1 {
+		t.Fatalf("预检应锁定槽 1 出厂钩，实得 %+v", plan)
+	}
+	// 交错：另一个请求先卸掉这颗出厂钩（退包 +1 已发生）。
+	if det := s.rigRemoveComponentInstance(t.Context(), uid, lure.GUID, catHook, factory1, 1); det == nil {
+		t.Fatal("交错拆钩失败")
+	}
+	if got := lureBackpackHookQty(t, s, uid, int64(wantNumeric)); got != before+1 {
+		t.Fatalf("交错拆钩应恰好退包 +1: got=%d want=%d", got, before+1)
+	}
+	// 陈旧 plan 提交必须被拒（槽内容与快照不一致）。
+	if res := s.lureHookMountCommit(t.Context(), plan); !res.Rejected {
+		t.Fatalf("陈旧预检提交必须拒绝: %+v", res)
+	}
+	// 退包恰好 +1（不得双退），新钩仍在背包。
+	if got := lureBackpackHookQty(t, s, uid, int64(wantNumeric)); got != before+1 {
+		t.Fatalf("陈旧提交不得再退包: want=%d got=%d", before+1, got)
+	}
+	if row, err := s.DB.GetItemByGUID(t.Context(), hook.GUID); err != nil || row == nil || row.Container != "backpack" {
+		t.Fatalf("陈旧提交被拒后新钩应留在背包: %+v %v", row, err)
+	}
+}
+
+// 陈旧拆钩 plan 同理：预检锁定的出厂钩已被另一请求拆掉并退包后，陈旧
+// 提交必须拒绝——剩余出厂钩不得再退一次（双退刷钩）。
+func TestLureHookRemoveCommitRejectsStalePlan(t *testing.T) {
+	t.Parallel()
+	s, _ := newRigTestServer(t)
+	const uid = int64(1000001)
+	lure, err := s.CreateItem(t.Context(), uid, "topwater_1928", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slots := lureTestHookSlots(t, s, lure.GUID)
+	if len(slots) < 2 {
+		t.Skipf("测试拟饵只有 %d 个钩槽", len(slots))
+	}
+	factory0 := lureHookItemGUID(slots, 0)
+	factory1 := lureHookItemGUID(slots, 1)
+	wantNumeric := u64Of(slots[0].Fields[fieldIdxByCS(slots[0].Class, csNumericID)].Num)
+	before := lureBackpackHookQty(t, s, uid, int64(wantNumeric))
+
+	// 预检：拆槽 0 出厂钩。
+	plan := s.lureHookRemovePrepare(t.Context(), uid, lure.GUID, factory0, 0)
+	if plan == nil || plan.removedGUID != factory0 {
+		t.Fatalf("预检应锁定槽 0，实得 %+v", plan)
+	}
+	// 交错：另一个请求先拆掉这颗钩（退包 +1 已发生）。
+	if det := s.rigRemoveComponentInstance(t.Context(), uid, lure.GUID, catHook, factory0, 0); det == nil {
+		t.Fatal("交错拆钩失败")
+	}
+	if got := lureBackpackHookQty(t, s, uid, int64(wantNumeric)); got != before+1 {
+		t.Fatalf("交错拆钩应恰好退包 +1: got=%d want=%d", got, before+1)
+	}
+	// 陈旧 plan 提交必须被拒，不得按快照再退一次。
+	if det := s.lureHookRemoveCommit(t.Context(), plan); det != nil {
+		t.Fatalf("陈旧预检提交必须拒绝: %+v", det)
+	}
+	if got := lureBackpackHookQty(t, s, uid, int64(wantNumeric)); got != before+1 {
+		t.Fatalf("陈旧提交不得双退: want=%d got=%d", before+1, got)
+	}
+	got := lureTestHookSlots(t, s, lure.GUID)
+	if len(got) != 1 || lureHookItemGUID(got, 0) != factory1 {
+		t.Fatalf("陈旧提交被拒后剩余原装钩应原位保留，实得 %v", lureHookItemGUIDs(got))
+	}
+}
+
+// PR#339 评审 P2 回归：迁移剥离垫底钩后，活动钩下标按剥离映射随迁——
+// f1 指向的活动钩仍在数组时不得被机械切回第一颗。
+func TestRepairLureHookSlotsAdjustsActiveOrdinal(t *testing.T) {
+	t.Parallel()
+	s, _ := newRigTestServer(t)
+	const uid = int64(1000001)
+	lure, err := s.CreateItem(t.Context(), uid, "crankbaits_1702", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := s.DB.GetItemByGUID(t.Context(), lure.GUID)
+	if err != nil || row == nil {
+		t.Fatal(err)
+	}
+	fields, err := FieldsFromJSON(row.FieldsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := lureHookFieldIndex(row.WireClass)
+	if idx < 0 || idx >= len(fields) || fields[idx].Val == nil || fields[idx].Val.Kind != proto.KindArgs {
+		t.Fatal("拟饵缺少钩数组字段")
+	}
+	if len(fields[idx].Val.Items) < 1 {
+		t.Skip("测试拟饵没有出厂钩")
+	}
+	def, err := s.DB.GetItemDef(t.Context(), row.NumericID)
+	if err != nil || def == nil {
+		t.Fatal(err)
+	}
+	// 模拟 v3~v7 遗留：槽 0 是 :r 垫底钩，活动钩 f1=2（原下标 2）。剥离
+	// 后数组 [F1,F2]，活动钩应随迁到 1，不得机械回落 0 切走活动钩。
+	fields[idx].Val.Items[0] = s.lureHookAt(t.Context(), defAttrs(def), lure.GUID, 0,
+		lureRestoredHookKey(0), row.Workmanship, row.Durability)
+	if fields[idx].Val.Items[0] == nil {
+		t.Skip("定义槽 0 无出厂钩配置")
+	}
+	if k := fieldIdxByCS(row.WireClass, "nkogmkobfng"); k >= 0 && k < len(fields) {
+		fields[k].Num = ptrU64(2)
+	}
+	fj, err := FieldsToJSON(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.UpdateItemFields(t.Context(), lure.GUID, fj, row.Qty, row.Durability, row.Workmanship, row.RigGUID); err != nil {
+		t.Fatal(err)
+	}
+
+	fixed, err := s.repairLureHookSlots(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fixed != 1 {
+		t.Fatalf("应清理 1 个拟饵，实得 %d", fixed)
+	}
+	after, err := s.DB.GetItemByGUID(t.Context(), lure.GUID)
+	if err != nil || after == nil {
+		t.Fatal(err)
+	}
+	afterFields, err := FieldsFromJSON(after.FieldsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(afterFields[idx].Val.Items); n != 2 {
+		t.Fatalf("剥离后应剩 2 个元素，实得 %d", n)
+	}
+	if k := fieldIdxByCS(row.WireClass, "nkogmkobfng"); k >= 0 && k < len(afterFields) {
+		if got := int(u64Of(afterFields[k].Num)); got != 1 {
+			t.Fatalf("剥离垫底钩后活动钩应随迁到 1，实得 %d", got)
+		}
+	}
+}
