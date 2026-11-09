@@ -332,3 +332,134 @@ func TestWorkshopReelRepairChargesAllRestoredWear(t *testing.T) {
 		t.Fatalf("整机保养费用=%d，期望覆盖全部磨损=%d", got, wantCost)
 	}
 }
+
+func TestWorkshopDiagReelRepairQuoteMatchesWholeService(t *testing.T) {
+	srv, db := newStaticRigTestServer(t)
+	defer db.Close()
+	reel, gearID := seedWornWorkshopReel(t, srv, db, .8, .2, .5, .5)
+	ctx := t.Context()
+	const uid = int64(1000001)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpdateBalance(ctx, uid, 10000, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	diagBody, ok := hWorkshopDiag(&Ctx{
+		Sess: newProbeSess(srv),
+		Tree: proto.Args524(proto.Guid(reel.GUID)),
+		Log:  logging.Discard(),
+	})
+	if !ok || len(diagBody) == 0 {
+		t.Fatal("21/2 未返回诊断")
+	}
+	diag, _, err := proto.DecodeValue(diagBody, 0, srv.Table())
+	if err != nil {
+		t.Fatal(err)
+	}
+	comps := diag.Field(1).Val
+	if comps == nil || comps.ArgCount() == 0 {
+		t.Fatal("21/2 缺少内件报价")
+	}
+	price := comps.ArgItem(0).Field(3).Val
+	if price == nil {
+		t.Fatal("21/2 缺少价格对象")
+	}
+	quoteField := price.Field(0)
+	quote := int64(quoteField.U64())
+	// 齿轮 0.2 + 摩擦片 0.8 + 轴承 0.5 = 1.5 个满磨损单位。
+	want := int64(math.Round(1.5 * 500))
+	if quote != want {
+		t.Fatalf("21/2 整机保养报价=%d，期望 %d", quote, want)
+	}
+
+	c := &Ctx{
+		Sess: newProbeSess(srv), Main: 21, Sub: 3,
+		Tree: snapshotWorkshopRequestPart(reel.GUID, uint32(reelPartCatGear), gearID, uint64(quote)),
+		Log:  logging.Discard(),
+	}
+	if body, ok := hWorkshopOrder(c); !ok || len(body) == 0 {
+		t.Fatal("客户端按 21/2 整机报价提交同型号修理应成功")
+	}
+	profile, err := db.GetProfile(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := int64(10000) - profile.Silver; got != want {
+		t.Fatalf("整机保养扣费=%d，期望 %d", got, want)
+	}
+}
+
+func TestWorkshopReelRepairAcceptsAggregatedClientQuote(t *testing.T) {
+	srv, db := newStaticRigTestServer(t)
+	defer db.Close()
+	reel, gearID := seedWornWorkshopReel(t, srv, db, .8, .2, .5, .5)
+	ctx := t.Context()
+	const uid = int64(1000001)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpdateBalance(ctx, uid, 10000, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	quote := int64(math.Round(1.5 * 500))
+	orders := proto.Args(proto.S("503"),
+		wiregen.MustMakeObj("gcllbdkgkna", map[int]*proto.Value{
+			0: proto.U32(uint32(reelPartCatGear)),
+			1: proto.StrVal(gearID),
+		}),
+		wiregen.MustMakeObj("gcllbdkgkna", map[int]*proto.Value{
+			0: proto.U32(uint32(reelPartCatGear)),
+			1: proto.StrVal(gearID),
+		}),
+	)
+	req := proto.Args524(proto.StrVal("workshop_01"), wiregen.MustMakeObj("nfmkdcbnkhp", map[int]*proto.Value{
+		0: proto.Guid(reel.GUID),
+		1: orders,
+		2: proto.U32(0),
+		3: proto.U64(uint64(quote * 2)),
+	}))
+	c := &Ctx{Sess: newProbeSess(srv), Main: 21, Sub: 3, Tree: req, Log: logging.Discard()}
+	if body, ok := hWorkshopOrder(c); !ok || len(body) == 0 {
+		t.Fatal("客户端多选累加后的整机报价应被接受")
+	}
+	profile, err := db.GetProfile(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := int64(10000) - profile.Silver; got != quote {
+		t.Fatalf("整机保养应只扣一次 %d，实扣 %d", quote, got)
+	}
+}
+
+func TestWorkshopReelRepairRejectsLowQuote(t *testing.T) {
+	srv, db := newStaticRigTestServer(t)
+	defer db.Close()
+	reel, gearID := seedWornWorkshopReel(t, srv, db, .8, .2, .5, .5)
+	ctx := t.Context()
+	const uid = int64(1000001)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpdateBalance(ctx, uid, 10000, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &Ctx{
+		Sess: newProbeSess(srv), Main: 21, Sub: 3,
+		Tree: snapshotWorkshopRequestPart(reel.GUID, uint32(reelPartCatGear), gearID, 1),
+		Log:  logging.Discard(),
+	}
+	if _, ok := hWorkshopOrder(c); ok {
+		t.Fatal("低于整机保养价的客户端报价应被拒绝")
+	}
+	profile, err := db.GetProfile(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Silver != 10000 {
+		t.Fatalf("低报价被拒绝后余额应保持 10000，实得 %d", profile.Silver)
+	}
+}

@@ -1210,9 +1210,20 @@ func hWorkshopDiag(ctx *Ctx) ([]byte, bool) {
 	}
 	comps := proto.Args(proto.S("143")) // 元素类 hlopebmchhp(poolccanfhd, type_id 504) 的 args code
 	if row, rerr := srv.DB.GetItemByGUID(cctx, guid); rerr == nil && row != nil {
+		// 渔轮同型号修理会整机恢复，21/2 对每个内件都报整机保养价。
+		// 客户端按选中的内件上报 f3；多选时会累加多次，21/3 仍只收一次。
+		reelServiceSilver := int64(-1)
+		if def, derr := srv.itemDefForRow(cctx, row); derr == nil && def != nil && def.Category == gearCatReel {
+			if fields, ferr := FieldsFromJSON(row.FieldsJSON); ferr == nil {
+				reelServiceSilver = int64(math.Round(srv.reelRepairWearInFields(cctx, row, fields) * 500))
+			}
+		}
 		for _, p := range srv.repairPartsOf(cctx, row) {
-			// f3 = 该零件的修理报价（按磨损计价，完好度 1.0 → 0）
+			// f3 = 该零件的修理报价（按磨损计价，完好度 1.0 → 0）；渔轮为整机保养价。
 			repairSilver := int64(math.Round(math.Max(0, 1-p.Cond) * 500))
+			if reelServiceSilver >= 0 {
+				repairSilver = reelServiceSilver
+			}
 			comps.Items = append(comps.Items, wiregen.MustMakeObj("hlopebmchhp", map[int]*proto.Value{
 				0: proto.Guid(p.GUID),
 				1: proto.U32(proto.F32Bits(float32(p.Cond))),
@@ -1260,6 +1271,26 @@ func workshopQuoteMatches(clientCost, serverCost int64) bool {
 		delta = -delta
 	}
 	return delta <= tolerance
+}
+
+// workshopQuoteCovers 接受不低于服务端价格的客户端报价。渔轮多选时客户端会把
+// 每个内件的整机保养价累加，报价可能高于实际只收一次的服务端价格。
+func workshopQuoteCovers(clientCost, serverCost int64) bool {
+	if clientCost <= 0 {
+		return true
+	}
+	if serverCost < 0 {
+		return false
+	}
+	tolerance := serverCost / 20
+	if tolerance < 1 {
+		tolerance = 1
+	}
+	floor := serverCost - tolerance
+	if floor < 0 {
+		floor = 0
+	}
+	return clientCost >= floor
 }
 
 // hWorkshopOrder 处理 21/3：按客户端提交的条目更换零件、扣费并返回更新后的物品树。
@@ -1414,7 +1445,13 @@ func hWorkshopOrder(ctx *Ctx) ([]byte, bool) {
 		if useGold {
 			quotedCost = costGold
 		}
-		if !workshopQuoteMatches(clientCost, quotedCost) {
+		if wholeItemRepair && isReel {
+			if !workshopQuoteCovers(clientCost, quotedCost) {
+				ctx.Log.Warn("工坊修理：客户端报价异常", "item", shortGUID(itemGUID),
+					"client", clientCost, "server", quotedCost, "gold", useGold)
+				return nil, false
+			}
+		} else if !workshopQuoteMatches(clientCost, quotedCost) {
 			ctx.Log.Warn("工坊换件：客户端报价异常", "item", shortGUID(itemGUID),
 				"client", clientCost, "server", quotedCost, "gold", useGold)
 			return nil, false
