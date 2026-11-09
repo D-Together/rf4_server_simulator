@@ -99,7 +99,13 @@ func consumableRestoreForItem(itemID string) (string, bool) {
 		"pb_m_choc", "pb_m_choc25", "pb_m_choc26", "pb_m_choc_8", "pb_m_choc_g", "pb_m_chocg",
 		"sd_shoc_bar", "pryanik_ny26", "pack_marshm", "grilled_marshm",
 		"christmas_dish", "fishcookie",
-		"mc_bottle_cola", "mc_can_cola", "brand_softdrink", "mors_bottle_hm", "kisel_jug":
+		"mc_bottle_cola", "mc_can_cola", "brand_softdrink", "mors_bottle_hm", "kisel_jug",
+		// 瓶装无酒精成品饮料：柠檬汽水/节日柠檬水、无酒精香槟（_a0）、
+		// 无酒精蜜酒/麦芽（alcfree/_a0）。原料（ff_black_tea 等）与酒类
+		// 不进表——见 drink_rules_test 的排除清单。
+		"lb_bottle_lim", "lb_bottle_lim_ny", "lim_ny25_bottle",
+		"AV_shamp_p_a0", "AV_shamp_tsr_a0",
+		"pm_medovuha_alcfree", "pm_medovuha_alcfree_g", "lb_bottle_ale_ny_a0":
 		return "food", true
 	}
 	return "", false

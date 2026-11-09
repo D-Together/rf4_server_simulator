@@ -387,6 +387,10 @@ func TestConsumableRestoreClassification(t *testing.T) {
 		"ab_tea_can": "tea", "thermos_tea": "tea",
 		"food_cacao": "cocoa", "thermos_cacao": "cocoa",
 		"carrot": "food", "apples": "food", "cake_rf4": "food", "cf_squid": "food",
+		// 瓶装无酒精成品饮料：软饮口径（饱食度），不能两头落空
+		//（酒表与消耗品表都不收录 → 4/8 落通用 handler 不扣不恢复）。
+		"lb_bottle_lim": "food", "lim_ny25_bottle": "food",
+		"AV_shamp_tsr_a0": "food", "pm_medovuha_alcfree": "food", "lb_bottle_ale_ny_a0": "food",
 	} {
 		if got, ok := consumableRestoreForItem(item); !ok || got != want {
 			t.Fatalf("%s 分类错误: got=%q ok=%v", item, got, ok)
