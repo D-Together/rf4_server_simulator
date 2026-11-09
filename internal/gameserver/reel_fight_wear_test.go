@@ -29,13 +29,13 @@ func newFightWearForTest(rated, drag, locked, pull, oilBurn, oilWear float64, lo
 
 func TestFightReelSlipOnlyWhenDragExceeded(t *testing.T) {
 	srv := &Server{}
-	tick := defaultReelLoadTickSeconds
+	tick := reelSlipCalibrationSeconds
 	// 鱼力没超过泄力：泄力没打滑，摩擦片不发热。
 	w := newFightWearForTest(7.7, 5, 9, 5, 1, 1, false)
 	if ticks, slip, burn, _, _ := srv.fightReelTickWear(w, tick); ticks != 0 || slip != 0 || burn != 0 {
 		t.Fatalf("鱼力等于泄力不应磨损，实得 ticks=%d slip=%v burn=%v", ticks, slip, burn)
 	}
-	// 超泄力只触发一次打滑；单次磨损固定为 0.01%，不按超出比例放大。
+	// 超泄力只触发一次打滑；1.8 秒基准磨损固定为 0.01%，不按超出比例放大。
 	w = newFightWearForTest(7.7, 5, 9, 7.5, 1, 1, false)
 	ticks, slip, burn, _, _ := srv.fightReelTickWear(w, tick)
 	if ticks != 1 || burn != 0 {
@@ -59,7 +59,7 @@ func TestLongHugeFishSlipWearUsesDragSettingCurve(t *testing.T) {
 	w.setting = 21
 	var total float64
 	for i := 0; i < 38; i++ {
-		ticks, slip, burn, _, _ := srv.fightReelTickWear(w, defaultReelLoadTickSeconds)
+		ticks, slip, burn, _, _ := srv.fightReelTickWear(w, reelSlipCalibrationSeconds)
 		if ticks != 1 || burn != 0 {
 			t.Fatalf("第 %d 次应只记打滑，实得 ticks=%d burn=%v", i+1, ticks, burn)
 		}
@@ -89,7 +89,7 @@ func TestFightReelSlipWearCurveByDragSetting(t *testing.T) {
 	} {
 		w := newFightWearForTest(7.7, 5, 9, 7.5, 1, 1, false)
 		w.setting = tc.setting
-		_, slip, _, _, _ := srv.fightReelTickWear(w, defaultReelLoadTickSeconds)
+		_, slip, _, _, _ := srv.fightReelTickWear(w, reelSlipCalibrationSeconds)
 		if math.Abs(slip-tc.want) > 1e-12 {
 			t.Fatalf("%d 档单次磨损=%v，期望 %v", tc.setting, slip, tc.want)
 		}
@@ -162,7 +162,7 @@ func TestFightReelLockedBurnCurveAndSegmentReset(t *testing.T) {
 
 func TestFightReelOilLowersWearAndExtendsBurnTime(t *testing.T) {
 	srv := &Server{}
-	tick := defaultReelLoadTickSeconds
+	tick := reelSlipCalibrationSeconds
 	// 打滑：好油省、差油费，且都被收进 0.8~1.2 区间。
 	w := newFightWearForTest(7.7, 5, 9, 7.5, 1, 1, false)
 	_, normal, _, _, _ := srv.fightReelTickWear(w, tick)
@@ -190,6 +190,46 @@ func TestFightReelOilLowersWearAndExtendsBurnTime(t *testing.T) {
 	}
 	if !(reelOilBurnFactor(15, 1) < reelOilBurnFactor(100, 1)) {
 		t.Fatal("轮油品质越高应越耐烧")
+	}
+}
+
+func TestFightReelSlipWearScalesByElapsedSeconds(t *testing.T) {
+	srv := &Server{}
+	w := newFightWearForTest(7.7, 5, 9, 7.5, 1, 1, false)
+	w.setting = 29
+
+	_, short, _, _, _ := srv.fightReelTickWear(w, reelSlipCalibrationSeconds/2)
+	_, long, _, _, _ := srv.fightReelTickWear(w, reelSlipCalibrationSeconds)
+	if math.Abs(long-2*short) > 1e-12 {
+		t.Fatalf("打滑磨损应按真实秒数线性累计：半节拍 %.9f，整节拍 %.9f", short, long)
+	}
+}
+
+func TestFightReelSlipWear29TargetsFiveHours(t *testing.T) {
+	srv := &Server{}
+	w := newFightWearForTest(7.7, 5, 9, 7.5, 1, 1, false)
+	w.setting = 29
+
+	var total float64
+	for i := 0; i < 3600; i++ {
+		_, slip, _, _, _ := srv.fightReelTickWear(w, 5)
+		total += slip
+	}
+	if math.Abs(total-1) > 1e-9 {
+		t.Fatalf("29 档连续出线 5 小时应刚好耗尽一套摩擦片，实得 %.9f", total)
+	}
+}
+
+func TestFightReelDedicatedOilReducesWearRate(t *testing.T) {
+	srv := &Server{}
+	w := newFightWearForTest(7.7, 5, 9, 7.5, 1, 1, false)
+	w.setting = 29
+	w.oilMatch = reelOilMatchMismatch
+	_, mismatch, _, _, _ := srv.fightReelTickWear(w, reelSlipCalibrationSeconds)
+	w.oilMatch = reelOilMatchDedicated
+	_, dedicated, _, _, _ := srv.fightReelTickWear(w, reelSlipCalibrationSeconds)
+	if math.Abs(dedicated-mismatch*0.5) > 1e-12 {
+		t.Fatalf("品牌专用油应把打滑磨损降到一半：不匹配 %.9f 专用 %.9f", mismatch, dedicated)
 	}
 }
 
@@ -321,6 +361,44 @@ func TestFightReelLoadTickUsesRealGaps(t *testing.T) {
 		if math.Abs(got-tc.want) > 1e-9 {
 			t.Fatalf("%s: 应折算 %.2fs，实得 %.2fs", tc.name, tc.want, got)
 		}
+	}
+}
+
+func TestFightReelDragChangeKeepsLastLoadBoundary(t *testing.T) {
+	srv, _ := newRigTestServer(t)
+	ctx := t.Context()
+	const uid = int64(1000001)
+	rod, err := srv.CreateItem(ctx, uid, "feeder_10125_FD360", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reel, err := srv.CreateItem(ctx, uid, "spin_5820", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mountReelOnRod(t, srv, rod.GUID, reel.GUID)
+	fish := &RolledFish{FishGUID: "drag-change-time", Species: "carp", WeightG: 50_000, Grade: 3}
+	cached := srv.fightReelCache(ctx, uid, rod.GUID, fish)
+	if !cached.valid || cached.dragKg <= 0 || cached.pullKg <= cached.dragKg {
+		t.Fatalf("测试账本前置条件不成立: %+v", cached)
+	}
+	st := srv.stateFor(uid)
+	st.mu.Lock()
+	st.Pending, st.GearGuid = fish, rod.GUID
+	st.CastActive, st.InWater, st.Hooked = true, true, true
+	st.reelWear = cached
+	st.reelWear.lastLoadAt = time.Now().Add(-100 * time.Millisecond)
+	st.reelWear.invalidate()
+	st.mu.Unlock()
+
+	srv.recordFightReelLoad(&Ctx{Sess: newProbeSess(srv), Main: 14, Sub: 8, DecodeOK: true,
+		Log: logging.Discard()})
+
+	st.mu.Lock()
+	got := st.reelWear.SlipSecs
+	st.mu.Unlock()
+	if got >= 1.0 {
+		t.Fatalf("改摩擦档后真实间隔被按兜底计时: SlipSecs=%.2fs", got)
 	}
 }
 
