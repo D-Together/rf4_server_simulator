@@ -1018,7 +1018,7 @@ const weightSkewK = 1.6
 func (s *Server) sampleWeightDB(ctx context.Context, key string, modeMult, scale, capG float64, c fishRollContext) int64 {
 	// 控制台可配置的档位比例（未达标/合格/奖杯/蓝冠）优先；
 	// 抽样与最终判档必须共用 settleStatics 同一真源，避免鱼档占比失真。
-	if s.tunableF("grade_ratio_enabled", 0) == 1 {
+	if s.tunableF("grade_ratio_enabled", 1) == 1 {
 		settle := s.cachedSettleStatics(ctx, c, key)
 		ratioLines := cachedGradeLines{val: &settle[0], trophy: &settle[1], blue: &settle[2]}
 		if w, ok := s.sampleWeightByGradeRatio(ratioLines, modeMult, scale, capG); ok {
@@ -1071,7 +1071,7 @@ type fishGradeRatioModel struct {
 }
 
 func (s *Server) gradeRatioModel(l cachedGradeLines, modeMult, scale, capG float64) (fishGradeRatioModel, bool) {
-	if s.tunableF("grade_ratio_enabled", 0) != 1 {
+	if s.tunableF("grade_ratio_enabled", 1) != 1 {
 		return fishGradeRatioModel{}, false
 	}
 	// 缩放参数不可表示（NaN/Inf/<=0）时按"不可钓"处理，避免溢出成 MinInt64。

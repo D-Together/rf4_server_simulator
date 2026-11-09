@@ -8,7 +8,7 @@ Status: done
 
 ## Solution
 
-后台新增嘬饵机制总开关，默认保持现有行为，可临时关闭普通鱼与奖杯鱼的预中钩嘬饵判定。钩型改为在发鱼阶段按鱼体重量档位做软匹配：小钩更偏向小鱼，大钩更偏向大鱼，但仍保留低概率的不匹配鱼。后台“钩子手感”中的咬口倍率、保持率倍率与兜底值继续独立保存和生效；发鱼软匹配只使用钩型几何，不读取这些调参倍率。
+后台新增嘬饵机制总开关与钩型发鱼软匹配强度，两者默认关闭。需要时管理员可开启普通鱼与奖杯鱼的预中钩嘬饵判定；钩型软匹配开启后，小钩更偏向小鱼、大钩更偏向大鱼，但仍保留低概率的不匹配鱼。后台“钩子手感”中的咬口倍率、保持率倍率与兜底值继续独立保存和生效；发鱼软匹配只使用钩型几何，不读取这些调参倍率。
 
 ## User Stories
 
@@ -19,7 +19,7 @@ Status: done
 
 ## Implementation Decisions
 
-- `internal/gameserver`：新增 `hook_nibble_enabled`（默认 `1`）和 `hook_spawn_match_strength`（默认 `1`，范围 `0..2`）两个 tunable，沿用现有 30 秒热更新与 `reload_tunables` 推送。
+- `internal/gameserver`：新增 `hook_nibble_enabled`（默认 `0`）和 `hook_spawn_match_strength`（默认 `0`，范围 `0..2`）两个 tunable，沿用现有 30 秒热更新与 `reload_tunables` 推送。
 - `internal/gameserver/fish_hunt.go`：`hook_nibble_enabled=0` 时跳过首次中钩前的 `nibble` 随机判定；`HookHoldP`、钩型档案、`hold_scale`、`over_capacity_hold_floor` 仍照常计算和生效。
 - `internal/gameserver/fish_hunt.go`：钩型发鱼软匹配按各体重档位的代表重量计算几何兼容度，作为档位权重乘子；蓝冠档不参与软匹配，并同比缩放 `w4` 保持蓝冠绝对概率不变。
 - `internal/gameserver/fish_hunt.go`：兼容度只使用钩号与钩体长度换算的入口容量，不读取 `hook_bite_profile` 的咬口/保持倍率。强度为 0 时完全回退到无钩型软匹配。
@@ -30,6 +30,7 @@ Status: done
 ## Testing Decisions
 
 - 纯逻辑：固定 6 号 3.3mm 钩与 1737g 鱼，验证兼容度显著低于匹配鱼；验证大小钩分别偏向小鱼/大鱼档位，且蓝冠绝对概率不变。
+- 默认值：未配置 tunable 时 `hook_nibble_enabled` 与 `hook_spawn_match_strength` 必须都按 `0` 生效。
 - 服务器行为：`hook_nibble_enabled=0` 时同一尾高不匹配鱼反复首次确认都保持 `solid`，同时 `HookHoldP` 仍应用后台保持率倍率。
 - Admin API：嘬饵开关拒绝非 `0/1`，软匹配强度拒绝范围外数值，保存后投递 `reload_tunables`。
 - 回滚后变红：新增的开关、软匹配和蓝冠概率保持测试。

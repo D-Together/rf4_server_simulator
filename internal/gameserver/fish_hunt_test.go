@@ -141,6 +141,19 @@ func TestHookSpawnMatchBiasesGradesAndPreservesBlue(t *testing.T) {
 	}
 }
 
+func TestHookControlsDefaultOff(t *testing.T) {
+	s := &Server{
+		tunCache: map[string]float64{"grade_ratio_enabled": 0},
+		tunAt:    time.Now(),
+	}
+	if s.hookNibbleEnabled() {
+		t.Fatal("嘬饵机制默认应关闭")
+	}
+	if got := s.effectiveHookSpawnMatchStrength(); got != 0 {
+		t.Fatalf("钩型发鱼软匹配默认应关闭，实得强度 %g", got)
+	}
+}
+
 func TestHookNibbleSwitchKeepsProfileHoldMultiplier(t *testing.T) {
 	s := &Server{
 		tunCache: map[string]float64{tunableHookNibbleEnabled: 0},
@@ -259,6 +272,7 @@ func TestUnhookedTrophyUnknownFrameDoesNotGrantEscapeCompensation(t *testing.T) 
 
 func TestNibbleDoesNotEnterHookedState(t *testing.T) {
 	s, _ := newRigTestServer(t)
+	setWeatherTestTunable(t, s, tunableHookNibbleEnabled, "1")
 	sess, _ := newTunnelProbe(t, s)
 	st := s.stateFor(sess.Userid)
 	fish := &RolledFish{Species: "crucian", Grade: 1, WeightG: 120,
@@ -341,6 +355,7 @@ func TestDuplicateHookedConfirmationIsIdempotent(t *testing.T) {
 
 func TestMarineNibbleDoesNotEnterHookedState(t *testing.T) {
 	s, _ := newRigTestServer(t)
+	setWeatherTestTunable(t, s, tunableHookNibbleEnabled, "1")
 	sess, _ := newTunnelProbe(t, s)
 	st := s.stateFor(sess.Userid)
 	fish := &RolledFish{Species: "atl_cod", Grade: 2, WeightG: 4200,
@@ -367,6 +382,7 @@ func TestMarineNibbleDoesNotEnterHookedState(t *testing.T) {
 // 鼓里继续搏鱼，拖到岸边收竿 14/4 落空，鱼凭空消失（2026-11-08 23:24/23:26 实证）。
 func TestNibbleVetoPushesFishLeave(t *testing.T) {
 	s, _ := newRigTestServer(t)
+	setWeatherTestTunable(t, s, tunableHookNibbleEnabled, "1")
 	sess, gc := newTunnelProbe(t, s)
 	st := s.stateFor(sess.Userid)
 	fish := &RolledFish{FishGUID: "1411feed1411feed1411feed1411feed", Species: "crucian", Grade: 1, WeightG: 120,
@@ -406,6 +422,7 @@ func TestNibbleVetoPushesFishLeave(t *testing.T) {
 
 func TestMarineNibbleVetoPushesFishLeave(t *testing.T) {
 	s, _ := newRigTestServer(t)
+	setWeatherTestTunable(t, s, tunableHookNibbleEnabled, "1")
 	sess, gc := newTunnelProbe(t, s)
 	st := s.stateFor(sess.Userid)
 	fish := &RolledFish{FishGUID: "149feed0149feed0149feed0149feed0", Species: "atl_cod", Grade: 2, WeightG: 4200,
@@ -435,6 +452,7 @@ func TestMarineNibbleVetoPushesFishLeave(t *testing.T) {
 // 不清刚重排的咬钩 timer，不把本竿标记为终局，也不产生任何推送。
 func TestNibbleVetoLeaveAckBenign(t *testing.T) {
 	s, _ := newRigTestServer(t)
+	setWeatherTestTunable(t, s, tunableHookNibbleEnabled, "1")
 	sess, gc := newTunnelProbe(t, s)
 	st := s.stateFor(sess.Userid)
 	fish := &RolledFish{FishGUID: "abcd0000abcd0000abcd0000abcd0000", Species: "crucian", Grade: 1, WeightG: 120,

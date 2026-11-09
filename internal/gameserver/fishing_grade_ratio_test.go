@@ -2,7 +2,9 @@ package gameserver
 
 import (
 	"context"
+	"math"
 	"testing"
+	"time"
 
 	"rf4server/internal/store"
 )
@@ -12,6 +14,19 @@ func enableGradeRatio(t *testing.T, srv *Server, db *store.DB) {
 	if _, err := db.SQL.Exec(`INSERT INTO tunables(key,value) VALUES('grade_ratio_enabled','1')
 		ON CONFLICT(key) DO UPDATE SET value='1'`); err != nil {
 		t.Fatalf("开启档位比例: %v", err)
+	}
+	srv.tunMu.Lock()
+	srv.tunCache = nil
+	srv.tunMu.Unlock()
+}
+
+func setGradeRatioTunables(t *testing.T, srv *Server, db *store.DB, values map[string]string) {
+	t.Helper()
+	for key, value := range values {
+		if _, err := db.SQL.Exec(`INSERT INTO tunables(key,value) VALUES(?,?)
+			ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value); err != nil {
+			t.Fatalf("写 %s: %v", key, err)
+		}
 	}
 	srv.tunMu.Lock()
 	srv.tunCache = nil
@@ -142,12 +157,86 @@ func TestGradeRatioUnreachableTrophyWithGearCap(t *testing.T) {
 	}
 }
 
-// 默认必须关闭，升级后不能静默改变既有出货分布。
-func TestGradeRatioDisabledByDefault(t *testing.T) {
+// 档位比例默认开启；显式关闭时仍可完整回退旧标定。
+func TestGradeRatioEnabledByDefault(t *testing.T) {
 	srv, _ := newDetachTestServer(t)
 	lines := cachedGradeLines{val: ptrI64(1000), trophy: ptrI64(5000), blue: ptrI64(8000)}
-	if w, ok := srv.sampleWeightByGradeRatio(lines, 1, 1, 0); ok || w != 0 {
-		t.Fatalf("默认应关闭档位比例，实得 (%d,%v)", w, ok)
+	w, ok := srv.sampleWeightByGradeRatio(lines, 1, 1, 0)
+	if !ok || w <= 0 {
+		t.Fatalf("默认应开启档位比例，实得 (%d,%v)", w, ok)
+	}
+}
+
+// 档位比例开关必须完全覆盖钩型发鱼软匹配；关闭后恢复后台配置的强度。
+func TestGradeRatioOverridesHookSpawnMatchStrength(t *testing.T) {
+	srv := &Server{
+		tunCache: map[string]float64{
+			"grade_ratio_enabled":         1,
+			tunableHookSpawnMatchStrength: 2,
+		},
+		tunAt: time.Now(),
+	}
+	if got := srv.effectiveHookSpawnMatchStrength(); got != 0 {
+		t.Fatalf("档位比例开启时钩型软匹配强度应为 0，实得 %g", got)
+	}
+	srv.tunCache["grade_ratio_enabled"] = 0
+	if got := srv.effectiveHookSpawnMatchStrength(); got != 2 {
+		t.Fatalf("关闭档位比例后应恢复钩型软匹配强度 2，实得 %g", got)
+	}
+}
+
+// 档位比例开启时不得继续使用鱼猎阶段权重，否则聚鱼阶段仍会大量出未达标鱼。
+func TestGradeRatioOverridesFishHuntStageWeights(t *testing.T) {
+	srv, db := newRigTestServer(t)
+	enableGradeRatio(t, srv, db)
+	setGradeRatioTunables(t, srv, db, map[string]string{
+		"grade_pct_below":           "0",
+		"grade_pct_qualified":       "100",
+		"grade_pct_trophy":          "0",
+		"grade_pct_super":           "0",
+		"hook_spawn_match_strength": "2",
+	})
+	c := fishRollContext{cache: newFishingRollCache()}
+	ctx := context.Background()
+	for i := 0; i < 80; i++ {
+		weight, grade, readiness := srv.sampleHuntWeight(ctx, "perch", 1, 1, 0, c, &fishHuntState{})
+		if weight <= 0 {
+			t.Fatalf("第 %d 次抽样没有结果", i)
+		}
+		if grade != 2 {
+			t.Fatalf("档位比例配置为 100%% 合格，实得 weight=%d grade=%d stage=%d", weight, grade, readiness.Stage)
+		}
+	}
+}
+
+// 海图声呐预览复用同一组档位比例，并把非 100 总和按相对权重自动归一。
+func TestGradeRatioGradeWeightsMatchConfiguredShares(t *testing.T) {
+	srv, db := newRigTestServer(t)
+	enableGradeRatio(t, srv, db)
+	lines := cachedGradeLines{val: ptrI64(1000), trophy: ptrI64(5000), blue: ptrI64(8000)}
+	tests := []struct {
+		name   string
+		values map[string]string
+		want   [4]float64
+	}{
+		{"sum-100", map[string]string{"grade_pct_below": "5", "grade_pct_qualified": "60", "grade_pct_trophy": "30", "grade_pct_super": "5"}, [4]float64{.05, .60, .30, .05}},
+		{"sum-4", map[string]string{"grade_pct_below": "1", "grade_pct_qualified": "1", "grade_pct_trophy": "1", "grade_pct_super": "1"}, [4]float64{.25, .25, .25, .25}},
+		{"sum-50", map[string]string{"grade_pct_below": "10", "grade_pct_qualified": "20", "grade_pct_trophy": "15", "grade_pct_super": "5"}, [4]float64{.20, .40, .30, .10}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setGradeRatioTunables(t, srv, db, tc.values)
+			weights, handled := srv.gradeRatioGradeWeights(lines, 1, 1, 0)
+			if !handled {
+				t.Fatal("档位比例应有可用档位")
+			}
+			total := weights[0] + weights[1] + weights[2] + weights[3]
+			for i, weight := range weights {
+				if got := weight / total; math.Abs(got-tc.want[i]) > 1e-9 {
+					t.Fatalf("第 %d 档占比=%g，期望 %g", i+1, got, tc.want[i])
+				}
+			}
+		})
 	}
 }
 
