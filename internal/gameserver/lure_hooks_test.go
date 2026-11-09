@@ -1,9 +1,11 @@
 package gameserver
 
 import (
+	"math"
 	"testing"
 
 	"rf4server/internal/proto"
+	"rf4server/internal/store"
 )
 
 // lureTestHooks 读落库拟饵的出厂钩 GUID 列表。
@@ -546,6 +548,136 @@ func TestLureHookSelectionTracksSwapAndRemove(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("拆钩后 bait_hook 关联应删除，实存 %d 行", n)
 	}
+}
+
+// PR#339 第三轮评审 P2：装/拆非活动槽不能改动 rod_setting 的活动钩关联。
+func TestLureHookNonActiveSlotPreservesBaitHookSelection(t *testing.T) {
+	t.Parallel()
+	s, db := newRigTestServer(t)
+	const uid = int64(1000001)
+	lure, err := s.CreateItem(t.Context(), uid, "topwater_1928", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slots := lureTestHookSlots(t, s, lure.GUID)
+	if len(slots) < 2 {
+		t.Skip("测试拟饵需要至少两个钩槽")
+	}
+	active := lureHookItemGUID(slots, 0)
+	const rodGUID = "00112233445566778899aabbccddeeff"
+	key := "bait_hook:" + lure.GUID
+	if err := db.UpsertRodSetting(t.Context(), rodGUID, key, active); err != nil {
+		t.Fatal(err)
+	}
+	hook, err := s.CreateItem(t.Context(), uid, "c_hook_20712", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := s.rigSetComponent(t.Context(), uid, lure.GUID, catHook, hook.GUID, 1,
+		rigSetOpts{ParentType: familyLure, EnforceCategory: true, SplitStack: true})
+	if res.Rejected {
+		t.Fatalf("非活动槽装钩被拒: %+v", res)
+	}
+	if got := s.lureActiveHookGUID(t.Context(), lure.GUID); got != active {
+		t.Fatalf("非活动槽装钩改变了活动钩: got=%s want=%s", got, active)
+	}
+	if got := lureTestRodSetting(t, db, rodGUID, key); got != active {
+		t.Fatalf("非活动槽装钩后 bait_hook=%s，期望仍为 %s", got, active)
+	}
+
+	if det := s.rigRemoveComponentInstance(t.Context(), uid, lure.GUID, catHook, hook.GUID, 1); det == nil {
+		t.Fatal("拆非活动槽钩失败")
+	}
+	if got := lureTestRodSetting(t, db, rodGUID, key); got != active {
+		t.Fatalf("非活动槽拆钩后 bait_hook=%s，期望仍为 %s", got, active)
+	}
+}
+
+// PR#339 第三轮评审 P2：Commit 必须使用事务内重读的钩行重建拟饵内嵌树，
+// 不能把 Prepare 阶段的耐久/字段快照写回 f0。
+func TestLureHookMountUsesCommitTimeHookState(t *testing.T) {
+	t.Parallel()
+	s, _ := newRigTestServer(t)
+	const uid = int64(1000001)
+	lure, err := s.CreateItem(t.Context(), uid, "spinnerbaits_1244", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook, err := s.CreateItem(t.Context(), uid, "c_hook_20712", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := s.lureHookMountPrepare(t.Context(), uid, lure.GUID, hook.GUID, 250)
+	if plan == nil {
+		t.Fatal("拟饵装钩预检失败")
+	}
+	if err := s.DB.SetItemDurability(t.Context(), hook.GUID, 0.25); err != nil {
+		t.Fatal(err)
+	}
+	res := s.lureHookMountCommit(t.Context(), plan)
+	if res.Rejected {
+		t.Fatalf("提交被拒: %+v", res)
+	}
+	slots := lureTestHookSlots(t, s, lure.GUID)
+	if len(slots) == 0 {
+		t.Fatal("拟饵没有钩槽")
+	}
+	if got := lureTestHookDurability(t, slots[0]); math.Abs(got-0.25) > 0.001 {
+		t.Fatalf("拟饵内嵌钩耐久=%v，期望事务内最新值 0.25", got)
+	}
+}
+
+// 同上的损坏态复验：Prepare 后钩耐久归零，Commit 必须整体拒绝。
+func TestLureHookMountRejectsBrokenCommitState(t *testing.T) {
+	t.Parallel()
+	s, _ := newRigTestServer(t)
+	const uid = int64(1000001)
+	lure, err := s.CreateItem(t.Context(), uid, "spinnerbaits_1244", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook, err := s.CreateItem(t.Context(), uid, "c_hook_20712", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := lureHookItemGUID(lureTestHookSlots(t, s, lure.GUID), 0)
+	plan := s.lureHookMountPrepare(t.Context(), uid, lure.GUID, hook.GUID, 250)
+	if plan == nil {
+		t.Fatal("拟饵装钩预检失败")
+	}
+	if err := s.DB.SetItemDurability(t.Context(), hook.GUID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if res := s.lureHookMountCommit(t.Context(), plan); !res.Rejected {
+		t.Fatalf("Prepare 后损坏的钩不得提交: %+v", res)
+	}
+	if got := lureHookItemGUID(lureTestHookSlots(t, s, lure.GUID), 0); got != before {
+		t.Fatalf("拒绝后拟饵槽位被改动: got=%s want=%s", got, before)
+	}
+	if row, err := s.DB.GetItemByGUID(t.Context(), hook.GUID); err != nil || row == nil || row.Container != "backpack" {
+		t.Fatalf("拒绝后新钩应留在背包: %+v %v", row, err)
+	}
+}
+
+func lureTestRodSetting(t *testing.T, db *store.DB, rodGUID, key string) string {
+	t.Helper()
+	var value string
+	if err := db.SQL.QueryRow(`SELECT value FROM rod_setting WHERE guid=? AND key=?`, rodGUID, key).Scan(&value); err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func lureTestHookDurability(t *testing.T, v *proto.Value) float64 {
+	t.Helper()
+	idx := fieldIdxByCS(v.Class, csDurability)
+	if idx < 0 || idx >= len(v.Fields) {
+		t.Fatal("钩缺少耐久字段")
+	}
+	if fieldIsFloat(v.Class, idx) {
+		return v.Fields[idx].Float
+	}
+	return float64(math.Float32frombits(uint32(u64Of(v.Fields[idx].Num))))
 }
 
 // PR#339 评审 P2 回归：多槽拟饵先卸一槽后，剩余原装出厂钩的当前下标已

@@ -23,12 +23,14 @@ Status: done
 - 协议：15/1 请求尾部 int 是 0 基槽位下标（客户端 dump：agfonbnkeoh.dihplofkffm 循环建槽控件、bbpmdcodcee.hbckkobipmd 尾参发送）；响应装=镜像 17/2（f0=新装钩+退包、f1=拟饵+旧钩）、拆=镜像 17/3（f1=退回钩+拟饵）；仅「带物品行的玩家钩从拟饵挪回背包」补 4/21+4/22 重建列表归属（f1 更新段不重建列表归属）。
 - 出厂钩身份：原装命名空间（uuidLike(lureGUID, "gpoaffnjbdo"+i)）全 key 空间匹配（lureOriginalFactorySlot），与当前数组下标无关——短缩后下标漂移不漏退；每颗原装钩的合成 GUID 全局唯一，退包天然只发生一次，无循环刷钩面。
 - 事务与回滚：拟饵 f0 写回（updateItemFieldsTx）、新钩/旧钩行归属（UPDATE item / DetachReturnToBackpackTx）、旧钩字段清理、出厂钩退包入库（grantPreparedItemTx，prepareNewItem 在事务外只读准备）、rig_component 幽灵行与 rod_setting bait_hook 关联清理，单事务提交；失败回滚后服务端拒绝（15/1 res.Rejected / 15/2 返回 nil），客户端状态不变。活动钩下标 f1 越界回落 0 合并进同一次写回。
+- 提交快照：Commit 在事务内重读钩行并重新检查耐久；拟饵内嵌钩树按最新钩行字段重建，不复用 Prepare 快照，避免预检后耐久/字段变化导致 f0 与物品行不一致。
+- 活动钩关联：装/拆后按最新 f1 重算 `bait_hook:<拟饵GUID>`；非活动槽装/拆保持原关联，活动钩变化才更新，数组清空才删除。
 - 数据与迁移：不改表结构。KV 一次性迁移 migration:lure_hook_slots:v5 剥离 v3~v7 实验残留（:r 垫底钩/:e 幻影空槽，与下标无关的全空间匹配）；空数组/短数组为合法状态不补齐。
 - 兼容：客户端版本基线 4.0.25034；旧档（保长空槽、缩短数组）由启动迁移收敛；回滚见下。
 
 ## Testing Decisions
 
-- 行为层（真实 SQLite）：TestLureHookSwapRewritesFactoryHookList（换钩改 f0）、TestLureHookRemoveReturnsHookToBackpack（短缩+退回背包）、TestLureHookRemoveRefundsFactoryHookOnce（原装退包一次+空饵重装追加）、TestLureHookMountTargetsRequestedSlot（槽位下标定位）、TestLureHookMultiSlotAppendAndStaleRowGuard（追加/封顶/陈旧行拒绝）、TestLureHookOriginalRefundAfterShortenDrift（短缩漂移后替换原装钩仍退包）、TestLureHookMountRollsBackOnWriteFailure（UPDATE 触发器注入失败：不退包、不拆旧、数组不变）。
+- 行为层（真实 SQLite）：TestLureHookSwapRewritesFactoryHookList（换钩改 f0）、TestLureHookRemoveReturnsHookToBackpack（短缩+退回背包）、TestLureHookRemoveRefundsFactoryHookOnce（原装退包一次+空饵重装追加）、TestLureHookMountTargetsRequestedSlot（槽位下标定位）、TestLureHookMultiSlotAppendAndStaleRowGuard（追加/封顶/陈旧行拒绝）、TestLureHookOriginalRefundAfterShortenDrift（短缩漂移后替换原装钩仍退包）、TestLureHookMountRollsBackOnWriteFailure（UPDATE 触发器注入失败：不退包、不拆旧、数组不变）、TestLureHookNonActiveSlotPreservesBaitHookSelection（非活动槽不改选择）、TestLureHookMountUsesCommitTimeHookState（事务内最新耐久写回 f0）、TestLureHookMountRejectsBrokenCommitState（Prepare 后损坏拒绝）。
 - 存储层：TestRepairLureHookSlotsStripsLegacyArtifacts（残留剥离幂等）。
 - 期望值来自实机日志与客户端反编译证据（槽位下标来源、空槽三态崩溃记录、kcgjlnmdbol()==Length 判定「钩未安装」），不是代码自证。
 - 回滚后变红：RollsBackOnWriteFailure（回到分步提交即失败）、OriginalRefundAfterShortenDrift（回到下标单点匹配即漏退）、MultiSlotAppend（回到活动钩兜底即顶替第一颗）。

@@ -35,6 +35,7 @@ package gameserver
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"rf4server/internal/proto"
@@ -265,13 +266,12 @@ type lureHookMountPlan struct {
 	lureGUID     string
 	hookGUID     string
 	extra        int64
-	hookTree     *proto.Value // 预检期构建的新钩树（身份字段；归属由事务内条件 UPDATE 把关）
-	lureDefSlots int          // 拟饵定义出厂钩槽数（静态值，追加封顶用）
-	oldGUID      string       // 预检数组中将被替换槽的钩 GUID（"" = 追加）
-	oldRowGUID   string       // 旧钩有物品行实例时的行 GUID（事务内重读复核）
-	oldRow       *store.Item  // 预检读到的旧实例行（仅响应树构建用，归属以事务内重读为准）
-	ordinal      int          // 事务内复验后的目标槽下标
-	refundPrep   *store.Item  // 原装出厂钩退包实例（事务内 grantPreparedItemTx 入库）
+	lureDefSlots int         // 拟饵定义出厂钩槽数（静态值，追加封顶用）
+	oldGUID      string      // 预检数组中将被替换槽的钩 GUID（"" = 追加）
+	oldRowGUID   string      // 旧钩有物品行实例时的行 GUID（事务内重读复核）
+	oldRow       *store.Item // 预检读到的旧实例行（仅响应树构建用，归属以事务内重读为准）
+	ordinal      int         // 事务内复验后的目标槽下标
+	refundPrep   *store.Item // 原装出厂钩退包实例（事务内 grantPreparedItemTx 入库）
 }
 
 // lureHookMount 把背包里的钩装到拟饵的某个钩位上（15/1）。
@@ -339,15 +339,16 @@ func (s *Server) lureHookMountPrepare(ctx context.Context, uid int64, lureGUID, 
 		lureDefSlots = len(cfgs)
 	}
 
+	// 预检只确认钩能物化；真正写入拟饵的树必须在事务内按最新钩行重建，
+	// 避免 Prepare 后耐久/字段变化时把旧快照写进 f0。
 	tree, terr := s.itemTree(ctx, hookRow)
 	if terr != nil || tree == nil || tree.Kind != proto.KindObj {
 		return nil
 	}
-	setLureChildRef(tree, lureGUID)
 
 	plan := &lureHookMountPlan{
 		uid: uid, lureGUID: lureGUID, hookGUID: hookGUID, extra: extra,
-		hookTree: tree, lureDefSlots: lureDefSlots,
+		lureDefSlots: lureDefSlots,
 	}
 	// 旧钩预备（读侧）：有物品行的实例 vs 原装出厂钩（全 key 空间匹配，
 	// 与当前下标无关——PR#339 评审 P2：短缩后原槽位号漂移）。
@@ -417,6 +418,20 @@ func (s *Server) lureHookMountCommit(ctx context.Context, plan *lureHookMountPla
 	if err != nil || hookRow == nil || hookRow.UID != plan.uid {
 		return reject("新钩归属已变化")
 	}
+	if hookRow.Durability <= 0 {
+		return reject("新钩已损坏")
+	}
+	hookFields, hfErr := FieldsFromJSON(hookRow.FieldsJSON)
+	if hfErr != nil {
+		return rejectErr("解析新钩字段", hfErr)
+	}
+	hookFields = alignFieldsToOps(hookRow, hookFields)
+	// 事务内按最新钩行重建写入拟饵的树，不能复用 Prepare 快照：耐久、
+	// 工艺或字段可能在预检后变化。钩是简单终端件，这里直接投影可变字段。
+	setWireFloat(hookFields, hookRow.WireClass, fieldIdxByCS(hookRow.WireClass, csWorkmanship), hookRow.Workmanship)
+	setWireFloat(hookFields, hookRow.WireClass, fieldIdxByCS(hookRow.WireClass, csDurability), hookRow.Durability)
+	setWireParentFields(hookFields, hookRow.WireClass, plan.lureGUID)
+	hookTree := proto.Obj(hookRow.WireClass, uint32(hookRow.TypeID), hookFields...)
 
 	// 旧钩槽一致性：预检与提交必须看到同一颗被替换钩（不同 call_id 的
 	// 并发装/拆在两次预检之间改动了数组 → 拒绝，绝不基于陈旧快照退包）。
@@ -429,9 +444,9 @@ func (s *Server) lureHookMountCommit(ctx context.Context, plan *lureHookMountPla
 	}
 	plan.ordinal = ordinal
 	if ordinal < len(items) {
-		items[ordinal] = plan.hookTree
+		items[ordinal] = hookTree
 	} else {
-		items = append(items, plan.hookTree)
+		items = append(items, hookTree)
 	}
 	list.Items = items
 	fields[idx] = proto.Field{Op: "VAL", Val: list}
@@ -452,11 +467,6 @@ func (s *Server) lureHookMountCommit(ctx context.Context, plan *lureHookMountPla
 		return reject("新钩已被其他操作占用")
 	}
 	hookRow.RigGUID = plan.lureGUID
-	hookFields, hfErr := FieldsFromJSON(hookRow.FieldsJSON)
-	if hfErr != nil {
-		return rejectErr("解析新钩字段", hfErr)
-	}
-	setWireParentFields(hookFields, hookRow.WireClass, plan.lureGUID)
 	if err := updateItemFieldsTx(ctx, s.DB, tx, hookRow, hookFields); err != nil {
 		return rejectErr("新钩字段写回", err)
 	}
@@ -495,10 +505,11 @@ func (s *Server) lureHookMountCommit(ctx context.Context, plan *lureHookMountPla
 		`DELETE FROM rig_component WHERE rig_guid=? AND slot=?`, plan.lureGUID, catHook); err != nil {
 		return rejectErr("幽灵组件行清理", err)
 	}
-	// bait_hook 关联行由竿侧流程创建（key=bait_hook:<拟饵GUID> 全局唯
-	// 一，行主键是竿 GUID），此处只更新值，不建行。
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE rod_setting SET value=? WHERE key=?`, plan.hookGUID, "bait_hook:"+plan.lureGUID); err != nil {
+	// bait_hook 关联必须跟随最新活动钩，而不是本次装上的槽。装到非活动槽
+	// 时保持原关联；替换活动槽时才改为新钩。关联行由竿侧流程创建，这里只
+	// 更新已有行，不建行。
+	activeGUID := lureHookItemGUID(items, lureActiveOrdinal(fields, len(items)))
+	if err := syncLureBaitHookTx(ctx, tx, plan.lureGUID, activeGUID); err != nil {
 		return rejectErr("bait_hook 关联更新", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -725,9 +736,11 @@ func (s *Server) lureHookRemoveCommit(ctx context.Context, plan *lureHookRemoveP
 		`DELETE FROM rig_component WHERE rig_guid=? AND slot=?`, plan.lureGUID, catHook); err != nil {
 		return abortErr("幽灵组件行清理", err)
 	}
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM rod_setting WHERE key=?`, "bait_hook:"+plan.lureGUID); err != nil {
-		return abortErr("bait_hook 关联清理", err)
+	// 拆非活动钩不能清掉活动钩关联；活动钩变化时才改为新活动钩，
+	// 数组清空则删除关联。
+	activeGUID := lureHookItemGUID(items, newActive)
+	if err := syncLureBaitHookTx(ctx, tx, plan.lureGUID, activeGUID); err != nil {
+		return abortErr("bait_hook 关联更新", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return abortErr("提交", err)
@@ -748,6 +761,18 @@ func (s *Server) lureHookRemoveCommit(ctx context.Context, plan *lureHookRemoveP
 	}
 	s.log.Info("拟饵拆钩", "lure", shortGUID(plan.lureGUID), "hook", shortGUID(plan.removedGUID), "ordinal", ordinal, "active", newActive)
 	return res
+}
+
+// syncLureBaitHookTx 把竿上的 bait_hook:<lure> 关联同步到当前活动钩。
+// 非活动槽装/拆不改活动钩；数组为空时删除关联。
+func syncLureBaitHookTx(ctx context.Context, tx *sql.Tx, lureGUID, activeGUID string) error {
+	key := "bait_hook:" + lureGUID
+	if activeGUID == "" {
+		_, err := tx.ExecContext(ctx, `DELETE FROM rod_setting WHERE key=?`, key)
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE rod_setting SET value=? WHERE key=?`, activeGUID, key)
+	return err
 }
 
 // prepareLureFactoryRefund 构造出厂钩退包实例（读库准备，不落库）。
