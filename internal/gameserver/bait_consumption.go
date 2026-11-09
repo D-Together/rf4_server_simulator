@@ -50,7 +50,9 @@ func (s *Server) baitedHookSets(ctx context.Context, rod string) []baitedHookSet
 	}
 	comps := s.storedRigComponents(ctx, rod)
 	rigType := s.rigTypeForWrite(ctx, rod)
-	count := hookPositionsFor(rigType)
+	// 钩位数按运行时实际钩组件算：倒钓臂展开后 rig 50/51 会有 250/1001/1005/1009
+	// 多条钩，只看模板会把多钩当单钩，饵全部并进第一枚钩。
+	count := hookPositionsIn(rigType, comps)
 	assignments, err := s.baitHookAssignments(ctx, rod, comps, count <= 1)
 	if err != nil {
 		return nil
@@ -216,7 +218,7 @@ func (s *Server) rememberMountedBaitHook(ctx context.Context, rod, bait, previou
 	}
 	if hook == "" {
 		rigType := s.rigTypeForWrite(ctx, rod)
-		if hookPositionsFor(rigType) <= 1 && len(hooks) > 0 {
+		if hookPositionsIn(rigType, comps) <= 1 && len(hooks) > 0 {
 			hook = comps[hooks[0]].GUID
 		} else if row, ok := comps[rigCompKey(catHook, ordinal)]; ok {
 			hook = row.GUID
@@ -623,8 +625,9 @@ func (s *Server) reloadBaitForCast(ctx context.Context, uid int64, rod string) (
 		return out, fmt.Errorf("不能为其他玩家的钓组补饵")
 	}
 	rigType := s.rigTypeForWrite(ctx, rod)
-	multi := hookPositionsFor(rigType) > 1
-	for ordinal := int64(0); ordinal < int64(baitSlotCount(rigType)); ordinal++ {
+	comps := s.storedRigComponents(ctx, rod)
+	multi := hookPositionsIn(rigType, comps) > 1
+	for ordinal := int64(0); ordinal < int64(baitSlotCountIn(rigType, comps)); ordinal++ {
 		key := fmt.Sprintf("rebait:%d", ordinal)
 		id, err := s.DB.GetRodSetting(ctx, rod, key)
 		if err == sql.ErrNoRows {

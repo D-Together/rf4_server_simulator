@@ -3152,16 +3152,43 @@ func baitSlotCount(rigType int64) int {
 	return max(2, len(slotIndicesFor(rigType, catHook)))
 }
 
-// hookPositionsFor 返回钓组的钩位数量——决定挂饵是否按钩拆组。
+// baitSlotCountIn 是 baitSlotCount 的运行时版本：饵位数量必须覆盖实际钩位，
+// 否则钩序号大于 1 的钩上断饵后，rebait:<钩序号> 记录永远读不到、补不上饵。
+func baitSlotCountIn(rigType int64, comps map[int64]rigComp) int {
+	return max(2, hookPositionsIn(rigType, comps))
+}
+
+// hookPositionsFor 返回钓组模板声明的钩位数量。
 //
 // 只数 catHook 槽位。拟饵族（catLure=17）在同一品类下同时承载“亮片”和
 // “基本吸引成分/钓钩吸引成分/鱼片”这些挂件，海钓铁板族因此有 300+325+
 // 326+327 多个拟饵槽位，但钩位始终只有一个。把拟饵槽位数并进来会把单钩
 // 铁板竿误判成多钩：挂饵分组被拆碎，判鱼时每组各选一次。
+//
+// 这是静态上限；运行时钩位数见 hookPositionsIn。
 func hookPositionsFor(rigType int64) int {
 	n := len(slotIndicesFor(rigType, catHook))
 	if n < 1 {
 		return 1
+	}
+	return n
+}
+
+// hookPositionsIn 返回运行时钩位数：模板声明数与 f5 实际已装钩组件的较大者。
+//
+// 海钓倒钓臂展开后，客户端会往 f5 里装 250/1001/1005/1009 多条 catHook
+// 组件（logs/gameserver.log 2026-11-09 10:26:54–10:28:59 实测四条共存）。
+// 服务端没有单独的“倒钓臂已展开”开关事件：钩组件本身就是运行时状态，
+// 因此钩位数只能按实际组件数取，不能只看 rigSlotTemplates（rig 50/51
+// 模板只声明 250 一个钩位）。只看模板会把多钩当单钩：所有饵并进第一枚钩，
+// 其余钩永远不判鱼、不吃饵、断件也不算。
+//
+// 取较大者是为了兼容模板已声明多钩位的钓组（如 rig 59 的 250/251/252）：
+// 钩还没装满时不能因为实际少了几条就把上限缩小。
+func hookPositionsIn(rigType int64, comps map[int64]rigComp) int {
+	n := hookPositionsFor(rigType)
+	if k := len(rigCompKeysOfCategory(comps, catHook)); k > n {
+		return k
 	}
 	return n
 }
