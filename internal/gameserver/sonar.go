@@ -666,8 +666,16 @@ func (s *Server) rosterSonarSchools(ctx context.Context, systemID string, grid s
 
 		readiness := s.fishHuntReadiness(ctx, key, c, hunt)
 		w1, w2, w3, w4, forceTrophy := fishHuntWeights(
-			readiness.Stage, hunt, c.skill.TrophyLuck, hookScore(c.hook), readiness.Comp,
+			readiness.Stage, hunt, c.skill.TrophyLuck, readiness.Comp,
 		)
+		if strength := s.tunableF(tunableHookSpawnMatchStrength, 1); strength > 0 && !forceTrophy {
+			scale := s.tunableF("fish_weight_scale", 1)
+			if scale <= 0 {
+				scale = 1
+			}
+			compat := s.hookSpawnCompatibilityByGrade(ctx, c, key, scale, 1)
+			applyHookSpawnMatch(&w1, &w2, &w3, &w4, compat, strength)
+		}
 		if forceTrophy {
 			w1, w2 = 0, 0
 		}

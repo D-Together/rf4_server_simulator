@@ -298,8 +298,8 @@ async function loadDashboard(refreshForm=true){
 async function loadDashboardSide(){
   const [audits,tuns]=await Promise.all([api('/api/audit?limit=5'),api('/api/tunables')]);
   $('#recentAudit').innerHTML=audits.map(e=>`<div class="rule-mini"><span class="muted">${esc(timeText(e.TS??e.ts).slice(5))}</span><span class="tag blue">${esc(e.Action??e.action)}</span><span class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((e.Target??e.target)||'')}</span></div>`).join('')||'<div class="empty">还没有操作记录</div>';
-  const rules={fish_bait_rules_enabled:'新吃饵逻辑',fish_distribution_enabled:'鱼群分布',fish_weather_enabled:'天气鱼口',happy_hour_enabled:'欢乐时光'};
-  $('#ruleOverview').innerHTML=Object.entries(rules).map(([k,n])=>{const on=tuns[k]===undefined?k==='happy_hour_enabled':tuns[k]==='1';return `<div class="rule-mini"><span>${n}</span><span class="pill ${on?'ok':''}">${on?'开启':'关闭'}</span></div>`}).join('')||'<div class="empty">读取失败</div>';
+  const rules={fish_bait_rules_enabled:'新吃饵逻辑',fish_distribution_enabled:'鱼群分布',fish_weather_enabled:'天气鱼口',happy_hour_enabled:'欢乐时光',hook_nibble_enabled:'嘬饵机制'};
+  $('#ruleOverview').innerHTML=Object.entries(rules).map(([k,n])=>{const on=tuns[k]===undefined?(k==='happy_hour_enabled'||k==='hook_nibble_enabled'):tuns[k]==='1';return `<div class="rule-mini"><span>${n}</span><span class="pill ${on?'ok':''}">${on?'开启':'关闭'}</span></div>`}).join('')||'<div class="empty">读取失败</div>';
 }
 // 参数三件套：中文标签 + 输入框 + 可见的一行说明（第 4 项为默认值，第 5 项为说明）
 const EVENT_BRANCHES_DEFAULT='9,10,11,12,13,14,15,16,17,18,19,20';
@@ -313,6 +313,8 @@ const TUNABLE_DEFS=[
   ['bait_pref_weight_shift','饵效偏大体型',1,'越大越偏向个体大的鱼咬钩'],
   ['fish_weight_scale','鱼体重倍率',1,'全地图鱼重整体缩放，2=两倍重'],
   ['fish_weight_cap','鱼重受钓具上限',0,'1=超出钓具负重的鱼按上限截断；0=不限制'],
+  ['hook_nibble_enabled','嘬饵机制',1,'1=保留钩型嘬饵判定；0=普通鱼和奖杯鱼首次抬竿不再判嘬饵。中钩后的保持率倍率仍生效'],
+  ['hook_spawn_match_strength','钩型发鱼软匹配强度',1,'0=关闭；1=标准；2=更偏向与钩型匹配的鱼重档位。只影响发鱼，不改后台咬口/保持率倍率'],
   ['grade_ratio_enabled','档位比例开关',0,'0=保持原对数正态标定；1=按下列比例出鱼'],
   ['grade_pct_below','未达标比例（%）',3,'体重低于合格线的占比'],
   ['grade_pct_qualified','合格比例（%）',87.5,'合格档占比；缺档位的份额按其余档归一化'],
@@ -601,11 +603,16 @@ async function loadTunables(){
    const on=parseFloat(String(t[key]??'1'))>0;
    return `<div class="tunable-field"><div><label for="tun_fish_escape_taunt">${esc(label)}</label><div class="tunable-hint">${esc(hint)}</div></div><div><button class="btn sm" id="tun_fish_escape_taunt" style="min-width:230px;${on?'background:#2f7d4f;border-color:#2f7d4f':'opacity:.6'}" onclick="saveTunableVal('fish_escape_taunt',${on?0:1})">${on?'嘲讽文案：开（点击关闭）':'官方“鱼脱钩了”（点击开启嘲讽）'}</button></div></div>`;
   }
+  if(key==='hook_nibble_enabled'){
+    const on=parseFloat(String(t[key]??def))>0;
+    return `<div class="tunable-field"><div><label for="tun_hook_nibble_enabled">${esc(label)}</label><div class="tunable-hint">${esc(hint)}</div></div><div><button class="btn sm" id="tun_hook_nibble_enabled" style="min-width:230px;${on?'background:#2f7d4f;border-color:#2f7d4f':'opacity:.6'}" onclick="saveTunableVal('hook_nibble_enabled',${on?0:1})">${on?'嘬饵机制：开（点击关闭）':'嘬饵机制：关（点击开启）'}</button></div></div>`;
+  }
   return '<div class="tunable-field"><div><label for="tun_'+key+'">'+esc(label)+'</label><div class="tunable-hint">'+esc(hint)+'</div></div><div><input type="number" step="any" id="tun_'+key+'" value="'+esc(String(t[key]??''))+'" placeholder="默认 '+def+'"><button class="btn alt sm" onclick="saveTunable(\''+key+'\')">保存</button><button class="btn alt sm" title="回写代码默认值 '+def+'" onclick="resetTunable(\''+key+'\','+def+')">恢复默认</button></div></div>';
  };
  const group=(title,sub,keys)=>'<section class="tunable-group"><h3>'+esc(title)+'<small style="font-weight:400;margin-left:8px;color:var(--muted)">'+esc(sub)+'</small></h3><div class="tunable-fields">'+keys.map(field).join('')+'</div></section>';
  $('#paramsBody').innerHTML=
   group('玩法手感','咬钩快慢、饵料偏好、鱼的大小与挣扎力度',['bite_probability','bite_delay_fixed','bite_delay_scale','bite_delay_max','bite_delay_lure_max','bait_pref_scale','bait_pref_weight_shift','fish_weight_scale','fish_weight_cap','fight_power_scale'])
+  +group('钩型与咬口','嘬饵总开关与发鱼软匹配；后台钩型倍率仍独立生效',['hook_nibble_enabled','hook_spawn_match_strength'])
   +group('经验与结算','改后只对新结算的鱼生效，已入护的不重算',['xp_gain','release_xp_ratio'])
   +group('钓获掉卡','本地自定概率；最多 30 秒生效，重连或重复结算不补抽',['card_drop_normal','card_drop_star','card_drop_blue','card_drop_rare_scale'])
   +group('鱼获档位比例','按四档占比出鱼；缺某档阈值时其余档自动归一',['grade_ratio_enabled','grade_pct_below','grade_pct_qualified','grade_pct_trophy','grade_pct_super'])
