@@ -665,8 +665,8 @@ func (s *Server) rosterSonarSchools(ctx context.Context, systemID string, grid s
 		depthJitter := math.Max(.1, math.Min(2.5, (depthHigh-depthLow)*.025))
 
 		readiness := s.fishHuntReadiness(ctx, key, c, hunt)
-		w1, w2, w3, w4, forceTrophy := fishHuntWeights(
-			readiness.Stage, hunt, c.skill.TrophyLuck, readiness.Comp,
+		w1, w2, w3, w4, forceTrophy := s.fishHuntWeights(
+			readiness.Mode, readiness.Stage, hunt, c.skill.TrophyLuck, readiness.Comp,
 		)
 		gradeWeights := [4]float64{w1, w2, w3, w4}
 		scale := s.tunableF("fish_weight_scale", 1)

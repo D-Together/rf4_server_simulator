@@ -11,6 +11,15 @@ import (
 	"rf4server/internal/store"
 )
 
+// huntWeightsTestServer 构造只带 tunables 缓存的 Server，用于纯函数级权重断言。
+func huntWeightsTestServer(tunables map[string]float64) *Server {
+	m := map[string]float64{"grade_ratio_enabled": 0, "fish_hunt_enabled": 1, "two_stage_hunt_enabled": 0}
+	for k, v := range tunables {
+		m[k] = v
+	}
+	return &Server{tunCache: m, tunAt: time.Now()}
+}
+
 func TestFishHuntStageWeights(t *testing.T) {
 	tests := []struct {
 		stage          int
@@ -21,23 +30,129 @@ func TestFishHuntStageWeights(t *testing.T) {
 		{fishHuntActive, 30, 61.2, 6.8, 2},
 		{fishHuntGiant, 10, 64, 20, 6},
 	}
-	for _, tc := range tests {
-		w1, w2, w3, w4, force := fishHuntWeights(tc.stage, &fishHuntState{}, 0, false)
-		if force || math.Abs(w1-tc.w1) > 1e-9 || math.Abs(w2-tc.w2) > 1e-9 ||
-			math.Abs(w3-tc.w3) > 1e-9 || math.Abs(w4-tc.w4) > 1e-9 {
-			t.Fatalf("stage=%d weights=(%.1f,%.1f,%.1f,%.1f) force=%v", tc.stage, w1, w2, w3, w4, force)
+	s := huntWeightsTestServer(nil)
+	for _, mode := range []int{fishHuntModeFreshwater, fishHuntModeMarine, fishHuntModeLure} {
+		for _, tc := range tests {
+			w1, w2, w3, w4, force := s.fishHuntWeights(mode, tc.stage, &fishHuntState{}, 0, false)
+			if force || math.Abs(w1-tc.w1) > 1e-9 || math.Abs(w2-tc.w2) > 1e-9 ||
+				math.Abs(w3-tc.w3) > 1e-9 || math.Abs(w4-tc.w4) > 1e-9 {
+				t.Fatalf("mode=%d stage=%d weights=(%.1f,%.1f,%.1f,%.1f) force=%v",
+					mode, tc.stage, w1, w2, w3, w4, force)
+			}
 		}
 	}
 }
 
+func TestTwoStageFreshwaterWeights(t *testing.T) {
+	s := huntWeightsTestServer(map[string]float64{"two_stage_hunt_enabled": 1})
+	tests := []struct {
+		name           string
+		stage          int
+		w1, w2, w3, w4 float64
+	}{
+		{"daily", fishHuntDaily, 10, 86.5, 3, .5},
+		{"baited-gather", fishHuntGather, 1, 92, 6, 1},
+		{"baited-active", fishHuntActive, 1, 92, 6, 1},
+		{"baited-giant", fishHuntGiant, 1, 92, 6, 1},
+	}
+	for _, tc := range tests {
+		w1, w2, w3, w4, force := s.fishHuntWeights(fishHuntModeFreshwater, tc.stage, &fishHuntState{}, 0, false)
+		if force || math.Abs(w1-tc.w1) > 1e-9 || math.Abs(w2-tc.w2) > 1e-9 ||
+			math.Abs(w3-tc.w3) > 1e-9 || math.Abs(w4-tc.w4) > 1e-9 {
+			t.Fatalf("%s weights=(%.2f,%.2f,%.2f,%.2f) force=%v", tc.name, w1, w2, w3, w4, force)
+		}
+	}
+	// 两档制下海钓/路亚必须仍是原四阶段表。
+	s4 := [4][4]float64{{74.7, 24, 1, .3}, {54.5, 43, 2, .5}, {30, 61.2, 6.8, 2}, {10, 64, 20, 6}}
+	for i, stage := range []int{fishHuntDaily, fishHuntGather, fishHuntActive, fishHuntGiant} {
+		w1, w2, w3, w4, _ := s.fishHuntWeights(fishHuntModeMarine, stage, &fishHuntState{}, 0, false)
+		want := s4[i]
+		if math.Abs(w1-want[0]) > 1e-9 || math.Abs(w2-want[1]) > 1e-9 ||
+			math.Abs(w3-want[2]) > 1e-9 || math.Abs(w4-want[3]) > 1e-9 {
+			t.Fatalf("两档制不得改写海钓四阶段表 stage=%d: (%.1f,%.1f,%.1f,%.1f)", stage, w1, w2, w3, w4)
+		}
+	}
+}
+
+func TestTwoStageCustomWeightsNormalize(t *testing.T) {
+	s := huntWeightsTestServer(map[string]float64{
+		"two_stage_hunt_enabled":    1,
+		"two_stage_daily_below":     20,
+		"two_stage_daily_qualified": 140,
+		"two_stage_daily_trophy":    30,
+		"two_stage_daily_super":     10,
+	})
+	w1, w2, w3, w4, _ := s.fishHuntWeights(fishHuntModeFreshwater, fishHuntDaily, &fishHuntState{}, 0, false)
+	want := [4]float64{10, 70, 15, 5}
+	got := [4]float64{w1, w2, w3, w4}
+	for i := range want {
+		if math.Abs(got[i]-want[i]) > 1e-9 {
+			t.Fatalf("自定义权重应归一到总和 100%%: got=%.2f want=%.2f", got, want)
+		}
+	}
+}
+
+func TestHuntStateEnabledCombinesFlags(t *testing.T) {
+	s, _ := newRigTestServer(t)
+	cases := []struct {
+		fishHunt, twoStage float64
+		want               bool
+	}{
+		{0, 0, false},
+		{1, 0, true},
+		{0, 1, true},
+		{1, 1, true},
+	}
+	for _, tc := range cases {
+		s.tunCache = map[string]float64{
+			"fish_hunt_enabled":      tc.fishHunt,
+			"two_stage_hunt_enabled": tc.twoStage,
+		}
+		s.tunAt = time.Now()
+		if got := s.huntStateEnabled(); got != tc.want {
+			t.Fatalf("fish_hunt=%.0f two_stage=%.0f: huntStateEnabled=%v want=%v", tc.fishHunt, tc.twoStage, got, tc.want)
+		}
+	}
+}
+
+func TestFishHuntStageNameFollowsMode(t *testing.T) {
+	ts := huntWeightsTestServer(map[string]float64{"two_stage_hunt_enabled": 1})
+	if got := ts.fishHuntStageName(fishHuntModeFreshwater, fishHuntDaily); got != "日常" {
+		t.Fatalf("两档制日常名称错: %s", got)
+	}
+	for _, stage := range []int{fishHuntGather, fishHuntActive, fishHuntGiant} {
+		if got := ts.fishHuntStageName(fishHuntModeFreshwater, stage); got != "打窝" {
+			t.Fatalf("两档制打窝名称错 stage=%d: %s", stage, got)
+		}
+	}
+	if got := ts.fishHuntStageName(fishHuntModeMarine, fishHuntGiant); got != "巨物发窝" {
+		t.Fatalf("两档制不得改写海钓阶段名: %s", got)
+	}
+	fh := huntWeightsTestServer(nil)
+	if got := fh.fishHuntStageName(fishHuntModeFreshwater, fishHuntGather); got != "聚鱼" {
+		t.Fatalf("鱼猎模式淡水阶段名错: %s", got)
+	}
+}
+
 func TestFishHuntPityForcesTrophy(t *testing.T) {
-	_, _, _, _, force := fishHuntWeights(fishHuntActive, &fishHuntState{Pity: 60}, 0, false)
+	s := huntWeightsTestServer(nil)
+	_, _, _, _, force := s.fishHuntWeights(fishHuntModeMarine, fishHuntActive, &fishHuntState{Pity: 60}, 0, false)
 	if !force {
 		t.Fatal("60 尾未出奖杯时必须触发奖杯硬保底")
 	}
-	_, _, w3, _, force := fishHuntWeights(fishHuntActive, &fishHuntState{Pity: 30}, 0, false)
+	_, _, w3, _, force := s.fishHuntWeights(fishHuntModeMarine, fishHuntActive, &fishHuntState{Pity: 30}, 0, false)
 	if force || w3 <= 6.8 {
 		t.Fatalf("30 尾软保底应提高奖杯权重，w3=%.2f force=%v", w3, force)
+	}
+	// 两档制打窝表同样吃保底：基础 w3=6，Pity30 → ×1.5 = 9。
+	ts := huntWeightsTestServer(map[string]float64{"two_stage_hunt_enabled": 1})
+	_, _, w3b, _, force := ts.fishHuntWeights(fishHuntModeFreshwater, fishHuntGather, &fishHuntState{Pity: 30}, 0, false)
+	if force || math.Abs(w3b-9) > 1e-9 {
+		t.Fatalf("两档制打窝 Pity30 应 w3=9，实得 %.2f force=%v", w3b, force)
+	}
+	_, _, _, _, force = ts.fishHuntWeights(fishHuntModeFreshwater, fishHuntGather, &fishHuntState{Pity: 60}, 0, false)
+	if !force {
+		t.Fatal("两档制打窝 60 尾仍必须触发硬保底")
 	}
 }
 
@@ -120,7 +235,8 @@ func TestHookSpawnMatchBiasesGradesAndPreservesBlue(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w1, w2, w3, w4, _ := fishHuntWeights(fishHuntActive, tc.h, 0, tc.comp)
+			s := huntWeightsTestServer(nil)
+			w1, w2, w3, w4, _ := s.fishHuntWeights(fishHuntModeMarine, fishHuntActive, tc.h, 0, tc.comp)
 			before := blueProbability(w1, w2, w3, w4)
 			small1, small2, small3, small4 := w1, w2, w3, w4
 			applyHookSpawnMatch(&small1, &small2, &small3, &small4, [4]float64{1, .5, .1, 1}, 1)
@@ -576,7 +692,7 @@ func TestFishHuntReadinessRequiresFishMouthMatch(t *testing.T) {
 			r.A, r.E, r.G, r.P, r.Q)
 	}
 	if r.E < .45 && r.Stage != fishHuntDaily {
-		t.Fatalf("鱼口匹配不足时必须守住日常阶段，实得 E=%.2f stage=%s", r.E, fishHuntStageName(r.Stage))
+		t.Fatalf("鱼口匹配不足时必须守住日常阶段，实得 E=%.2f stage=%s", r.E, s.fishHuntStageName(fishHuntModeFreshwater, r.Stage))
 	}
 }
 
@@ -601,7 +717,7 @@ func TestLureHuntBuildsBigFishProgressWithoutGroundbait(t *testing.T) {
 	r := s.fishHuntReadiness(ctx, "perch", c, h)
 	if r.Stage != fishHuntGiant {
 		t.Fatalf("路亚持续搜索不应依赖窝料，stage=%s A=%.2f E=%.2f G=%.2f Q=%.2f",
-			fishHuntStageName(r.Stage), r.A, r.E, r.G, r.Q)
+			s.fishHuntStageName(fishHuntModeLure, r.Stage), r.A, r.E, r.G, r.Q)
 	}
 	if h.Mode != fishHuntModeLure {
 		t.Fatalf("路亚应记录独立狩猎模式: %+v", h)
@@ -678,7 +794,7 @@ func TestMarineHuntUsesSonarZoneWithoutGroundbait(t *testing.T) {
 	r := s.fishHuntReadiness(ctx, "atl_cod", c, h)
 	if r.A < .50 || r.G < .25 || r.Stage == fishHuntDaily {
 		t.Fatalf("海图声呐区应能建立狩猎状态，实得 stage=%s A=%.2f E=%.2f G=%.2f P=%.2f Q=%.2f",
-			fishHuntStageName(r.Stage), r.A, r.E, r.G, r.P, r.Q)
+			s.fishHuntStageName(fishHuntModeMarine, r.Stage), r.A, r.E, r.G, r.P, r.Q)
 	}
 	if h.Mode != fishHuntModeMarine || !h.ZoneKnown || h.Zone != 215 {
 		t.Fatalf("海图狩猎状态未写入声呐区: %+v", h)
