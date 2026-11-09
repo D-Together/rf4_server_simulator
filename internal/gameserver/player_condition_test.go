@@ -40,6 +40,9 @@ func testConditionParams() conditionParams {
 		GearEnergyRegenCap:   0.5,
 		GearEnergyMaxCap:     0.15,
 
+		// 既有手算用例不启用“回精力吃食”折算，单独用例覆盖。
+		EnergyRegenFoodCost: 0,
+
 		HealthDecayPerHour:     0.10,
 		HealthRegenPerHour:     0.05,
 		HealthHungerThreshold:  0.10,
@@ -457,5 +460,36 @@ func TestKitchenEatFreeMealCooldown(t *testing.T) {
 	}
 	if row, err := db.EnsurePlayerCondition(ctx0, uid); err != nil || row.Secondary != 1.0 {
 		t.Fatalf("新游戏日应恢复饱食度: %+v %v", row, err)
+	}
+}
+
+// 恢复精力要按比例吃掉饱食度：饱食度额外下降 = 回复量 * 系数。
+func TestAdvanceEnergyRegenConsumesFood(t *testing.T) {
+	t.Parallel()
+	p := testConditionParams()
+	p.EnergyRegenFoodCost = 0.5
+	cur := store.PlayerCondition{Primary: 0.10, Secondary: 1.0, Comfort: 1.0, LuckPenalty: 0, UpdatedTS: 1000}
+	next := advancePlayerCondition(cur, 1000+1800, p, conditionEnv{})
+	gained := next.Primary - cur.Primary
+	if gained <= 0 {
+		t.Fatalf("精力应上升，实得 %v -> %v", cur.Primary, next.Primary)
+	}
+	// 先按 natural decay 掉 0.24*0.5，再按回复量扣 0.5*系数。
+	want := 1.0 - p.HungerDecayPerHour*0.5 - gained*p.EnergyRegenFoodCost
+	if math.Abs(next.Secondary-want) > 1e-9 {
+		t.Fatalf("饱食度折算不符: got %v want %v (gained=%v)", next.Secondary, want, gained)
+	}
+}
+
+// 系数为 0 时不额外消耗饱食度，行为与改动前一致。
+func TestAdvanceEnergyRegenNoFoodCostWhenDisabled(t *testing.T) {
+	t.Parallel()
+	p := testConditionParams()
+	p.EnergyRegenFoodCost = 0
+	cur := store.PlayerCondition{Primary: 0.10, Secondary: 1.0, Comfort: 1.0, LuckPenalty: 0, UpdatedTS: 1000}
+	next := advancePlayerCondition(cur, 1000+1800, p, conditionEnv{})
+	want := 1.0 - p.HungerDecayPerHour*0.5
+	if math.Abs(next.Secondary-want) > 1e-9 {
+		t.Fatalf("关闭时饱食度应只按自然衰减: got %v want %v", next.Secondary, want)
 	}
 }
