@@ -233,6 +233,36 @@ func (s *Server) reelPartLivesInFields(ctx context.Context, reel *store.Item, fi
 	return lives, true
 }
 
+// reelRepairWearInFields 返回整只渔轮一次整机保养会恢复的零件磨损总量。
+// 工坊同型号修理会恢复全部内件，因此计价不能只看客户端选中的那一个零件。
+func (s *Server) reelRepairWearInFields(ctx context.Context, reel *store.Item, fields []proto.Field) float64 {
+	lives, ok := s.reelPartLivesInFields(ctx, reel, fields)
+	if ok {
+		total := 0.0
+		for _, category := range []int64{
+			reelPartCatWasher, reelPartCatGear, reelPartCatBearing,
+			reelPartCatSpool, reelPartCatHandle, reelPartCatOil,
+		} {
+			total += math.Max(0, 1-lives[category])
+		}
+		return total
+	}
+
+	// 老档缺少摩擦片定义时仍按能读出的子件耐久计费，不能把整机恢复做成免费。
+	total := 0.0
+	for _, category := range []int64{
+		reelPartCatWasher, reelPartCatGear, reelPartCatBearing,
+		reelPartCatSpool, reelPartCatHandle, reelPartCatOil,
+	} {
+		part, _, _, found := s.selectedReelPart(ctx, fields, category)
+		if !found || part == nil {
+			continue
+		}
+		total += math.Max(0, 1-reelChildDurability(part))
+	}
+	return total
+}
+
 // reelBodyDurabilityInFields 按"本体耐久 = 内部零件综合"算出渔轮本体此刻的耐久：
 // 任一熔断件寿命归零就是 0；否则取 min(加权寿命, 最弱熔断件 + 容差)。
 // 缺件按满寿命处理，不会因为老存档少了某个件就误判成损坏。

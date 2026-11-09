@@ -1323,9 +1323,16 @@ func hWorkshopOrder(ctx *Ctx) ([]byte, bool) {
 	if ferr != nil {
 		return nil, false
 	}
+	itemDef, itemDefErr := srv.itemDefForRow(cctx, row)
+	isReel := itemDefErr == nil && itemDef != nil && itemDef.Category == gearCatReel
+	reelWearBefore := 0.0
+	if isReel {
+		reelWearBefore = srv.reelRepairWearInFields(cctx, row, fields)
+	}
 
 	silver, gold := int64(0), int64(0)
 	changed := false
+	hasRepair := false
 	allRepairs := len(orders) > 0
 	for _, o := range orders {
 		idx := -1
@@ -1345,6 +1352,7 @@ func hWorkshopOrder(ctx *Ctx) ([]byte, bool) {
 		// 同型号 = 修理（恢复耐久，按磨损计价）；不同型号 = 更换。
 		if installed := srv.childSystemID(cctx, fields[idx].Val); installed != "" &&
 			strings.EqualFold(installed, o.SysID) {
+			hasRepair = true
 			ch := fields[idx].Val
 			if didx := fieldIdxByCS(ch.Class, csDurability); didx >= 0 && didx < ch.FieldCount() {
 				old := float64(math.Float32frombits(ch.Fields[didx].U32()))
@@ -1375,16 +1383,32 @@ func hWorkshopOrder(ctx *Ctx) ([]byte, bool) {
 	if !changed {
 		return nil, false
 	}
+	if useGold && hasRepair {
+		ctx.Log.Warn("工坊修理：同型号修理仅支持银币支付", "guid", shortGUID(row.GUID))
+		return nil, false
+	}
 	wholeItemRepair := allRepairs
 	if allRepairs {
-		if def, derr := srv.itemDefForRow(cctx, row); derr == nil && def != nil && def.Category == gearCatReel {
+		if isReel {
 			if _, ierr := srv.restoreReelInternalsInFields(cctx, row, fields); ierr != nil {
 				ctx.Log.Warn("工坊修理：轮内零件恢复失败", "guid", shortGUID(row.GUID), "err", ierr)
 				return nil, false
 			}
+			// 整机保养会恢复全部内件，费用必须覆盖实际恢复的全部磨损。
+			silver = int64(math.Round(reelWearBefore * 500))
+			gold = 0
 		}
 	}
 	costSilver, costGold := silver, gold
+	if useGold {
+		if costGold <= 0 {
+			ctx.Log.Warn("工坊换件：金币价格为 0，拒绝零金额交易", "item", shortGUID(itemGUID))
+			return nil, false
+		}
+	} else if costSilver <= 0 {
+		ctx.Log.Warn("工坊换件：银币价格为 0，拒绝零金额交易", "item", shortGUID(itemGUID))
+		return nil, false
+	}
 	if clientCost > 0 {
 		quotedCost := costSilver
 		if useGold {
@@ -1432,7 +1456,7 @@ func hWorkshopOrder(ctx *Ctx) ([]byte, bool) {
 		newDurability = 1.0
 	}
 	var preparedPerf *store.ReelPerformance
-	if def, derr := srv.itemDefForRow(cctx, row); derr == nil && def != nil && def.Category == gearCatReel {
+	if isReel {
 		// 本体那一格是轮内零件的综合：换掉烧穿的摩擦片必须能把它抬回来，
 		// 否则“换件修好”永远修不好。先算好新本体和物理参数，再与扣费、
 		// 物品字段写库放进同一个事务，避免任何一步失败留下半套状态。

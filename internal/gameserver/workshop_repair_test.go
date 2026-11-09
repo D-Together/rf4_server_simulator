@@ -11,16 +11,24 @@ import (
 	"rf4server/internal/wiregen"
 )
 
-func snapshotWorkshopRequestPart(guid string, category uint32, systemID string, clientCost uint64) *proto.Value {
+func snapshotWorkshopRequestPartPayment(guid string, category uint32, systemID string, clientCost uint64, useGold bool) *proto.Value {
+	goldFlag := uint32(0)
+	if useGold {
+		goldFlag = 1
+	}
 	return proto.Args524(proto.StrVal("workshop_01"), wiregen.MustMakeObj("nfmkdcbnkhp", map[int]*proto.Value{
 		0: proto.Guid(guid),
 		1: proto.Args(proto.S("503"), wiregen.MustMakeObj("gcllbdkgkna", map[int]*proto.Value{
 			0: proto.U32(category),
 			1: proto.StrVal(systemID),
 		})),
-		2: proto.U32(0),
+		2: proto.U32(goldFlag),
 		3: proto.U64(clientCost),
 	}))
+}
+
+func snapshotWorkshopRequestPart(guid string, category uint32, systemID string, clientCost uint64) *proto.Value {
+	return snapshotWorkshopRequestPartPayment(guid, category, systemID, clientCost, false)
 }
 
 func seedWornWorkshopRod(t *testing.T, srv *Server, db *store.DB, partLife, bodyLife float64) (*store.Item, string) {
@@ -45,6 +53,35 @@ func seedWornWorkshopRod(t *testing.T, srv *Server, db *store.DB, partLife, body
 	}
 	rod.Durability = bodyLife
 	return rod, partDef.ItemID
+}
+
+func seedWornWorkshopReel(t *testing.T, srv *Server, db *store.DB, gearLife, washerLife, bearingLife, bodyLife float64) (*store.Item, string) {
+	t.Helper()
+	ctx := t.Context()
+	const uid = int64(1000001)
+
+	reel, err := srv.CreateItem(ctx, uid, "spin_5354", "backpack", 1)
+	if err != nil {
+		t.Fatalf("造轮失败: %v", err)
+	}
+	fields := snapshotFields(t, reel.FieldsJSON)
+	gear, gearDef := snapshotPart(t, srv, fields, reelPartCatGear)
+	washer, washerDef := snapshotPart(t, srv, fields, reelPartCatWasher)
+	bearing, _ := snapshotPart(t, srv, fields, reelPartCatBearing)
+	setWireFloat(gear.Fields, gear.Class, fieldIdxByCS(gear.Class, csDurability), gearLife)
+	setWireFloat(bearing.Fields, bearing.Class, fieldIdxByCS(bearing.Class, csDurability), bearingLife)
+	setWireFloat(washer.Fields, washer.Class, fieldIdxByCS(washer.Class, csDurability), washerLife)
+	if _, present, idx := frictionWasherDrag(washer); present {
+		setWireFloat(washer.Fields, washer.Class, idx,
+			itemDefF32(washerDef, gearAttrDragMax)*reel.Workmanship*washerLife)
+	}
+	raw := snapshotJSON(t, fields)
+	reel.FieldsJSON = raw
+	if err := db.UpdateItemFields(ctx, reel.GUID, raw, reel.Qty, bodyLife, reel.Workmanship, reel.RigGUID); err != nil {
+		t.Fatalf("预置轮状态失败: %v", err)
+	}
+	reel.Durability = bodyLife
+	return reel, gearDef.ItemID
 }
 
 func TestWorkshopSameModelRepairRestoresItemDurability(t *testing.T) {
@@ -160,5 +197,138 @@ func TestWorkshopOrderRollsBackWalletWhenItemWriteFails(t *testing.T) {
 	fresh := mustItem(t, db, rod.GUID)
 	if fresh.Durability != .5 {
 		t.Fatalf("物品写库失败后本体耐久应保持 0.5，实得 %v", fresh.Durability)
+	}
+}
+
+func TestWorkshopReelRepairRejectsGoldPayment(t *testing.T) {
+	srv, db := newStaticRigTestServer(t)
+	reel, gearID := seedWornWorkshopReel(t, srv, db, 1, .2, .5, .5)
+	ctx := t.Context()
+	const uid = int64(1000001)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpdateBalance(ctx, uid, 1000, 1000, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &Ctx{
+		Sess: newProbeSess(srv), Main: 21, Sub: 3,
+		Tree: snapshotWorkshopRequestPartPayment(reel.GUID, uint32(reelPartCatGear), gearID, 0, true),
+		Log:  logging.Discard(),
+	}
+	if _, ok := hWorkshopOrder(c); ok {
+		t.Fatal("同型号修理不应接受金币支付")
+	}
+	profile, err := db.GetProfile(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Silver != 1000 || profile.Gold != 1000 {
+		t.Fatalf("金币修理被拒绝后余额应保持 1000/1000，实得 %d/%d",
+			profile.Silver, profile.Gold)
+	}
+	fresh := mustItem(t, db, reel.GUID)
+	if fresh.Durability != .5 {
+		t.Fatalf("金币修理被拒绝后本体耐久应保持 0.5，实得 %v", fresh.Durability)
+	}
+}
+
+func TestWorkshopReelRepairFullPartDoesNotFreeWholeService(t *testing.T) {
+	srv, db := newStaticRigTestServer(t)
+	reel, gearID := seedWornWorkshopReel(t, srv, db, 1, .2, .5, .5)
+	ctx := t.Context()
+	const uid = int64(1000001)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpdateBalance(ctx, uid, 10000, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &Ctx{
+		Sess: newProbeSess(srv), Main: 21, Sub: 3,
+		Tree: snapshotWorkshopRequestPart(reel.GUID, uint32(reelPartCatGear), gearID, 0),
+		Log:  logging.Discard(),
+	}
+	if body, ok := hWorkshopOrder(c); !ok || len(body) == 0 {
+		t.Fatal("满耐久齿轮不应阻止其他磨损件正常计费修理")
+	}
+	profile, err := db.GetProfile(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Silver >= 10000 {
+		t.Fatalf("整机保养必须按实际磨损收费，余额仍为 %d", profile.Silver)
+	}
+	fresh := mustItem(t, db, reel.GUID)
+	if fresh.Durability != 1 {
+		t.Fatalf("整机保养后本体耐久应为 1，实得 %v", fresh.Durability)
+	}
+	fields := snapshotFields(t, fresh.FieldsJSON)
+	washer, _ := snapshotPart(t, srv, fields, reelPartCatWasher)
+	if got := snapshotFloat(washer.Fields, washer.Class, csDurability); math.Abs(got-1) > 1e-6 {
+		t.Fatalf("整机保养后摩擦片耐久应为 1，实得 %v", got)
+	}
+}
+
+func TestWorkshopReelRepairRejectsZeroCost(t *testing.T) {
+	srv, db := newStaticRigTestServer(t)
+	reel, gearID := seedWornWorkshopReel(t, srv, db, 1, 1, 1, 1)
+	ctx := t.Context()
+	const uid = int64(1000001)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpdateBalance(ctx, uid, 1000, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &Ctx{
+		Sess: newProbeSess(srv), Main: 21, Sub: 3,
+		Tree: snapshotWorkshopRequestPart(reel.GUID, uint32(reelPartCatGear), gearID, 0),
+		Log:  logging.Discard(),
+	}
+	if _, ok := hWorkshopOrder(c); ok {
+		t.Fatal("没有实际磨损时不应提交零金额修理")
+	}
+	var txnCount int
+	if err := db.SQL.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM txn WHERE uid=? AND kind='workshop_part'`, uid).Scan(&txnCount); err != nil {
+		t.Fatal(err)
+	}
+	if txnCount != 0 {
+		t.Fatalf("零金额修理不得写流水，实得 %d 条", txnCount)
+	}
+}
+
+func TestWorkshopReelRepairChargesAllRestoredWear(t *testing.T) {
+	srv, db := newStaticRigTestServer(t)
+	reel, gearID := seedWornWorkshopReel(t, srv, db, .8, .2, .5, .5)
+	ctx := t.Context()
+	const uid = int64(1000001)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpdateBalance(ctx, uid, 10000, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &Ctx{
+		Sess: newProbeSess(srv), Main: 21, Sub: 3,
+		Tree: snapshotWorkshopRequestPart(reel.GUID, uint32(reelPartCatGear), gearID, 0),
+		Log:  logging.Discard(),
+	}
+	if body, ok := hWorkshopOrder(c); !ok || len(body) == 0 {
+		t.Fatal("整机保养订单失败")
+	}
+	profile, err := db.GetProfile(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 齿轮 0.2 + 摩擦片 0.8 + 轴承 0.5 = 1.5 个满磨损单位。
+	wantCost := int64(math.Round(1.5 * 500))
+	if got := int64(10000) - profile.Silver; got != wantCost {
+		t.Fatalf("整机保养费用=%d，期望覆盖全部磨损=%d", got, wantCost)
 	}
 }
