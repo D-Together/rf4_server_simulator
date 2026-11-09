@@ -255,9 +255,16 @@ func TestReelOverloadUsesDurabilityStages(t *testing.T) {
 		t.Fatalf("0 品质齿轮传动系数=%f，期望 0.95", got)
 	}
 	for quality, want := range map[float64]float64{15: 1.175, 70: 0.90, 100: 0.75} {
-		if got := reelOilWearFactor(quality); math.Abs(got-want) > 1e-9 {
+		if got := reelOilWearFactor(quality, 1); math.Abs(got-want) > 1e-9 {
 			t.Fatalf("润滑油品质 %.0f 磨损系数=%f，期望 %f", quality, got, want)
 		}
+	}
+	if got := reelOilWearFactor(100, 0); math.Abs(got-1.0) > 1e-9 {
+		t.Fatalf("轮油干涸后应失去品质保护，磨损系数=%f，期望 1.0", got)
+	}
+	if !(reelOilWearFactor(100, 1) < reelOilWearFactor(100, .5) &&
+		reelOilWearFactor(100, .5) < reelOilWearFactor(100, 0)) {
+		t.Fatal("轮油剩余耐久下降时摩擦片磨损倍率应逐步上升")
 	}
 
 	srv, db := newRigTestServer(t)

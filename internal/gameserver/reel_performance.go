@@ -114,11 +114,12 @@ func reelLockedDragKg(base, durability, bearingFactor, gearFactor float64) float
 	return base * reelLockMultiplier(durability) * bearingFactor * gearFactor
 }
 
-// reelOilWearFactor 返回超载磨损倍率。品质越高，跨过一个 20% 耐久档位
-// 所需的超载次数越多；15 品质约 1.175 倍，100 品质为 0.75 倍。
-func reelOilWearFactor(quality float64) float64 {
+// reelOilWearFactor 返回摩擦片磨损倍率。轮油品质越高、剩余油量越充足，
+// 保护越强；油干涸后有效品质下降，磨损倍率会逐步回到普通水平。
+func reelOilWearFactor(quality, durability float64) float64 {
 	quality = math.Max(0, math.Min(100, quality))
-	return 1.25 - quality/200
+	effective := quality * (0.5 + 0.5*clampUnit(durability))
+	return 1.25 - effective/200
 }
 
 // reelCastFriction 把轴承品质与耐久、轮油品质与干涸程度、轮子本体耐久换算成放线摩擦
@@ -380,7 +381,7 @@ func (s *Server) buildReelPerformance(ctx context.Context, row *store.Item) (*st
 		BearingFactor:  bearingFactor,
 		OilItemID:      oilItemID,
 		OilQuality:     oilQuality,
-		OilWearFactor:  reelOilWearFactor(oilQuality),
+		OilWearFactor:  reelOilWearFactor(oilQuality, oilDurability),
 		CastFriction:   reelCastFriction(bearingQuality, bearingDurability, oilQuality, oilDurability, durability),
 	}
 	v.CastEfficiency = 1 - v.CastFriction
