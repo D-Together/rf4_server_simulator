@@ -643,6 +643,27 @@ func (d *DB) ItemPriceGet(ctx context.Context, itemID string) (*ShopPrice, error
 	return p, nil
 }
 
+// ShelfPriceLowest 该商品在全部基础货架（shop_item）与后台覆盖价
+// （shop_item_override）中的最低非零银价。贩卖机配方（9/1/9/4）没有门店
+// 上下文，用全货架最低价保证"机器做不会比去店里买贵"；无定价时返回
+// sql.ErrNoRows，由调用方决定整体失败。
+func (d *DB) ShelfPriceLowest(ctx context.Context, itemID string) (int64, error) {
+	row := d.SQL.QueryRowContext(ctx, `
+		SELECT COALESCE(MIN(s), 0) FROM (
+			SELECT silver AS s FROM shop_item WHERE item_id=? AND silver>0
+			UNION ALL
+			SELECT silver AS s FROM shop_item_override WHERE item_id=? AND silver IS NOT NULL AND silver>0
+		)`, itemID, itemID)
+	var price int64
+	if err := row.Scan(&price); err != nil {
+		return 0, err
+	}
+	if price <= 0 {
+		return 0, sql.ErrNoRows
+	}
+	return price, nil
+}
+
 // ItemPriceFallbackList 价目兜底货架（非空价前 N 件）。
 func (d *DB) ItemPriceFallbackList(ctx context.Context, limit int64) ([]*ShopPrice, error) {
 	rows, err := d.SQL.QueryContext(ctx, `
