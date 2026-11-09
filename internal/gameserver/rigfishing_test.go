@@ -262,7 +262,7 @@ func TestLureBiteGating(t *testing.T) {
 	}
 	lureRow, _ := db.GetItemByGUID(ctx, lureGUID)
 	lureFields, _ := FieldsFromJSON(lureRow.FieldsJSON)
-	storedHooks := storedLureHookGUIDs(&lureFields[0])
+	storedHooks := lureHookItemGUIDs(lureFields[0].Val.Items)
 	if len(storedHooks) == 0 {
 		t.Fatal("starter 拟饵 f0 缺落库出厂钩")
 	}
@@ -417,7 +417,7 @@ func TestLureEscapeRebitesSameRetrieve(t *testing.T) {
 	mountLure(t, db, srv, rodGUID, lureGUID)
 	lureRow, _ := db.GetItemByGUID(ctx, lureGUID)
 	lureFields, _ := FieldsFromJSON(lureRow.FieldsJSON)
-	storedHooks := storedLureHookGUIDs(&lureFields[0])
+	storedHooks := lureHookItemGUIDs(lureFields[0].Val.Items)
 	if len(storedHooks) == 0 {
 		t.Fatal("starter 拟饵 f0 缺落库出厂钩")
 	}
