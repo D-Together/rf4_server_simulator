@@ -303,7 +303,7 @@ func (s *Server) dedupeRigComponents(ctx context.Context, uid int64, parentGUID 
 // 海钓钩位的 1000+ 客户端槽位索引不属于模板，但同样是客户端认定的有效槽位，
 // 必须一并认作合法，否则 rigSetTarget 会把它当成无效索引走「找空闲序号」分支。
 func extraIsTargetIndex(category, extra, rigType int64) bool {
-	if category == catHook && extra >= 1000 {
+	if hookSlotIndexNamespace(category, extra) {
 		return true
 	}
 	for _, idx := range slotIndicesFor(rigType, category) {
@@ -312,6 +312,24 @@ func extraIsTargetIndex(category, extra, rigType int64) bool {
 		}
 	}
 	return false
+}
+
+// hookSlotIndexNamespace 判断 (品类, 索引) 是否落在客户端的海钓钩位子槽命名空间。
+//
+// 客户端 RigMarineBase.faocjcaiac 从 1009 起每次 −4 遍历到 1001 构造钩组件，
+// 因此 1000 基址上一组钩位是 1001/1005/1009。实机日志进一步确认每组钩位下
+// 还有子槽：首钩位加钩上报 1001、首钩位装拟饵上报 1002（2026-11-09 20:57:37
+// slot=17 extra=1002）；同一族里 1006/1010 是第二/第三钩位的拟饵子槽。
+//
+// 拟饵(17)必须一起放行：只放行钩(12) 时，1002 会被 canonicalIndexForOrdinal
+// 按 ordinal 改写成 rig 50 的模板首索引 300，与柳叶亮片的 300 撞车——亮片被
+// 去重退回背包，客户端在自己的 1002 槽位找不到组件，整组判无效（钩子、鱼片、
+// 吸引成分一起变黑）。这是 2026-11-09 实机事故的直接原因。
+func hookSlotIndexNamespace(category, extra int64) bool {
+	if category != catHook && category != catLure {
+		return false
+	}
+	return extra >= 1000
 }
 
 // releaseDedupedComponent 将被清理的组件实例退回背包或来源堆，
@@ -437,11 +455,13 @@ func canonicalIndexForOrdinal(category, clientIndex, rigType, ordinal int64) int
 		return 350
 	}
 	// 客户端对海钓钩位使用独立的 1000+ 槽位命名空间（实机日志实测
-	// 1001/1005/1009）。它们不属于 rigSlotTemplates 里声明的 250/251/252，
+	// 1001/1005/1009 钩位，1002 首钩位拟饵子槽）。它们不属于
+	// rigSlotTemplates 里声明的 250/251/252 或 300/325/326，
 	// 但客户端按自己的索引渲染：改写成模板首索引会让客户端在自己的槽位上
 	// 找不到组件，整组判无效（槽位变灰、钩装不上）。这类索引必须原样保留。
-	// 只有钩品类出现该命名空间，其他品类仍走模板规范化。
-	if category == catHook && clientIndex >= 1000 {
+	// 只放行钩(12) 会把拟饵的 1002 改写成 300，与柳叶亮片撞车并把它挤掉，
+	// 所以拟饵(17)必须一并放行；其他品类仍走模板规范化。
+	if hookSlotIndexNamespace(category, clientIndex) {
 		return clientIndex
 	}
 	if rigType != 0 {
@@ -1559,9 +1579,10 @@ func (s *Server) rigSetTarget(ctx context.Context, parentGUID string, slot int64
 	}
 	// 海钓钩位的 1000+ 客户端槽位索引是独立命名空间，不受模板声明的
 	// 槽位个数限制：模板只声明了 250 一个钩位，但倒钓臂展开后客户端会
-	// 用 1001/1005/1009 等索引装多个钩。若沿用 len(idxs) 当上限，
-	// 第二件就会被判「无空闲槽」而顶掉第一件（三个钩位都装不上）。
-	highIndexHook := slot == catHook && extra >= 1000
+	// 用 1001/1005/1009 等索引装多个钩；每个钩位下还带拟饵子槽（1002/1006/
+	// 1010）。若沿用 len(idxs) 当上限，第二件就会被判「无空闲槽」而顶掉
+	// 第一件（三个钩位都装不上，或拟饵把亮片顶掉）。
+	highIndexSlot := hookSlotIndexNamespace(slot, extra)
 	if extra != 0 {
 		// 同一规范索引已装：走替换，保留其序号与原组件 GUID。
 		for key, c := range comps {
@@ -1573,7 +1594,7 @@ func (s *Server) rigSetTarget(ctx context.Context, parentGUID string, slot int64
 			}
 		}
 		// 空闲槽位：写入未占用的序号，实际索引仍由 extra 决定。
-		if (highIndexHook || extraIsTargetIndex(slot, extra, rt)) && (highIndexHook || count < limit) {
+		if (highIndexSlot || extraIsTargetIndex(slot, extra, rt)) && (highIndexSlot || count < limit) {
 			return freeOrdinal(), ""
 		}
 	}
@@ -3222,16 +3243,43 @@ func baitSlotCount(rigType int64) int {
 	return max(2, len(slotIndicesFor(rigType, catHook)))
 }
 
-// hookPositionsFor 返回钓组的钩位数量——决定挂饵是否按钩拆组。
+// baitSlotCountIn 是 baitSlotCount 的运行时版本：饵位数量必须覆盖实际钩位，
+// 否则钩序号大于 1 的钩上断饵后，rebait:<钩序号> 记录永远读不到、补不上饵。
+func baitSlotCountIn(rigType int64, comps map[int64]rigComp) int {
+	return max(2, hookPositionsIn(rigType, comps))
+}
+
+// hookPositionsFor 返回钓组模板声明的钩位数量。
 //
 // 只数 catHook 槽位。拟饵族（catLure=17）在同一品类下同时承载“亮片”和
 // “基本吸引成分/钓钩吸引成分/鱼片”这些挂件，海钓铁板族因此有 300+325+
 // 326+327 多个拟饵槽位，但钩位始终只有一个。把拟饵槽位数并进来会把单钩
 // 铁板竿误判成多钩：挂饵分组被拆碎，判鱼时每组各选一次。
+//
+// 这是静态上限；运行时钩位数见 hookPositionsIn。
 func hookPositionsFor(rigType int64) int {
 	n := len(slotIndicesFor(rigType, catHook))
 	if n < 1 {
 		return 1
+	}
+	return n
+}
+
+// hookPositionsIn 返回运行时钩位数：模板声明数与 f5 实际已装钩组件的较大者。
+//
+// 海钓倒钓臂展开后，客户端会往 f5 里装 250/1001/1005/1009 多条 catHook
+// 组件（logs/gameserver.log 2026-11-09 10:26:54–10:28:59 实测四条共存）。
+// 服务端没有单独的“倒钓臂已展开”开关事件：钩组件本身就是运行时状态，
+// 因此钩位数只能按实际组件数取，不能只看 rigSlotTemplates（rig 50/51
+// 模板只声明 250 一个钩位）。只看模板会把多钩当单钩：所有饵并进第一枚钩，
+// 其余钩永远不判鱼、不吃饵、断件也不算。
+//
+// 取较大者是为了兼容模板已声明多钩位的钓组（如 rig 59 的 250/251/252）：
+// 钩还没装满时不能因为实际少了几条就把上限缩小。
+func hookPositionsIn(rigType int64, comps map[int64]rigComp) int {
+	n := hookPositionsFor(rigType)
+	if k := len(rigCompKeysOfCategory(comps, catHook)); k > n {
+		return k
 	}
 	return n
 }

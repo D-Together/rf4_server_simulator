@@ -685,10 +685,12 @@ func (s *Server) rollFishForRig(ctx context.Context, uid int64, gearGUID, loc, b
 	groups := s.baitedHookSets(ctx, gearGUID)
 	if len(groups) == 0 {
 		rigType := int64(0)
+		hookPositions := 1
 		if s.DB != nil && gearGUID != "" {
 			rigType = s.rigTypeForWrite(ctx, gearGUID)
+			hookPositions = hookPositionsIn(rigType, s.storedRigComponents(ctx, gearGUID))
 		}
-		if len(c.baits) > 0 && hookPositionsFor(rigType) > 1 {
+		if len(c.baits) > 0 && hookPositions > 1 {
 			return nil
 		}
 		if capKg > 0 {
