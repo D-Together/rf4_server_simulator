@@ -18,6 +18,8 @@ func TestPanelVersionCardIsBelowLogsAndLinksReleases(t *testing.T) {
 		`id="versionConnection"`,
 		`https://gh-proxy.com/https://github.com/glance522/rf4_server_simulator/releases`,
 		`https://github.com/glance522/rf4_server_simulator/releases`,
+		`class="btn alt"`,
+		`.btn.alt{`,
 		`update_status`,
 	} {
 		if !strings.Contains(html, want) {
