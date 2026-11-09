@@ -87,6 +87,16 @@ type Server struct {
 	leaderWireDefs   []*store.ItemDef
 	leaderWireErr    error
 
+	// 具体鱼钩型号的咬口档案缓存；item_id 命中优先于尺寸默认。
+	hookProfileMu sync.RWMutex
+	hookProfiles  map[string]store.HookBiteProfile
+
+	// 渔轮定义缺少内嵌零件时，按同子类/同系列选取完整轮型作为只读物化模板。
+	// 只缓存静态 item_def，不写入任何玩家物品。
+	reelPartFallbackOnce sync.Once
+	reelPartFallbackDefs []*store.ItemDef
+	reelPartFallbackErr  error
+
 	// 测试注入的随机源；nil 时使用全局 rand。
 	randFloat func() float64
 }
@@ -105,6 +115,7 @@ func NewServer(cfg config.Game, log *slog.Logger, obs *metrics.Server) *Server {
 		fishStates:      map[int64]map[string]*FishState{},
 		heldFishingRods: map[int64]string{},
 		levelMap:        map[int64]string{},
+		hookProfiles:    map[string]store.HookBiteProfile{},
 	}
 	s.dispatch = NewDispatch(s)
 	registerHandlers(s.dispatch)

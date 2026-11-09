@@ -22,20 +22,29 @@ Status: done
 
 - `internal/gameserver/handlers_game.go`：14/9 与 14/11 共用 `hookRetentionFails` 和 `finishNibbleHook`；已经完成首次确认的同一尾鱼再次收到确认时只恢复必要状态，不重抽、不重扣饵。
 - `internal/gameserver/fish_hunt.go`：钩型偏置后同比缩放 `w4`，保持最终蓝冠概率；硬保底跳过钩型偏置，保持奖杯/蓝冠比例。
+- `internal/gameserver/fish_hunt.go`：鱼重未超过钩型入口容量时，首次中钩后的保持率固定为 1；只有鱼重超过入口容量才按超载程度降低保持率，避免正常鱼在已中钩后被随机保钩失败清掉。
 - `internal/gameserver/fish_hunt.go`：饵效倍率只在已选档位的重量上下界内移动，最终档位沿用阶段抽样结果，不再按放大后的重量二次判档；fallback 只应用一次倍率。
 - `internal/gameserver/fishing.go`、`fishing_persist.go`、`internal/store/repos_fishing_state.go`：待结算鱼持久化首次确认标记 `HookConfirmed` 与发鱼阶段 `HuntStage`/`HuntStageKnown`。这是现有钓鱼 JSON 快照内的兼容字段，不新增列。
 - `internal/gameserver/fish_hunt.go`：`recordHuntCatch` 只对聚鱼及以上阶段的普通鱼累计 Pity；每次有效结算调用 `consumeFishHuntCompensation` 递减 CompFish。
 - `internal/gameserver/handlers_game.go`：只有真正已中钩的 14/12 才记录脱钩补偿；蓝冠保护只拦截 1/2/8 钩型跑鱼帧，f0=7 无钓组显式终态直接清理。
 - `docs/gameplay.md`：删除旧的 5 米相邻格说明，统一为二维圆形距离；补充确认幂等与最终蓝冠概率口径。
 - 数据与迁移：本改动集已有的 `00044_groundbait_ledger.sql`、`00045_groundbait_materials.sql`、`00049_fish_hunt.sql` 建立窝料账本与 `fish_hunt_state`，默认值兼容旧档；旧测试分支的 `00046_fish_hunt.sql` 会在迁移器中重映射到 00049，避开上游 `00046_player_condition`、`00047_qualification_progress` 与 `00048_fishing_state_cast_m`。
+- `internal/gameserver/hook_profiles.go`：启动时把 `item_def` 中 1141 个真实鱼钩型号同步到 `hook_bite_profile`，保留尺寸、钩体长度、拉力、品质、厂牌和钩型族；重复启动只刷新物理字段，不覆盖后台调参。
+- `internal/gameserver/fish_hunt.go`：运行时按 `HookItemID` 精确命中型号档案，再对几何咬口概率应用咬口倍率、保持倍率、小鱼咬口下限和超载保持下限；倍率默认 1.0、下限默认 0，因此首次上线不改变现有手感，缺少档案时完全回退旧逻辑。
+- `internal/admin`：新增 `/api/hooks/profiles` 查询与保存接口，以及后台“钩子手感”页；支持按型号、尺寸、钩型族筛选，保存后写审计并投递 `reload_tunables`，主服最迟 30 秒热加载。
+- 数据与迁移：`00051_hook_bite_profiles.sql` 新建按 `item_id` 主键的运行时档案表；表归运行时数据，不进入玩家存档替换，也不会被静态资料 seed 清空。
 
 ## Testing Decisions
 
 - 单元/行为测试：`internal/gameserver/fish_hunt_test.go` 验证蓝冠归一化概率、状态持久化、日常不累计 Pity、补偿逐尾消耗/超时失效。
 - Handler 行为测试：同一文件验证重复 14/11 不会清掉已中钩鱼，海钓 14/9 遇到 nibble 不会进入 Hooked。
+- 纯逻辑测试：钩容量内保持率为 1，超过容量后才小于 1，钉住“中钩后不再随机秒脱”的边界。
 - Handler 行为测试：验证未中钩的未知 14/12 不产生补偿，蓝冠 f0=7 不重推并清空中钩态；纯逻辑测试验证饵效倍率不越过当前档位边界。
 - 回归门禁：`go test ./... -count=1`、`go vet ./...`、`go build ./...`。
 - 期望值来自规则表与持久化后的实际计数；蓝冠测试比较 `w4/(w1+w2+w3+w4)`，不再只比较原始 `w4`。
+- Store 测试：迁移重复执行、物理字段 upsert、人工调参覆盖保留、查询与列表。
+- Gameserver 测试：真实静态库同步不少于 1000 个型号、`triple_20686` 的 25 号/18mm/98kg 物理字段、默认倍率与旧行为等价、型号倍率和两个下限生效、装配钩的 `item_id` 进入物理裁决。
+- Admin 测试：型号筛选、越界 400、未知型号 404、保存写审计与热加载队列、后台页面 smoke test。
 - 实机联调：真实客户端已确认首发 14/11、随后 14/9、淡水嘬饵和海钓嘬饵路径；正常 UI 不自然发送重复 14/11，精确重复帧由回归测试覆盖，Frida 托管方法二次调用被 Unity 运行时拒绝。
 
 ## Out of Scope
