@@ -61,7 +61,9 @@ const (
 // 精力恢复 2.0/h 是抓包"15 秒恢复 0.0086"的量级下界；其余为占位标定。
 const (
 	defHungerDecayPerHour = 0.24
-	defEnergyRegenPerHour = 2.0
+	// 满饱食度时约 30 秒回满一管（0.85 / 100 * 3600 ≈ 30.6s）：
+	// 挖掘/搏鱼的消耗靠“吃饱→快速回精力→再消耗”的循环，不再等几十分钟。
+	defEnergyRegenPerHour = 100.0
 	defEnergyMax          = store.DefaultPlayerConditionPrimary
 	defHungerRegenFloor   = 0.25
 	defCastEnergyCost     = 0.01
