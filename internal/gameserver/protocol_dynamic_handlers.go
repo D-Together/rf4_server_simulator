@@ -2,6 +2,7 @@ package gameserver
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"strings"
@@ -270,6 +271,20 @@ func hDynamicRigSnapshot(ctx *Ctx) ([]byte, bool) {
 
 // hDynamicRodBreak 17/9 rod/break：按断件 GUID 持久化断线/断竿并回 11028。
 // 请求参数顺序为 [竿 GUID, 断件 GUID, 物理模型]；没有断件时回退到当前竿。
+// rodBreakLineOutM 从 17/9 断件上报里读实际放出的主线米数（f32，body 偏移 0x3f）。
+// 断线只该丢这段线，而不是把杯里的整卷线一起判死。
+func rodBreakLineOutM(body []byte) float64 {
+	const off = 0x3f
+	if len(body) < off+4 {
+		return 0
+	}
+	v := math.Float32frombits(binary.LittleEndian.Uint32(body[off : off+4]))
+	if v <= 0 || v > 5000 || math.IsNaN(float64(v)) {
+		return 0
+	}
+	return float64(v)
+}
+
 func hDynamicRodBreak(ctx *Ctx) ([]byte, bool) {
 	srv := ctx.Sess.Srv
 	rodGUID := normalizeDynamicGUID(ctx.Tree.ArgItem(0).GuidHex())
@@ -313,7 +328,8 @@ func hDynamicRodBreak(ctx *Ctx) ([]byte, bool) {
 	}
 
 	if srv.DB != nil && rodGUID != zeroGUID && ctx.DecodeOK {
-		outcome, err := srv.breakLineOrRod(ctx.Sess.pushCtx(), ctx.Sess.Userid, rodGUID, brokenGUID)
+		lineOutM := rodBreakLineOutM(ctx.Body)
+		outcome, err := srv.breakLineOrRodWithLineOut(ctx.Sess.pushCtx(), ctx.Sess.Userid, rodGUID, brokenGUID, lineOutM)
 		if err == nil {
 			if outcome.OverloadProtected {
 				ctx.ReplyFailure("System.OperationCanceledException", "满红不爆已取消装备破坏")
