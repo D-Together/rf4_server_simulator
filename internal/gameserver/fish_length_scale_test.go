@@ -52,95 +52,97 @@ func TestCalibratedLengthKP(t *testing.T) {
 
 	// 鲟鱼 / 鳇鱼 / 海图大型鱼的官服实测「体重 -> 体长」锚点。
 	// 官服同一尾鱼的体重和体长线性相关，所以这 28 个鱼种走 speciesLengthLinear
-	// (L = a + b·W_kg)，残差 ≤3.3cm；k/p 仍保留为回退值（多数为 p=0.5371 共同指数）。
+	// (L = a + b·W_kg)。容差按 docs/gameplay.md 表中该鱼种的实测最大残差设定（+0.1cm 余量），
+	// 唯一放宽的是拉多加鲟 12.5cm：官服两个点本身反向，见该鱼种条目注释。
+	// k/p 仍保留为回退值（多数为 p=0.5371 共同指数）。
 	for _, c := range []struct {
 		key  string
 		k, p float64
 		tol  float64 // 允许偏差(m)
 		want []lengthAnchor
 	}{
-		{"beluga", 0.003876, 0.5371, 0.02, []lengthAnchor{
+		{"beluga", 0.003876, 0.5371, 0.007, []lengthAnchor{
 			{weight: 1127143, want: 6.92},
 			{weight: 610890, want: 4.94},
 			{weight: 545912, want: 4.68},
 		}},
-		{"kaluga", 0.003901, 0.5371, 0.02, []lengthAnchor{
+		{"kaluga", 0.003901, 0.5371, 0.002, []lengthAnchor{
 			{weight: 489987, want: 4.43},
 			{weight: 511425, want: 4.55},
 		}},
-		{"ch_beluga", 0.003821, 0.5371, 0.02, []lengthAnchor{
+		{"ch_beluga", 0.003821, 0.5371, 0.014, []lengthAnchor{
 			{weight: 521104, want: 4.58},
 			{weight: 371828, want: 3.69},
 			{weight: 410415, want: 3.94},
 		}},
-		{"osetr_balt", 0.006285, 0.5371, 0.02, []lengthAnchor{
+		{"osetr_balt", 0.006285, 0.5371, 0.002, []lengthAnchor{
 			{weight: 211588, want: 4.60},
 			{weight: 245116, want: 4.88},
 		}},
-		{"osetr_ship", 0.005853, 0.5371, 0.02, []lengthAnchor{
+		{"osetr_ship", 0.005853, 0.5371, 0.002, []lengthAnchor{
 			{weight: 57377, want: 2.17},
 			{weight: 74583, want: 2.35},
 		}},
-		{"r_sturgeon", 0.006622, 0.5371, 0.02, []lengthAnchor{
+		{"r_sturgeon", 0.006622, 0.5371, 0.002, []lengthAnchor{
 			{weight: 51882, want: 2.24},
 			{weight: 122603, want: 3.65},
 			{weight: 56400, want: 2.33},
 		}},
-		{"p_sturgeon", 0.006227, 0.5371, 0.02, []lengthAnchor{
+		{"p_sturgeon", 0.006227, 0.5371, 0.002, []lengthAnchor{
 			{weight: 106463, want: 3.13},
 			{weight: 104620, want: 3.09},
 			{weight: 103734, want: 3.07},
 		}},
-		{"st_sturgeon", 0.006206, 0.5371, 0.02, []lengthAnchor{
+		{"st_sturgeon", 0.006206, 0.5371, 0.005, []lengthAnchor{
 			{weight: 51789, want: 2.12},
 			{weight: 50028, want: 2.10},
 			{weight: 60587, want: 2.26},
 		}},
-		{"sterlet", 0.006867, 0.5371, 0.02, []lengthAnchor{
+		{"sterlet", 0.006867, 0.5371, 0.003, []lengthAnchor{
 			{weight: 10114, want: 0.97},
 			{weight: 11841, want: 1.07},
 			{weight: 9479, want: 0.93},
 		}},
-		{"l_sturgeon", 0.006161, 0.5371, 0.15, []lengthAnchor{
+		{"l_sturgeon", 0.006161, 0.5371, 0.125, []lengthAnchor{
 			{weight: 64593, want: 2.19},
 			{weight: 56733, want: 2.31},
 			{weight: 46785, want: 2.04},
 		}},
-		{"x_gladius", 0.004545, 0.5371, 0.04, []lengthAnchor{
+		{"x_gladius", 0.004545, 0.5371, 0.035, []lengthAnchor{
 			{weight: 473093, want: 5.09},
 			{weight: 507495, want: 5.23},
 			{weight: 347799, want: 4.32},
 		}},
-		{"thynnus_t", 0.003585, 0.5371, 0.09, []lengthAnchor{
+		{"thynnus_t", 0.003585, 0.5371, 0.081, []lengthAnchor{
 			{weight: 288013, want: 2.98},
 			{weight: 359516, want: 3.50},
 			{weight: 537409, want: 4.35},
 		}},
-		{"somniosus_m", 0.003999, 0.5371, 0.02, []lengthAnchor{
+		{"somniosus_m", 0.003999, 0.5371, 0.002, []lengthAnchor{
 			{weight: 695412, want: 5.48},
 			{weight: 725732, want: 5.63},
 		}},
-		{"lampris_g", 0.002795, 0.5371, 0.02, []lengthAnchor{
+		{"lampris_g", 0.002795, 0.5371, 0.002, []lengthAnchor{
 			{weight: 148693, want: 1.66},
 			{weight: 212498, want: 2.05},
 		}},
-		{"lamna_n", 0.005660, 0.5371, 0.02, []lengthAnchor{
+		{"lamna_n", 0.005660, 0.5371, 0.003, []lengthAnchor{
 			{weight: 141952, want: 3.32},
 			{weight: 155023, want: 3.45},
 			{weight: 142714, want: 3.33},
 		}},
-		{"cetorhinus_m", 0.004410, 0.5371, 0.02, []lengthAnchor{
+		{"cetorhinus_m", 0.004410, 0.5371, 0.006, []lengthAnchor{
 			{weight: 1428002, want: 8.87},
 			{weight: 2838839, want: 12.90},
 			{weight: 2865588, want: 12.97},
 			{weight: 1301199, want: 8.50},
 		}},
-		{"halibut_w", 0.005335, 0.5371, 0.02, []lengthAnchor{
+		{"halibut_w", 0.005335, 0.5371, 0.003, []lengthAnchor{
 			{weight: 150392, want: 3.21},
 			{weight: 164420, want: 3.39},
 			{weight: 155219, want: 3.27},
 		}},
-		{"taimen", 0.005594, 0.5371, 0.02, []lengthAnchor{
+		{"taimen", 0.005594, 0.5371, 0.002, []lengthAnchor{
 			{weight: 54289, want: 1.97},
 			{weight: 51611, want: 1.93},
 			{weight: 92622, want: 2.57},
@@ -148,7 +150,7 @@ func TestCalibratedLengthKP(t *testing.T) {
 		}},
 		// 廓里湖红点鲑：官服 22.7~35.1kg = 1.13~1.50m。旧立方律 k=0.021413 只给
 		// 0.60m，模型只有官服的一半，玩家实测反馈「体长不对」。
-		{"chartus_kuoriius", 0.001630, 0.652510, 0.03, []lengthAnchor{
+		{"chartus_kuoriius", 0.001630, 0.652510, 0.025, []lengthAnchor{
 			{weight: 22705, want: 1.13},
 			{weight: 23608, want: 1.16},
 			{weight: 26717, want: 1.28},
@@ -157,35 +159,35 @@ func TestCalibratedLengthKP(t *testing.T) {
 		}},
 		// 三种红点鲑（北极 / 黄斑 / 花羔）。旧立方律把它们算成 0.61~0.65m，
 		// 官服同一尾是 0.92~1.17m，模型只有六成大小。
-		{"a_char", 0.009986, 0.489400, 0.02, []lengthAnchor{
+		{"a_char", 0.009986, 0.489400, 0.006, []lengthAnchor{
 			{weight: 13792, want: 1.06},
 			{weight: 12681, want: 1.02},
 			{weight: 11799, want: 0.98},
 			{weight: 16893, want: 1.17},
 		}},
-		{"dr_char", 0.005803, 0.546200, 0.02, []lengthAnchor{
+		{"dr_char", 0.005803, 0.546200, 0.002, []lengthAnchor{
 			{weight: 10634, want: 0.92},
 			{weight: 10905, want: 0.93},
 			{weight: 15784, want: 1.14},
 		}},
-		{"malma", 0.012226, 0.478700, 0.03, []lengthAnchor{
+		{"malma", 0.012226, 0.478700, 0.014, []lengthAnchor{
 			{weight: 7609, want: 0.88},
 			{weight: 9882, want: 1.01},
 			{weight: 10502, want: 1.02},
 		}},
 		// 莱文氏 / 白斑（库恩扎）/ 美洲红点鲑。旧参数分别是 0.029925 立方律、
 		// 0.032491 立方律、默认 0.0355 立方律，一律把这三族算短。
-		{"golets_lev", 0.012925, 0.481044, 0.02, []lengthAnchor{
+		{"golets_lev", 0.012925, 0.481044, 0.004, []lengthAnchor{
 			{weight: 1656, want: 0.46},
 			{weight: 1613, want: 0.45},
 			{weight: 1691, want: 0.46},
 		}},
-		{"kunja", 0.00009113, 0.992672, 0.04, []lengthAnchor{
+		{"kunja", 0.00009113, 0.992672, 0.034, []lengthAnchor{
 			{weight: 12892, want: 1.08},
 			{weight: 10647, want: 0.89},
 			{weight: 11596, want: 1.02},
 		}},
-		{"salvel_l", 0.004837, 0.575668, 0.02, []lengthAnchor{
+		{"salvel_l", 0.004837, 0.575668, 0.008, []lengthAnchor{
 			{weight: 5048, want: 0.65},
 			{weight: 5353, want: 0.68},
 			{weight: 8939, want: 0.91},
@@ -193,17 +195,17 @@ func TestCalibratedLengthKP(t *testing.T) {
 		}},
 		// 内维 / 黑口 / 粗壮红点鲑，第三批。旧的 k=0.053634 / 0.048535 / 0.040936
 		// 立方律分别把 1.7kg、4.5kg、7.6kg 算成 0.64 / 0.80 / 0.80m。
-		{"neiva", 0.040604, 0.329462, 0.02, []lengthAnchor{
+		{"neiva", 0.040604, 0.329462, 0.016, []lengthAnchor{
 			{weight: 1652, want: 0.49},
 			{weight: 244, want: 0.25},
 			{weight: 1323, want: 0.41},
 		}},
-		{"palia_kr", 0.014075, 0.454245, 0.02, []lengthAnchor{
+		{"palia_kr", 0.014075, 0.454245, 0.003, []lengthAnchor{
 			{weight: 4051, want: 0.61},
 			{weight: 4587, want: 0.65},
 			{weight: 3185, want: 0.55},
 		}},
-		{"palia_lud", 0.015791, 0.442256, 0.02, []lengthAnchor{
+		{"palia_lud", 0.015791, 0.442256, 0.008, []lengthAnchor{
 			{weight: 5428, want: 0.68},
 			{weight: 8958, want: 0.91},
 			{weight: 1455, want: 0.40},
@@ -299,6 +301,19 @@ func TestCalibratedLengthKP(t *testing.T) {
 		}
 	}
 
+	// 上界同样走延拓，不线性外推：本服蓝冠档位线（×1.25）会把大型鱼推过实测上限。
+	// 黑海欧洲鳇实测上限 521.104kg=4.583m；1250kg 线性外推会给 8.90m，立方根延拓给 6.135m
+	// （官服 521kg=4.58m 的走势才是参照）。这条锁定的是「上界外延不能退化成线性」。
+	if got := speciesLengthM("ch_beluga", 0.003821, 0.5371, 1250000); math.Abs(got-6.135) > 0.02 {
+		t.Fatalf("黑海欧洲鳇 1250kg 应按端点立方根延拓到 6.135m: got=%.3fm", got)
+	}
+	if got := speciesLengthM("ch_beluga", 0.003821, 0.5371, 1250000); got > 7.0 {
+		t.Fatalf("黑海欧洲鳇 1250kg 不应线性外推到 8.9m: got=%.3fm", got)
+	}
+	// 上限内仍严格等于 a+b·W，确认上界守卫没把区间内的点也一起延拓。
+	if got := speciesLengthM("ch_beluga", 0.003821, 0.5371, 521104); math.Abs(got-4.583) > 0.002 {
+		t.Fatalf("黑海欧洲鳇 521.104kg（实测上限）应给 4.583m: got=%.3fm", got)
+	}
 	// 区间内必须严格等于 a+b·W，用来抓「守卫失效、悄悄回退到幂律」这类回归。
 	// 期望值与幂律回退相差 1~35mm，容差 1e-3 足以区分。
 	for _, c := range []struct {
