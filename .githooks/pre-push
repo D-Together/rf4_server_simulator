@@ -1,0 +1,13 @@
+#!/bin/sh
+# 仓库唯一 pre-push 入口。启用：make hooks。
+#
+# 只做编译与静态检查，测试留给 CI（全套测试在本机约 90 秒，不适合每次 push 都跑）。
+# doccheck 已在 pre-commit 拦过，这里不重复。
+
+set -e
+
+echo "[pre-push] go build ./..."
+go build ./...
+
+echo "[pre-push] go vet ./..."
+go vet ./...

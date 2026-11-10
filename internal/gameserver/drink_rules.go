@@ -70,23 +70,37 @@ var officialDrinkBonuses = map[string]struct {
 
 // 白名单按 4.0.25034 饮品定义和名称分类，不包含微量含酒食物或无酒精替代品。
 // 官服有实测值的单品用 officialDrinkBonuses 覆盖类别档位；其余回退类别档。
+//
+// 2026-11-10 补收大瓶/罐装变体：这批此前不在任何白名单，玩家 4/8 饮用会落回
+// 通用处理器——不扣量、无加成、无提示（实机事故：kvarta_bot/var_* 喝完背包
+// 数量不减）。分类依据 attrs 度数档 phjadpfcnmb（3=低度→啤酒、4=烈酒）与
+// 品牌（angara/kvarta/lapshin_brewery/varyag/woodman=啤酒；kala/tunguska/
+// alco_xxi=烈酒大瓶；spicy_pepper 与 gorilka 同 aek=103 辣椒酒族）；官方
+// 酒表无这些单品的数值，全部回退本地类别档位，待官方资料出来再校准。
 func drinkRuleForItem(itemID string) (drinkRule, bool) {
 	var category string
 	switch itemID {
-	case "kvas_bottle", "kvas_glass",
+	case "ang_bottle", "ang_can_8", "ang_cang",
+		"kvas_bottle", "kvas_glass",
+		"kvarta_bot", "kvarta_bot_g",
 		"lb_bottle_ch_ale_ny", "lb_bottle_eks", "lb_bottle_eks_ny",
 		"lb_bottle_krep", "lb_bottle_krep_ny", "lb_bottle_trad", "lb_bottle_trad_ny",
+		"lr_dr_can", "lr_dr_g",
+		"m_bottle_ny26", "pl_class_bot", "pl_dark_bot",
+		"var_can", "var_hny25_can", "var_hny26_can", "var_hny_can", "var_s_can",
 		"wood_bottle_cask", "wood_bottle_dark", "wood_bottle_lager",
 		"wood_can_cask", "wood_can_dark", "wood_can_lager":
 		category = "beer"
 	case "AV_shamp_1l", "AV_shamp_1l_8", "AV_shamp_1lg", "AV_shamp_p_6l", "AV_shamp_tsr",
-		"apple_sidr", "g_vine_bottle",
+		"apple_sidr", "christmas_cup", "g_vine_bottle",
 		"rd_ice_vine", "rd_ice_vine25", "rd_ice_vine26",
 		"rd_red_vine", "rd_red_vine_2017", "rd_red_vine_8", "rd_white_vine",
 		"rot_bottle_porto", "thermos_gwein", "vine_bottle_em":
 		category = "wine"
-	case "XXIVA_bottle_vdka", "boyar_bottle_vdka", "gorilka", "hooch_corn", "hooch_potato",
-		"kala_vodka", "kr_pennik", "pervach", "tungus_vodka", "vodka_glass",
+	case "goldimp_bot", "goldimp_bot_g",
+		"XXIVA_bottle_vdka", "boyar_bottle_vdka", "gorilka", "hooch_corn", "hooch_potato",
+		"kala_bot", "kala_vodka", "kr_pennik", "pervach", "spicy_pepper",
+		"tungus_bot", "tungus_vodka", "vodka_glass",
 		"zdn_bottle_cogn3", "zdn_bottle_cogn5", "zdn_bottle_vdka":
 		category = "spirit"
 	case "barrel_honey", "pm_medovuha", "pm_medovuha_g", "pm_medovuha_g_8", "sbiten":

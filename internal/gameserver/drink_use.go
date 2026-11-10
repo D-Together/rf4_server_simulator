@@ -161,7 +161,7 @@ func (s *Server) useAlcoholDrink(ctx *Ctx) ([]byte, bool) {
 		return failed(err)
 	}
 	if isDrink {
-		if err := store.RefreshDrinkBonusTxWithPeak(cctx, tx, uid, rule.Category, rule.Peak, rule.Duration, row.GUID); err != nil {
+		if err := store.AddDrinkBonusTx(cctx, tx, uid, rule.Category, rule.Peak, rule.Duration, row.GUID); err != nil {
 			return failed(err)
 		}
 	}

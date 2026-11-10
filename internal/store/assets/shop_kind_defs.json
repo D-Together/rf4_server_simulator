@@ -1209,7 +1209,21 @@
    "brands": [
     "brand_tunguska"
    ],
-   "map_key": "level_015_tunguska"
+   "map_key": "level_015_tunguska",
+   "shelf": [
+    {
+     "item_id": "tungus_bot",
+     "silver": 0,
+     "gold": 22,
+     "stock": 1
+    },
+    {
+     "item_id": "tungus_12pack",
+     "silver": 0,
+     "gold": 129,
+     "stock": 1
+    }
+   ]
   },
   "vakula_013": {
    "kind": 0,

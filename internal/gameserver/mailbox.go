@@ -942,7 +942,7 @@ func (s *Server) execAdminCmd(cmd *AdminCommand) {
 				lp = [2]float64{defaultSpeciesLengthK, defaultSpeciesLengthP}
 			}
 			lp[0], lp[1] = calibratedLengthKP(entry.Species, lp[0], lp[1])
-			entry.LengthM = math.Round(lp[0]*math.Pow(float64(entry.WeightG), lp[1])*100000) / 100000
+			entry.LengthM = math.Round(speciesLengthM(entry.Species, lp[0], lp[1], float64(entry.WeightG))*100000) / 100000
 		}
 		if err := s.DB.KeepnetInsert(ctx, &entry); err != nil {
 			s.log.Warn("管理指令：增加护网鱼失败", "uid", cmd.UID, "species", entry.Species, "err", err)
@@ -1003,7 +1003,7 @@ func (s *Server) execAdminCmd(cmd *AdminCommand) {
 				lp = [2]float64{defaultSpeciesLengthK, defaultSpeciesLengthP}
 			}
 			lp[0], lp[1] = calibratedLengthKP(f.Species, lp[0], lp[1])
-			f.LengthM = math.Round(lp[0]*math.Pow(float64(f.WeightG), lp[1])*100000) / 100000
+			f.LengthM = math.Round(speciesLengthM(f.Species, lp[0], lp[1], float64(f.WeightG))*100000) / 100000
 		}
 		st.mu.Lock()
 		st.Armed = f

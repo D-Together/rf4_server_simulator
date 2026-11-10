@@ -63,11 +63,11 @@ func (d *DB) KeepFishingCatchWithCapacity(ctx context.Context, e *KeepnetEntry, 
 				return false, err
 			}
 			_, err = tx.ExecContext(ctx, `INSERT INTO catch_log(
-			ts,loc,spot,fish_key,name_zh,weight_g,length_m,source,bait,grade,xp,silver,loc_level,uid,catch_guid)
-			VALUES(?,?,?,?,?,?,?,'keep',?,?,?,?,?,?,?)
+			ts,loc,spot,fish_key,name_zh,weight_g,length_m,source,bait,grade,xp,silver,loc_level,uid,catch_guid,tackle_cat)
+			VALUES(?,?,?,?,?,?,?,'keep',?,?,?,?,?,?,?,?)
 			ON CONFLICT(uid,source,catch_guid) WHERE catch_guid IS NOT NULL DO NOTHING`,
 				e.TS, e.KeepLoc, e.KeepSpot, e.Species, e.NameZh, e.WeightG, e.LengthM,
-				e.KeepBait, e.Cat, xp, silver, e.KeepLevel, e.UID, e.EchoGUID)
+				e.KeepBait, e.Cat, xp, silver, e.KeepLevel, e.UID, e.EchoGUID, e.TackleCat)
 			if err != nil {
 				return false, err
 			}

@@ -184,10 +184,14 @@ func eventStageList(branch uint64, counts []uint64) *proto.Value {
 
 // eventTaskList 构造一个阶段的 5019 任务列表。规则编号仍按
 // branch*1000+(stage-1)*100+task，客户端按 qlfctn_t_<id> 显示活动文案；
-// qualificationTarget 对未收录编号回退 1，保证进度分母 > 0（本轮不下发判定）。
+// qualificationTarget 对未收录编号回退 1，保证进度分母 > 0。
+// 缺口任务（eventGapRuleIDs）当前无判定信号，跳过不下发，避免面板永久 0/N。
 func eventTaskList(branch, stage, count uint64) *proto.Value {
 	tasks := make([]*proto.Value, 0, count)
 	for task := uint64(1); task <= count; task++ {
+		if !eventTaskEmittable(branch, stage, task) {
+			continue
+		}
 		tasks = append(tasks, proto.Obj("gjbbiokohda", 5019,
 			proto.Field{Op: "BYTE", Num: ptrU64(0)},
 			proto.Field{Op: "VAL", Val: proto.Args(proto.S("204"),
@@ -195,4 +199,20 @@ func eventTaskList(branch, stage, count uint64) *proto.Value {
 		))
 	}
 	return proto.Args(proto.S("216"), tasks...)
+}
+
+// eventTaskEmittable 报告某任务是否下发到面板：缺口任务不下发。
+func eventTaskEmittable(branch, stage, task uint64) bool {
+	return !eventGapRuleIDs[int64(qualificationRuleID(branch, stage, task))]
+}
+
+// eventEmittableCount 返回某阶段过滤缺口后实际下发的任务数（测试与节点构造共用）。
+func eventEmittableCount(branch, stage, count uint64) uint64 {
+	n := uint64(0)
+	for task := uint64(1); task <= count; task++ {
+		if eventTaskEmittable(branch, stage, task) {
+			n++
+		}
+	}
+	return n
 }

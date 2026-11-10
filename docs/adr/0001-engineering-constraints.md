@@ -2,6 +2,13 @@
 
 Status: accepted
 
+> **2026-11-10 部分取代（Superseded-in-part）**：下文 Context 是立项时的快照，两处已不成立——
+> 当时是"13 份 `docs/*.md`、唯一 workflow 只在 main push 跑 `go vet`、PR 无门禁"，
+> 现状是 `docs/` 27 份、`ci.yml` 跑 gofmt + build + vet + test，另有文档门禁
+> `internal/doccheck`（索引 / spec 状态 / 死链）与 `.githooks`。Decision 6 的"首批四份"能力契约
+> 已扩到六份（新增装备载荷与断损、钓组装配）。**Decision 与 Consequences 仍有效**；
+> 现行门禁级别与文档归属以 `docs/agents/workflow.md`、`docs/agents/domain.md` 为准。
+
 ## Context
 
 本项目是俄罗斯钓鱼 4 的单机服务端模拟器，20+ 位贡献者，人类与 AI Agent 混合提交，PR 分支大量带 `codex/` 前缀。

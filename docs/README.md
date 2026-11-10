@@ -12,7 +12,26 @@
 ## 架构与实现
 
 - [架构与实现概览](architecture.md)：组件关系、当前主链路、目录结构与已知边界。
+- [机制代码索引](mechanism-map.md)：机制 → 入口文件、入口函数与测试；只给指针，不复制规则。
 - [钓鱼机制](gameplay.md)：鱼群分布、吃饵偏好、天气鱼口、饵料消耗和实现边界。
+- [游戏内查鱼：坐标](fish-query-coordinates.md)：查鱼回复里坐标口径与地图落点换算。
+- [游戏内查鱼：水域](fish-query-water.md)：查鱼回复里水域/深度口径与工具用法。
+
+## 机制专题
+
+单个机制的实现边界与验收口径。新增一份，必须回到本文登记（归属规则见
+[领域文档约定](agents/domain.md)）；玩法总纲仍在 `gameplay.md`，这里不复制。
+
+- [钓获结算事务](catch-settlement.md)：鱼 GUID 回执、同事务提交范围与失败重试。
+- [钓鱼状态恢复](fishing-state-recovery.md)：快照、重连与未结算鱼的恢复路径。
+- [护网与钓获记录同步](keepnet-synchronization.md)：入护、记录与库存一致性。
+- [当前装备的技能加成](equipped-fishing-skills.md)：装备加成如何进入判定。
+- [欢乐时光](happy-hour.md)：计时口径、加成数值与资格持久化。
+- [战利品箱](loot-box.md)：开箱产出与发放口径。
+- [弹弓投掷视觉](slingshot-throw-visual.md)：投掷外观与服务端校验的边界。
+
+## 内容与经济
+
 - [商店目录](shop_catalog.md)：货架解析顺序、覆盖规则与支持范围。
 - [个人中心](portal.md)：角色资料、余额、会员购买与身份边界。
 - [咖啡厅订单](cafe_orders.md)：订单生成、交单事务与迁移兼容说明。
@@ -21,6 +40,8 @@
 
 - [调试工作流](debugging-workflow.md)：本地调试、日志和协议排查流程。
 - [官方协议工作坊](official-protocol-workshop.md)：协议观察、记录和整理资料。
+- [钓鱼全链路分析（2026-11-07）](analysis-fishing-chain-2026-11-07.md)：一次性排查快照，
+  含历史事故过程与行号，会过期；结论以代码与能力契约为准。
 
 ## 工程约定
 
@@ -31,5 +52,6 @@
 - [领域文档约定](agents/domain.md)：文档地图、证据等级、对账表。
 - [ADR 0001](adr/0001-engineering-constraints.md)：为什么采用按风险分级的约束体系。
 
-长期能力契约在 `specs/capabilities/`（协议契约、钓鱼与结算、存储与幂等、工程质量），
-一次改动的规格在 `specs/changes/`。
+长期能力契约在 `specs/capabilities/`，一域一份（13 份）：协议契约、结算与终态、鱼口饵料与派鱼、
+装备载荷与断损、钓组装配、管理端与热更参数、经济与发放、玩家状态条、成就、游戏内查鱼、
+启动与进程装配、存储与幂等、工程质量。一次改动的规格在 `specs/changes/`。

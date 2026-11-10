@@ -33,7 +33,7 @@ func (d *DB) AdvanceDrinkBonuses(ctx context.Context, uid int64, runKey string, 
 	return statuses, nil
 }
 
-// AdvanceDrinkBonusesTx 返回仍有效的分类，供饮用和钓获在同一事务内读取。
+// AdvanceDrinkBonusesTx 返回仍有效的逐瓶效果，供饮用和钓获在同一事务内读取。
 func AdvanceDrinkBonusesTx(ctx context.Context, tx *sql.Tx, uid int64, runKey string, now time.Time, online bool, maxGap time.Duration) ([]DrinkBonusStatus, error) {
 	if tx == nil || uid <= 0 || strings.TrimSpace(runKey) == "" {
 		return nil, errors.New("饮品计时参数无效")
@@ -75,8 +75,13 @@ func AdvanceDrinkBonusesTx(ctx context.Context, tx *sql.Tx, uid int64, runKey st
 		return nil, err
 	}
 
+	// 到期的瓶子直接删除，逐瓶表不保留 0 剩余行。
+	if _, err := tx.ExecContext(ctx, `DELETE FROM drink_bonus_effect WHERE uid=? AND remaining_millis<=0`, uid); err != nil {
+		return nil, err
+	}
+
 	rows, err := tx.QueryContext(ctx, `SELECT category,peak,remaining_millis,duration_millis,source_guid
-		FROM drink_bonus_effect WHERE uid=? AND remaining_millis>0 ORDER BY category`, uid)
+		FROM drink_bonus_effect WHERE uid=? AND remaining_millis>0 ORDER BY category,id`, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -92,22 +97,22 @@ func AdvanceDrinkBonusesTx(ctx context.Context, tx *sql.Tx, uid int64, runKey st
 	return statuses, rows.Err()
 }
 
-// RefreshDrinkBonusTx 兼容旧调用：不保存单瓶峰值，结算时回退类别默认值。
-func RefreshDrinkBonusTx(ctx context.Context, tx *sql.Tx, uid int64, category string, duration time.Duration, sourceGUID string) error {
-	return RefreshDrinkBonusTxWithPeak(ctx, tx, uid, category, 0, duration, sourceGUID)
-}
-
-// RefreshDrinkBonusTxWithPeak 同类刷新为完整时长与单瓶峰值，其他分类保持原样。
-func RefreshDrinkBonusTxWithPeak(ctx context.Context, tx *sql.Tx, uid int64, category string, peak float64, duration time.Duration, sourceGUID string) error {
+// AddDrinkBonusTx 每瓶插入一条独立效果；同类可叠加，同一时刻最多保留最近 10 瓶。
+func AddDrinkBonusTx(ctx context.Context, tx *sql.Tx, uid int64, category string, peak float64, duration time.Duration, sourceGUID string) error {
 	if tx == nil || uid <= 0 || strings.TrimSpace(category) == "" || peak < 0 || peak > 1 || duration.Milliseconds() <= 0 {
 		return errors.New("饮品效果参数无效")
 	}
 	// 先写后读的调用方可与物品消耗共用这笔事务。
-	_, err := tx.ExecContext(ctx, `INSERT INTO drink_bonus_effect(uid,category,peak,remaining_millis,duration_millis,source_guid)
-		VALUES(?,?,?,?,?,?) ON CONFLICT(uid,category) DO UPDATE SET
-		peak=excluded.peak,remaining_millis=excluded.remaining_millis,
-		duration_millis=excluded.duration_millis,source_guid=excluded.source_guid`,
-		uid, category, peak, duration.Milliseconds(), duration.Milliseconds(), sourceGUID)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO drink_bonus_effect(uid,category,peak,remaining_millis,duration_millis,source_guid)
+		VALUES(?,?,?,?,?,?)`,
+		uid, category, peak, duration.Milliseconds(), duration.Milliseconds(), sourceGUID); err != nil {
+		return err
+	}
+	// 超过 10 瓶时顶掉最早生效的一瓶；不足 10 瓶时子查询为空，不删除任何行。
+	_, err := tx.ExecContext(ctx, `DELETE FROM drink_bonus_effect
+		WHERE uid=? AND remaining_millis>0 AND id < (
+			SELECT id FROM drink_bonus_effect
+			WHERE uid=? AND remaining_millis>0 ORDER BY id DESC LIMIT 1 OFFSET 9)`, uid, uid)
 	return err
 }
 

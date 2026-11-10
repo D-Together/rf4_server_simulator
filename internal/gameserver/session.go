@@ -77,6 +77,11 @@ func (s *Session) Done() <-chan struct{} { return s.stopCh }
 // SetState / GetState 会话状态存取（业务系统共享）。
 func (s *Session) SetState(key string, v any) {
 	s.stateMu.Lock()
+	// 手工构造的 Session（例如测试里的探针会话）没有初始化 state，这里懒建，
+	// 避免给 nil map 赋值直接 panic。
+	if s.state == nil {
+		s.state = map[string]any{}
+	}
 	s.state[key] = v
 	s.stateMu.Unlock()
 }

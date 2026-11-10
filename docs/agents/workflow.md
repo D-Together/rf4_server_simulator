@@ -54,8 +54,8 @@
 
 | 级别 | 机制 | 覆盖 | 现状 |
 |---|---|---|---|
-| L1 | 本地钩子 | gofmt + build + vet + commit-msg | 可选，每台机器自启用 |
-| L2 | `.github/workflows/ci.yml` | gofmt + build + vet + test | PR 触发，无 paths 过滤 |
+| L1 | `.githooks/`（`tools/hooks.ps1` 或 `make hooks` 启用） | pre-commit: doccheck；pre-push: build + vet | 已入库，需自行启用 |
+| L2 | `.github/workflows/ci.yml` | gofmt + build + vet + test（含 `internal/doccheck` 仓库断言） | PR 触发，无 paths 过滤 |
 | L3 | `CLAUDE.md` 红线 + 能力契约 + 评审 | 语义类约束 | 靠人 |
 
 **gofmt 以 CI 判定为准**：Windows 检出为 CRLF 时本地 `gofmt -l` 会把每个文件判成未格式化；
@@ -64,9 +64,10 @@ CI 在 Linux 检出为 LF，判定才有意义。
 ## 完成前必须重跑
 
 ```powershell
-go test ./...
+go test ./...          # 含 internal/doccheck 的仓库级文档断言
 go vet ./...
 go build ./...
+go run ./tools/doccheck  # 只改文档时也可单跑，秒级
 ```
 
 **旧证据作废**：上一个会话、上一个 commit 的输出不能作为本次完成的依据。
