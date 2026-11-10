@@ -308,6 +308,14 @@ func (s *Server) fishingKeep(ctx *Ctx) ([]byte, bool) {
 		// 本尾已落 catch_log；14/4 结算卡 f7 的档案快照早于落库、不含本尾，
 		// 在此补推新档案，等级旁星号（307.f16）即时计入新奖杯鱼种。
 		ctx.Sess.Push2_1()
+		// 水域奖杯：这一尾可能刚好补上该水域最后一种上星鱼。
+		if keptInNet {
+			if trophy, terr := s.grantWaterwayTrophy(cctx, uid, keepLevel); terr != nil {
+				ctx.Log.Warn("水域奖杯发放失败", "water", keepLevel, "err", terr)
+			} else if trophy != nil {
+				ctx.Sess.pushWaterwayTrophies([]*store.Item{trophy})
+			}
+		}
 		out := proto.Args(proto.S("61"))
 		if keptInNet {
 			out.Items = append(out.Items, s.buildPending25(&kept, st, keepLevel))

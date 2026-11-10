@@ -193,6 +193,9 @@ func hFishTrophies323(ctx *Ctx) ([]byte, bool) {
 		ctx.Log.Error("3/17 鱼种奖杯查询失败", "err", err)
 		return encodeArgsCode(ctx, "132")
 	}
+	// 面板刚被填满的水域在这里兜底补发奖杯：正常情况下入护时已经发过，
+	// 这条只是防止「发奖杯那一步失败/进程中断」导致面板满了却没有奖杯。
+	ctx.Sess.pushWaterwayTrophies(ctx.Sess.Srv.ensureWaterwayTrophies(ctx.Sess.Srv.dbCtx(), ctx.Sess.Userid))
 	body, err := proto.EncodeValue(v, ctx.Sess.Table())
 	if err != nil {
 		ctx.Log.Error("3/17 鱼种奖杯编码失败", "err", err)

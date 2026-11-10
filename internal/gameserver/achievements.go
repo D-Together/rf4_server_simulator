@@ -3,6 +3,7 @@ package gameserver
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"rf4server/internal/proto"
 	"rf4server/internal/store"
@@ -10,6 +11,11 @@ import (
 )
 
 // 本文件把持久化的成就与鱼种纪录转换为客户端 DTO。
+
+// catch_log.grade 的档位：1 未达标 / 2 合格 / 3 奖杯（星）/ 4 蓝冠（超稀有）。
+// recordTrophyGrade 是「渔夫稀有鱼」面板的准入门槛——只有上星及以上才入列，
+// 也是水域奖杯「集齐」判定的同一条线（见 waterway_trophy.go）。
+const recordTrophyGrade = 3
 
 func unixToFiletime100ns(ts float64) uint64 {
 	if ts <= 0 {
@@ -59,9 +65,28 @@ func (s *Server) buildFishTrophies323(ctx context.Context, uid int64) (*proto.Va
 	}
 
 	// 客户端按水域分组，并在每组内按鱼种匹配唯一一张纪录卡。
+	//
+	// 只收**在该水域上星（grade 3）或蓝冠（grade 4）**的渔获。3/17 是「渔夫稀有鱼」
+	// 面板，官服语义是奖杯陈列：没上星的鱼根本不该占位。之前的实现把每个鱼种的
+	// 最重一条都塞进去，于是只要在这个水域钓过（哪怕只是合格 grade 2），面板上就
+	// 会一直挂着那条"最大记录"，整片水域看着像全收集。
+	//
+	// fish_trophy_probe_all=1 是排查开关（默认关）：把该图鱼种表里的**每个**鱼种都
+	// 下发一张卡（没钓过的补 0 克占位，档位一律写成「星」），客户端只会画出它本地
+	// 「稀有鱼」白名单里的那几种。用它一次截图就能把白名单反推出来——服务端静态
+	// 数据里没有这份清单，客户端拿到白名单外的卡会直接丢掉。
+	// fish_trophy_probe_place 可只对单个水域（如 level_001_lake）生效，避免整片面板
+	// 被占位卡刷满。
+	probeAll := s.tunableF("fish_trophy_probe_all", 0) >= 1
+	probePlace := strings.TrimSpace(s.tunableS("fish_trophy_probe_place", ""))
+	minGrade := int64(recordTrophyGrade)
+	if probeAll {
+		minGrade = 1
+	}
 	groups := make(map[string][]store.CatchRecord)
+	seen := make(map[string]bool)
 	for _, r := range rows {
-		if r.FishKey == "" {
+		if r.FishKey == "" || r.Grade < minGrade {
 			continue
 		}
 		placeID := r.LocLevel
@@ -71,7 +96,32 @@ func (s *Server) buildFishTrophies323(ctx context.Context, uid int64) (*proto.Va
 		if placeID == "" {
 			continue
 		}
+		if probeAll && (probePlace == "" || placeID == probePlace) {
+			r.Grade = recordTrophyGrade
+		}
 		groups[placeID] = append(groups[placeID], r)
+		seen[placeID+"\x00"+r.FishKey] = true
+	}
+	if probeAll {
+		byPlace, err := s.probeTrophyRoster(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for placeID, fishKeys := range byPlace {
+			if probePlace != "" && placeID != probePlace {
+				continue
+			}
+			for _, fishKey := range fishKeys {
+				if seen[placeID+"\x00"+fishKey] {
+					continue
+				}
+				groups[placeID] = append(groups[placeID], store.CatchRecord{
+					FishKey:  fishKey,
+					LocLevel: placeID,
+					Grade:    recordTrophyGrade,
+				})
+			}
+		}
 	}
 	placeIDs := make([]string, 0, len(groups))
 	for placeID := range groups {
@@ -91,6 +141,14 @@ func (s *Server) buildFishTrophies323(ctx context.Context, uid int64) (*proto.Va
 		}
 		fishKeys := make([]string, 0, len(bestByFish))
 		for fishKey := range bestByFish {
+			// 面板收录清单已知时严格按清单过滤：loc_fish 里多出来的鱼种（这张图能钓到、
+			// 但官方没编进渔夫图鉴的）不下发。客户端本来就会把白名单外的卡丢掉，过滤只
+			// 是为了让「面板」和「奖杯判定」用同一份分母，避免看着满、其实差几种。
+			if wl := trophyFishWhitelistSet(placeID); wl != nil && !probeAll {
+				if _, ok := wl[fishKey]; !ok {
+					continue
+				}
+			}
 			fishKeys = append(fishKeys, fishKey)
 		}
 		sort.Strings(fishKeys)
@@ -104,6 +162,34 @@ func (s *Server) buildFishTrophies323(ctx context.Context, uid int64) (*proto.Va
 		}))
 	}
 	return proto.Args(proto.S("132"), items...), nil
+}
+
+// probeTrophyRoster 返回每个水域在 loc_fish 里的全部鱼种，只给
+// fish_trophy_probe_all 排查模式用。它描述的是「这张图能钓到什么」，
+// 不是「渔夫图鉴收录哪些」——后者在客户端本地，服务端拿不到。
+func (s *Server) probeTrophyRoster(ctx context.Context) (map[string][]string, error) {
+	rows, err := s.DB.SQL.QueryContext(ctx, `
+		SELECT a.alias, lf.fish_key
+		FROM loc_fish lf
+		JOIN loc_alias a ON a.loc = lf.loc
+		WHERE a.alias <> ?
+		ORDER BY a.alias, lf.fish_key`, waterwayTrophyHome)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string][]string, 18)
+	for rows.Next() {
+		var placeID, fishKey string
+		if err := rows.Scan(&placeID, &fishKey); err != nil {
+			return nil, err
+		}
+		if placeID == "" || fishKey == "" {
+			continue
+		}
+		out[placeID] = append(out[placeID], fishKey)
+	}
+	return out, rows.Err()
 }
 
 func recordCard320FromCatch(r store.CatchRecord) *proto.Value {

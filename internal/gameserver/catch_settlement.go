@@ -296,12 +296,23 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 	// 官方升级礼物：真实升级（非重放）后逐级直发背包，内部按等级幂等；
 	// 钓法大类取本尾鱼（11 级分套依据）。礼物行随结果返回，由 14/4 处理器
 	// 挂结算奖励列表（801 f8）并在响应后推 4/22；聊天播报在发放函数内完成。
+	res := r.result(false)
 	if r.LevelsGained > 0 {
-		res := r.result(false)
 		for _, g := range s.grantLevelUpGifts(ctx, uid, oldLevel, level, r.SkillID) {
 			res.giftItems = append(res.giftItems, g.Items...)
 		}
-		return res, nil
 	}
-	return r.result(false), nil
+	// 「渔夫稀有鱼」集齐礼物：这尾鱼刚好补上该水域面板的最后一种时，奖杯当场入包，
+	// 并跟随结算界面下发 811 礼物行（左下角「礼物 / 捕获了该水域的所有稀有鱼」）。
+	// 判定要带上本尾鱼——结算早于入护，catch_log 里还没有它。
+	if it, terr := s.waterwayTrophyForCatch(ctx, uid, f); terr != nil {
+		s.log.Warn("集齐稀有鱼奖杯发放失败", "uid", uid, "water", f.LocLevel, "fish", f.Species, "err", terr)
+	} else if it != nil {
+		res.trophyGift = it
+	}
+	// 排查开关（默认关）：用背包里已有的同水域奖杯复现礼物卡片，只展示不发放。
+	if res.trophyGift == nil && f.Grade >= recordTrophyGrade && s.tunableF(waterwayTrophyGiftDemoKey, 0) >= 1 {
+		res.trophyGiftDemo = s.existingWaterwayTrophy(ctx, uid, f.LocLevel)
+	}
+	return res, nil
 }

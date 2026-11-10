@@ -35,6 +35,8 @@ type settleXpResult struct {
 	skillID         int64                              // 310.f2 钓法大类（1 浮钓 / 2 纺车 / 3 底钓 / 11 海钓）
 	skillGain       float64                            // 310.f3 本次实际熟练度增量
 	giftItems       []*store.Item                      // 本次结算直发的升级礼物（仅非重放；挂 801 f8 奖励列表）
+	trophyGift      *store.Item                        // 本次结算新发的「集齐该水域稀有鱼」奖杯（挂 801 f4 礼物行）
+	trophyGiftDemo  *store.Item                        // 排查开关用的「已有奖杯」展示件（不发放、不推背包）
 	qualChanges     map[int64]store.QualificationState // 本尾鱼带来的资格变化（重放时从回执还原）
 }
 
@@ -429,16 +431,45 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 			grants.Items = append(grants.Items, tree)
 		}
 	}
-	// 升级礼物行：801.f4 = 811 数组（f0=1 新级别），客户端 GameResult 弹窗
-	// 从该数组渲染"新级别礼物"卡片栈；无礼物保持 null（官服未升级样本形态）。
+	// 礼物行：801.f4 = 811 数组。同一数组里可以并存多种来源——升级礼物（f0=1）与
+	// 「捕获了该水域的所有稀有鱼」（f0=4，集齐水域面板时发的奖杯）；客户端
+	// GameResult 按来源各渲染一张礼物卡片。无礼物保持 null（官服未升级样本形态）。
 	giftRows := proto.Null()
-	if hasFish && res != nil && len(res.giftItems) > 0 {
-		if rows, rerr := s.giftRows811Arg(cctx, res.newLevel, res.giftItems); rerr != nil {
-			ctx.Log.Warn("升级礼物行构造失败（801.f4 置空）", "err", rerr)
-		} else {
-			giftRows = rows
+	if hasFish && res != nil {
+		lines := make([]gift811Line, 0, 2)
+		if len(res.giftItems) > 0 {
+			lines = append(lines, gift811Line{source: giftSourceNewLevel, param: res.newLevel, items: res.giftItems})
+		}
+		if res.trophyGift != nil {
+			lines = append(lines, gift811Line{source: s.waterwayTrophyGiftSource(), items: []*store.Item{res.trophyGift}})
+		} else if res.trophyGiftDemo != nil {
+			// 排查开关：用已有奖杯复现同一张礼物卡片，确认来源码/文案，不发放物品。
+			// 若同时置了扫频列表，则每个候选来源码各出一条、各挂一枚不同的已有奖杯，
+			// 按奖杯认卡即可反查「哪张卡是哪个来源码」。
+			if sweep := s.waterwayTrophyGiftSweep(); len(sweep) > 0 {
+				items := s.existingTrophyItems(cctx, uid, len(sweep))
+				for i, src := range sweep {
+					if i >= len(items) {
+						break
+					}
+					lines = append(lines, gift811Line{source: src, items: []*store.Item{items[i]}})
+				}
+				if len(lines) == 0 {
+					lines = append(lines, gift811Line{source: s.waterwayTrophyGiftSource(), items: []*store.Item{res.trophyGiftDemo}})
+				}
+			} else {
+				lines = append(lines, gift811Line{source: s.waterwayTrophyGiftSource(), items: []*store.Item{res.trophyGiftDemo}})
+			}
+		}
+		if len(lines) > 0 {
+			if rows, rerr := s.giftRows811(cctx, lines); rerr != nil {
+				ctx.Log.Warn("礼物行构造失败（801.f4 置空）", "err", rerr)
+			} else {
+				giftRows = rows
+			}
 		}
 	}
+
 	obj801, err := wiregen.MakeObj("caagocpofin", map[int]*proto.Value{
 		0:  f0,
 		1:  proto.U32(proto.F32Bits(float32(castProf.DistanceM))),
@@ -485,15 +516,22 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 		}
 	}
 	// 礼物 4/22 与卡片同步：801 响应发送后再更新背包缓存，避免与结算快照竞态。
-	if hasFish && res != nil && len(res.giftItems) > 0 {
-		gifts := res.giftItems
-		ctx.AfterResponse(func() {
-			for _, row := range gifts {
-				if row != nil {
-					s.pushItemUpdate(uid, row)
+	// 集齐稀有鱼的奖杯同样走这里——礼物卡片里的物品必须真的在背包里。
+	if hasFish && res != nil {
+		gifts := make([]*store.Item, 0, len(res.giftItems)+1)
+		gifts = append(gifts, res.giftItems...)
+		if res.trophyGift != nil {
+			gifts = append(gifts, res.trophyGift)
+		}
+		if len(gifts) > 0 {
+			ctx.AfterResponse(func() {
+				for _, row := range gifts {
+					if row != nil {
+						s.pushItemUpdate(uid, row)
+					}
 				}
-			}
-		})
+			})
+		}
 	}
 	// 收竿时补挂同种库存，供客户端校验下一次抛竿；搏鱼中不补挂。
 	// 补挂后的钓组和背包数量在 801 响应发送后同步，避免结算覆盖数量更新。
