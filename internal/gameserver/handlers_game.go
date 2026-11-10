@@ -1660,7 +1660,7 @@ func (s *Server) rarityOf25(fishKey string) int64 {
 	return s.DB.SpeciesRarity(s.dbCtx(), fishKey)
 }
 
-func buildKeepnet25(e *store.KeepnetEntry, levelKey string, rarity int64) *proto.Value {
+func buildKeepnet25(e *store.KeepnetEntry, levelKey string, rarity int64, modelKey string) *proto.Value {
 	if e.KeepLevel != "" {
 		levelKey = e.KeepLevel
 	}
@@ -1676,9 +1676,19 @@ func buildKeepnet25(e *store.KeepnetEntry, levelKey string, rarity int64) *proto
 	if grade >= 4 && e.NameZh == "" {
 		state |= 4194304 // 蓝冠未命名可命名位
 	}
+	if modelKey == "" {
+		modelKey = e.ModelVariant
+	}
 	var name *string
-	if e.NameZh != "" {
+	switch {
+	case modelKey != "":
+		name = &modelKey
+	case e.NameZh != "":
 		name = &e.NameZh
+	}
+	var nameText *string
+	if modelKey != "" && e.NameZh != "" {
+		nameText = &e.NameZh
 	}
 	var bait *string
 	if e.KeepBait != "" {
@@ -1713,6 +1723,7 @@ func buildKeepnet25(e *store.KeepnetEntry, levelKey string, rarity int64) *proto
 		9:  proto.U32(27), // 钩位：浮钓
 		10: proto.Str(loc),
 		11: proto.Str(name),
+		12: proto.Str(nameText),
 		14: proto.U32(displayXP),
 		16: proto.Guid(e.EchoGUID),
 		18: proto.U32(5), // 鱼护容器 id

@@ -25,6 +25,8 @@ type catchStatRow struct {
 	XP       int64
 	Silver   int64
 	LocLevel string
+	// GUID 见 store.CatchRecord.GUID：纪录卡的模型族要靠它跟渔护/溜鱼对齐。
+	GUID string
 	// TackleCat 是钓法大类快照（1=浮钓 2=路亚 3=底钓 11=海钓，0=未知）。
 	// 0 是历史行：只能回退「拟饵/非拟饵」旧口径，不能当成已知的浮钓。
 	TackleCat int64
@@ -45,7 +47,7 @@ func (s *Server) loadCatchStatRows(ctx context.Context, uid int64) ([]catchStatR
 		SELECT COALESCE(ts,0), COALESCE(loc,''), COALESCE(spot,0), COALESCE(fish_key,''),
 		       COALESCE(weight_g,0), COALESCE(length_m,0), COALESCE(source,''), COALESCE(bait,''),
 		       COALESCE(grade,0), COALESCE(xp,0), COALESCE(silver,0), COALESCE(loc_level,''),
-		       COALESCE(tackle_cat,0)
+		       COALESCE(catch_guid,''), COALESCE(tackle_cat,0)
 		FROM catch_log WHERE uid=? ORDER BY id`, uid)
 	if err != nil {
 		return nil, err
@@ -55,7 +57,7 @@ func (s *Server) loadCatchStatRows(ctx context.Context, uid int64) ([]catchStatR
 	for rows.Next() {
 		var r catchStatRow
 		if err := rows.Scan(&r.TS, &r.Loc, &r.Spot, &r.FishKey, &r.WeightG, &r.LengthM,
-			&r.Source, &r.Bait, &r.Grade, &r.XP, &r.Silver, &r.LocLevel, &r.TackleCat); err != nil {
+			&r.Source, &r.Bait, &r.Grade, &r.XP, &r.Silver, &r.LocLevel, &r.GUID, &r.TackleCat); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -154,7 +156,7 @@ func (s *Server) buildStats321(ctx context.Context, uid int64) (*proto.Value, er
 	cards := buildRecordCards(rows, pullOf, familyOf)
 	card := func(key string) *proto.Value {
 		r, ok := cards[key]
-		return recordCard320(r, ok, isLure)
+		return s.recordCard320(r, ok, isLure)
 	}
 	biggest := card("biggest")
 	if biggest == nil {
@@ -199,7 +201,7 @@ func (s *Server) buildStats321(ctx context.Context, uid int64) (*proto.Value, er
 	}
 	sort.SliceStable(fishRows, func(i, j int) bool { return fishRows[i].best.WeightG > fishRows[j].best.WeightG })
 	for _, st := range fishRows {
-		card := recordCard320(st.best, true, isLure)
+		card := s.recordCard320(st.best, true, isLure)
 		setRecordCard320Counts(card, st.total, st.trophy, st.superTrophy)
 		fishArgs.Items = append(fishArgs.Items, card)
 	}
@@ -481,7 +483,7 @@ func setRecordCard320Counts(card *proto.Value, total, trophy, superTrophy int64)
 	}
 }
 
-func recordCard320(r catchStatRow, ok bool, isLure func(string) bool) *proto.Value {
+func (s *Server) recordCard320(r catchStatRow, ok bool, isLure func(string) bool) *proto.Value {
 	if !ok {
 		return nil
 	}
@@ -494,6 +496,9 @@ func recordCard320(r catchStatRow, ok bool, isLure func(string) bool) *proto.Val
 	if loc == "" {
 		loc = r.Loc
 	}
+	// f13（oajeeklppia）= 模型族名，与渔护 25.f11、溜鱼 27.f22 同源；
+	// 留 null 会退回鱼种默认族（老模型），统计/纪录列表就会跟详情打架。
+	modelKey := s.fishModelVariantForFish(r.FishKey, r.WeightG, r.LengthM, r.Grade, r.GUID)
 	return wiregen.MustMakeObj("ippcfiphgfl", map[int]*proto.Value{
 		0:  proto.StrVal(r.FishKey),
 		1:  proto.U32(uint32(grade)),
@@ -508,7 +513,7 @@ func recordCard320(r catchStatRow, ok bool, isLure func(string) bool) *proto.Val
 		10: proto.U32(0),
 		11: proto.U32(0),
 		12: proto.U32(uint32(grade)),
-		13: proto.Str(nil),
+		13: recordModelField(modelKey),
 		14: proto.U32(0),
 	})
 }

@@ -532,7 +532,7 @@ func evaluateQualificationsTx(ctx context.Context, tx *sql.Tx, uid int64, ev qua
 		}
 		st.RuleID = r.ID
 		st.Counted = append(st.Counted, store.QualificationFish{
-			GUID: guid, Species: ev.Species, NameZh: ev.NameZh,
+			GUID: guid, FishGUID: ev.CatchGUID, Species: ev.Species, NameZh: ev.NameZh,
 			WeightG: ev.WeightG, LengthM: ev.LengthM, Grade: ev.Grade,
 			RigType: ev.RigType, RodType: ev.RodType,
 		})

@@ -40,14 +40,39 @@ func qualificationCounterObject(ruleID int64, counted []store.QualificationFish,
 
 // qualificationFishObject 构造一条渔获记录（mhnenmanmfn / nanehfeohjh 5005），
 // 供任务鱼表渲染。体长 wire 侧为 U32 整数子单位，按厘米下发（显示换算待实机核对）。
-func qualificationFishObject(f store.QualificationFish) *proto.Value {
+//
+// f5 与渔护 25.f11、溜鱼 27.f22、纪录卡 320.f13 同名字段（oajeeklppia），是客户端
+// 取 FishFamily 模型族的 key，f6 才是名称文本——和 25 的 f11/f12 是同一对。
+// 之前 f5 一直塞名称，客户端查不到同名族就只能退默认族，任务鱼表里又是那套老模型；
+// 现在有变体族的鱼种写族名、名称挪到 f6，没有族名的鱼种保持原样（f5=名称）。
+// 接收者允许为 nil：无会话的调用方（28/2 兜底、测试）只发赛季块，不推导模型族。
+func (s *Server) qualificationFishObject(f store.QualificationFish) *proto.Value {
+	modelKey := ""
+	if s != nil {
+		// 雌雄必须按真鱼 guid 推导才跟渔护/纪录卡一致；GUID 是去重键的 md5，
+		// 只在老存档（没有 fish_guid）上兜底，保证同一个存档每次结果相同。
+		seed := f.FishGUID
+		if seed == "" {
+			seed = f.GUID
+		}
+		modelKey = s.fishModelVariantForFish(f.Species, f.WeightG, f.LengthM, f.Grade, seed)
+	}
+	key, name := f.NameZh, (*string)(nil)
+	if modelKey != "" {
+		key = modelKey
+		if f.NameZh != "" {
+			zh := f.NameZh
+			name = &zh
+		}
+	}
 	return wiregen.MustMakeObj("mhnenmanmfn", map[int]*proto.Value{
 		0: proto.Guid(f.GUID),
 		1: proto.StrVal(f.Species),
 		2: proto.U32(uint32(f.Grade)),
 		3: proto.U32(uint32(f.WeightG)),
 		4: proto.U32(uint32(math.Round(f.LengthM * 100))),
-		5: proto.StrVal(f.NameZh),
+		5: proto.StrVal(key),
+		6: proto.Str(name),
 		7: proto.U32(uint32(f.RodType)),
 		8: proto.U32(uint32(f.RigType)),
 	})
@@ -60,12 +85,12 @@ func (s *Server) build5003(ctx context.Context, uid int64) *proto.Value {
 	if s.DB != nil {
 		states, _ = s.DB.QualificationStates(ctx, uid)
 	}
-	return build5003FromStates(states, s.buildSeason5012())
+	return s.build5003FromStates(states, s.buildSeason5012())
 }
 
 // build5003FromStates 用已读取的进度装配 5003；states 为 nil 时只发赛季块与空槽。
 // season 由 Server.buildSeason5012() 提供，无会话的调用方传默认赛季块。
-func build5003FromStates(states map[int64]store.QualificationState, season *proto.Value) *proto.Value {
+func (s *Server) build5003FromStates(states map[int64]store.QualificationState, season *proto.Value) *proto.Value {
 	fishArgs := proto.Args(proto.S("202"))
 	counterArgs := proto.Args(proto.S("201"))
 	seen := make(map[string]bool)
@@ -80,7 +105,7 @@ func build5003FromStates(states map[int64]store.QualificationState, season *prot
 				continue
 			}
 			seen[f.GUID] = true
-			fishArgs.Items = append(fishArgs.Items, qualificationFishObject(f))
+			fishArgs.Items = append(fishArgs.Items, s.qualificationFishObject(f))
 		}
 	}
 	return wiregen.MustMakeObj("fopkeoppndn", map[int]*proto.Value{

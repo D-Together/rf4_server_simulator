@@ -281,6 +281,9 @@ type RolledFish struct {
 	// 时刻判定，避免搏鱼跨过 06:00/19:00 后改用结算时间。
 	CastM   float64
 	IsNight bool
+	// ModelVariant 这尾鱼在客户端用的 FishFamily 族名（a_salmon_f2 等）；
+	// 空=用鱼种默认族。溜鱼 / 结算弹窗 / 渔护 / 鱼卡共用这一个值。
+	ModelVariant string
 }
 
 // stateFor 按 uid 取/建状态。
@@ -1658,6 +1661,17 @@ func (s *Server) buildFish27(f *RolledFish, hookGUID, gearGuid string) *proto.Va
 		hook = f.FishGUID
 	}
 
+	// 27.f22 与鱼物品 25.f11 同名（oajeeklppia）：客户端用它去取 FishFamily 模型族。
+	// 有变体族的鱼种一律发族名，保证溜鱼 / 结算弹窗 / 渔护 / 鱼卡是同一个模型；
+	// 没有变体族的鱼种才退回命名鱼的玩家名字（旧行为）。
+	modelKey := s.fishModelVariantFor(f)
+	var f22 *string
+	if modelKey != "" {
+		f22 = &modelKey
+	} else if named != nil {
+		f22 = named
+	}
+
 	return wiregen.MustMakeObj("fgogccpglhb", map[int]*proto.Value{
 		0:  proto.Guid(f.FishGUID),
 		1:  proto.StrVal(f.Species),
@@ -1680,7 +1694,7 @@ func (s *Server) buildFish27(f *RolledFish, hookGUID, gearGuid string) *proto.Va
 		19: proto.F32(float32(f19v)),
 		20: proto.F32(float32(f20v)),
 		21: s.buildFightCurvesForFish(f, pull, profile),
-		22: proto.Str(named),
+		22: proto.Str(f22),
 		23: proto.Guid(hook),
 		24: proto.Null(),
 	})

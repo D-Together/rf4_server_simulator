@@ -154,7 +154,7 @@ func (s *Server) buildFishTrophies323(ctx context.Context, uid int64) (*proto.Va
 		sort.Strings(fishKeys)
 		cards := make([]*proto.Value, 0, len(fishKeys))
 		for _, fishKey := range fishKeys {
-			cards = append(cards, recordCard320FromCatch(bestByFish[fishKey]))
+			cards = append(cards, s.recordCard320FromCatch(bestByFish[fishKey]))
 		}
 		items = append(items, wiregen.MustMakeObj("dochkomimic", map[int]*proto.Value{
 			0: proto.StrVal(placeID),
@@ -192,7 +192,13 @@ func (s *Server) probeTrophyRoster(ctx context.Context) (map[string][]string, er
 	return out, rows.Err()
 }
 
-func recordCard320FromCatch(r store.CatchRecord) *proto.Value {
+// recordCard320FromCatch 构造渔夫稀有鱼面板（3/17）里的一行纪录卡 320。
+//
+// f13（oajeeklppia）与渔护 25.f11、溜鱼 27.f22 同名，是客户端取模型族的字段：
+// 不写就退回该鱼种的默认族（历史混拼资源，也就是玩家说的"淘汰的老模型"），
+// 于是面板里是旧模型、点进详情（走 25/渔护）却是新族，同一条鱼两个样子。
+// 这里必须用与渔护同源的 fishModelVariantForFish，并以 catch_guid 为雌雄种子。
+func (s *Server) recordCard320FromCatch(r store.CatchRecord) *proto.Value {
 	grade := r.Grade
 	if grade <= 0 {
 		grade = 1
@@ -205,6 +211,7 @@ func recordCard320FromCatch(r store.CatchRecord) *proto.Value {
 	if len(r.Bait) >= 7 && r.Bait[:7] == "spinner" {
 		hook = 17
 	}
+	modelKey := s.fishModelVariantForFish(r.FishKey, r.WeightG, r.LengthM, r.Grade, r.GUID)
 	return wiregen.MustMakeObj("ippcfiphgfl", map[int]*proto.Value{
 		0:  proto.StrVal(r.FishKey),
 		1:  proto.U32(uint32(grade)),
@@ -219,7 +226,7 @@ func recordCard320FromCatch(r store.CatchRecord) *proto.Value {
 		10: proto.U32(0),
 		11: proto.U32(0),
 		12: proto.U32(uint32(grade)),
-		13: proto.Str(nil),
+		13: recordModelField(modelKey),
 		14: proto.U32(0),
 	})
 }

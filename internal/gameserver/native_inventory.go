@@ -31,6 +31,7 @@ func nativeInventoryContainers(kind uint64) []string {
 // 物种稀有度（f4）始终以静态表为准——旧快照可能缺失或为 0。
 func (s *Server) keepnetItemTree(ctx context.Context, entry *store.KeepnetEntry, level string) *proto.Value {
 	rarity := s.DB.SpeciesRarity(ctx, entry.Species)
+	s.fillKeepnetVariant(entry)
 	row, err := s.DB.GetItemByGUID(ctx, entry.EchoGUID)
 	if err == nil && row.UID == entry.UID && row.Container == "keepnet" && row.TypeID == 25 && row.WireClass == "ecknbkpeeji" {
 		if fields, err := FieldsFromJSON(row.FieldsJSON); err == nil && len(fields) == 29 {
@@ -38,10 +39,29 @@ func (s *Server) keepnetItemTree(ctx context.Context, entry *store.KeepnetEntry,
 			fields[16].Hex = entry.EchoGUID
 			fields[18].Num = ptrU64(containerKeepnet)
 			fields[22].Num = ptrU64(uint64(netTicksNow()))
+			// f11 = 模型族名（与 27.f22 同名 oajeeklppia）；命名鱼的名字挪到 f12。
+			// 老存档里 f11 存的是名字，这里必须按当前推导值刷新，否则历史鱼获
+			// 会跟新钓的鱼用不同的模型。
+			switch {
+			case entry.ModelVariant != "":
+				model := entry.ModelVariant
+				fields[11].Str = &model
+				if entry.NameZh != "" {
+					name := entry.NameZh
+					fields[12].Str = &name
+				}
+			case entry.NameZh != "":
+				name := entry.NameZh
+				fields[11].Str = &name
+				fields[12].Str = nil
+			default:
+				fields[11].Str = nil
+				fields[12].Str = nil
+			}
 			return proto.Obj(row.WireClass, uint32(row.TypeID), fields...)
 		}
 	}
-	return buildKeepnet25(entry, level, rarity)
+	return buildKeepnet25(entry, level, rarity, entry.ModelVariant)
 }
 
 func inventoryContainerMatches(name string, allowed []string) bool {
