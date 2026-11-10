@@ -268,6 +268,9 @@ func (s *Server) fishingKeep(ctx *Ctx) ([]byte, bool) {
 			kept.LocLevel = s.currentLevel(uid)
 		}
 		keepLevel := kept.LocLevel
+		// 钓法快照取入护当刻该竿的钓组类型；与 14/4 结算的熟练度大类同源
+		// （fishingSkillCatForRig），保证统计页与技能页对同一条鱼口径一致。
+		tackleCat := tackleCatForRig(st.RigType)
 		capacity, err := s.keepnetCapacity(cctx, uid)
 		if err != nil {
 			st.mu.Unlock()
@@ -280,6 +283,7 @@ func (s *Server) fishingKeep(ctx *Ctx) ([]byte, bool) {
 			WeightG: kept.WeightG, LengthM: kept.LengthM, Cat: kept.Grade,
 			KeepLoc: st.Loc, KeepSpot: int64(st.Spot), KeepBait: st.Bait,
 			KeepLevel: keepLevel, TS: float64(time.Now().UnixNano()) / 1e9,
+			TackleCat: tackleCat,
 		}, kept.XP, kept.Silver, capacity)
 		if err != nil {
 			st.mu.Unlock()

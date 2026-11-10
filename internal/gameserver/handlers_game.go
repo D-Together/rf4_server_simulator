@@ -1592,7 +1592,10 @@ func hFishStats(ctx *Ctx) ([]byte, bool) {
 		return nil, false
 	}
 	f0, f1, f4 := tree.Field(0), tree.Field(1), tree.Field(4)
-	ctx.Log.Info("3/2 统计快照", "total", f0.U32(), "rare", f1.U32(), "daily_count", f4.U32())
+	// 同时输出 f11/f13，便于与客户端面板逐项对照这两个语义未定的槽位。
+	f11, f13 := tree.Field(11), tree.Field(13)
+	ctx.Log.Info("3/2 统计快照", "total", f0.U32(), "rare", f1.U32(), "daily_count", f4.U32(),
+		"slot_f11", f11.U64(), "slot_f13", f13.U64())
 	body, err := proto.EncodeValue(tree, ctx.Sess.Table())
 	if err != nil {
 		return nil, false

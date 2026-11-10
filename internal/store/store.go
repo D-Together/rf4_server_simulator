@@ -103,6 +103,20 @@ func (d *DB) Migrate() error {
 		if err != nil {
 			return err
 		}
+		if name == "migrations/00055_catch_tackle_cat.sql" {
+			// 该列可能已由早期分支编号建过（分支库曾用 00054 登记过同名列）。
+			// ALTER TABLE ADD COLUMN 不支持 IF NOT EXISTS，重复执行会报 duplicate
+			// column，因此先看列是否已存在，已存在就只跑回填语句。
+			var exists int
+			if err := tx.QueryRow(
+				`SELECT COUNT(*) FROM pragma_table_info('catch_log') WHERE name='tackle_cat'`).Scan(&exists); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+			if exists > 0 {
+				body = []byte(catchTackleCatBackfillSQL)
+			}
+		}
 		if name == "migrations/00022_membership_exp_compat.sql" {
 			var legacy int
 			if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('profile') WHERE name='membership_expires_at'`).Scan(&legacy); err != nil {
@@ -207,6 +221,20 @@ func (d *DB) ensureLegacyPlayerColumns() error {
 // staleMigrationVersionBase 是退役登记行的编号段。远高于真实迁移编号，
 // 只为让出原编号并保留可追溯的名字，不会被任何主线迁移占用。
 const staleMigrationVersionBase = 9_000_000
+
+// catchTackleCatBackfillSQL 是 00055 迁移里除 ALTER TABLE 之外的部分（回填 + 索引）。
+// 分支库可能已建过 tackle_cat 列，此时跳过 ALTER 只跑这一段，保证迁移可重复执行。
+const catchTackleCatBackfillSQL = `
+UPDATE catch_log
+   SET tackle_cat = COALESCE((
+       SELECT CAST(json_extract(kv.v, '$.SkillID') AS INTEGER)
+         FROM kv
+        WHERE kv.k = 'catch-settlement:' || catch_log.uid || ':' || lower(catch_log.catch_guid)
+          AND CAST(json_extract(kv.v, '$.SkillID') AS INTEGER) IN (1, 2, 3, 11)), 0)
+ WHERE tackle_cat = 0 AND catch_guid IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_catch_log_uid_tackle ON catch_log(uid, tackle_cat);
+`
 
 // retireStaleMigrationRows 让出被"分支自带、后来已从迁移目录删掉"的登记行占住的编号。
 //

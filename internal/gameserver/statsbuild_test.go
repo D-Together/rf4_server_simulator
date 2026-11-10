@@ -142,16 +142,127 @@ func TestFishStats321FromCatchLog(t *testing.T) {
 		t.Fatalf("f8 最优竞争力=%v %d，期望按拉力维度 %v %d",
 			f8Fish.StrOr(), f8Weight.U32(), wantStrongest.key, wantStrongest.weight)
 	}
-	// f9=冒险鱼、f16=底钓最大鱼；缺少可靠钓法快照时不能拿其他维度占位。
+	// f9=冒险鱼；f16=底钓最大鱼，现在按钓法快照取底钓族，本夹具无底钓渔获 → 空卡。
 	f9, f16 := dec.Field(9).Val, dec.Field(16).Val
-	if f9 == nil || f9.Kind != proto.KindNull || f16 == nil || f16.Kind != proto.KindNull {
-		t.Fatalf("f9/f16 应保持 null，实得 f9=%#v f16=%#v", f9, f16)
+	if f9 == nil || f9.Kind != proto.KindNull {
+		t.Fatalf("f9 应保持 null，实得 %#v", f9)
+	}
+	if f16 != nil && f16.Kind != proto.KindNull {
+		t.Fatalf("无底钓渔获时 f16 应为 null，实得 %#v", f16)
 	}
 	if got := dec.Field(17).Val.ArgCount(); got != 2 {
 		t.Fatalf("f17 竿类统计项=%d，期望2（浮钓/纺车）", got)
 	}
-	if got := dec.Field(21).Val.ArgCount(); got != 2 {
-		t.Fatalf("f21 诱饵统计项=%d，期望2", got)
+	// f19 饵料统计（天然饵，318 gconafdfchk）与 f21 拟饵统计（319 keoejejkenf）
+	// 是两个不同字段，不能像过去那样把全部钓饵都塞进 f21。
+	// 夹具 4 条：worm_01×3、plug_m_1833×1 → 天然饵 2 个（worm_01 计 3）、拟饵 1 个。
+	if got := dec.Field(19).Val.ArgCount(); got != 1 {
+		t.Fatalf("f19 饵料统计项=%d，期望1（只有 worm_01）", got)
+	}
+	if got := dec.Field(19).Val.Items[0].Field(0); got.StrOr() != "worm_01" {
+		t.Fatalf("f19 饵料 systemID=%q，期望 worm_01", got.StrOr())
+	}
+	if got := dec.Field(21).Val.ArgCount(); got != 1 {
+		t.Fatalf("f21 拟饵统计项=%d，期望1（只有 plug_m_1833）", got)
+	}
+	if got := dec.Field(21).Val.Items[0].Field(1); got.StrOr() != "plug_m_1833" {
+		t.Fatalf("f21 拟饵 systemID=%q，期望 plug_m_1833", got.StrOr())
+	}
+	// f11/f13 语义未定，服务端恒发 0。
+	f11, f13 := dec.Field(11), dec.Field(13)
+	if got := f11.U64(); got != 0 {
+		t.Fatalf("f11=%d，期望恒 0（语义未定）", got)
+	}
+	if got := f13.U64(); got != 0 {
+		t.Fatalf("f13=%d，期望恒 0（语义未定）", got)
+	}
+}
+
+// TestFishStats321TackleFamily 验证浮钓/路亚/底钓三张纪录卡严格按钓法族取鱼：
+// 海钓渔获（挪威海绿青鳕走海钓饵）不得出现在浮钓卡里。
+func TestFishStats321TackleFamily(t *testing.T) {
+	t.Parallel()
+	srv, db := newDetachTestServer(t)
+	ctx := context.Background()
+	const uid = int64(1000001)
+	insert := func(key string, weight int64, bait string, cat int64) {
+		t.Helper()
+		if err := db.CatchLogInsertTackle(ctx, uid, "loc", 1, key, "", weight, 0.5, "keep",
+			bait, 1, 10, 1, "level_001_lake", cat); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 浮钓 1.044kg；路亚 32.807kg；底钓 6.5kg；海钓 20.781kg（绿青鳕，海钓饵）。
+	insert("wa_bream", 1044, "maggot_caster", tackleCatFloat)
+	insert("a_salmon", 32807, "crank_s_1910", tackleCatSpinning)
+	insert("carp", 6500, "boilie_01", tackleCatBottom)
+	insert("coalfish", 20781, "fb_bf_saida", tackleCatMarine)
+
+	sess := newProbeSess(srv)
+	body, ok := hFishStats(&Ctx{Sess: sess, Main: 3, Sub: 2, DecodeOK: true, Log: logging.Discard()})
+	if !ok || len(body) == 0 {
+		t.Fatal("3/2 未处理")
+	}
+	dec, _, err := proto.DecodeValue(body, 0, srv.Table())
+	if err != nil {
+		t.Fatalf("3/2 响应不可解码: %v", err)
+	}
+	cardFishAndWeight := func(field int) (string, int64) {
+		t.Helper()
+		card := dec.Field(field).Val
+		if card == nil || card.Kind == proto.KindNull {
+			return "", 0
+		}
+		nameField, weightField := card.Field(0), card.Field(2)
+		return nameField.StrOr(), int64(weightField.U32())
+	}
+	if fish, w := cardFishAndWeight(14); fish != "wa_bream" || w != 1044 {
+		t.Fatalf("f14 浮钓纪录=%s/%dg，期望 wa_bream/1044g（海钓绿青鳕不得进入）", fish, w)
+	}
+	if fish, w := cardFishAndWeight(15); fish != "a_salmon" || w != 32807 {
+		t.Fatalf("f15 路亚纪录=%s/%dg，期望 a_salmon/32807g", fish, w)
+	}
+	if fish, w := cardFishAndWeight(16); fish != "carp" || w != 6500 {
+		t.Fatalf("f16 底钓纪录=%s/%dg，期望 carp/6500g", fish, w)
+	}
+	// 全场最重仍是海钓那条（f7 不按钓法过滤）。
+	if fish, w := cardFishAndWeight(7); fish != "a_salmon" || w != 32807 {
+		t.Fatalf("f7 最大渔获=%s/%dg，期望 a_salmon/32807g", fish, w)
+	}
+}
+
+// TestFishStats321LegacyFamilyFallback 验证历史行（tackle_cat=0）仍能出卡：
+// 回退「拟饵→路亚、其余→浮钓」旧口径，不能让老档玩家看到空卡。
+func TestFishStats321LegacyFamilyFallback(t *testing.T) {
+	t.Parallel()
+	srv, db := newDetachTestServer(t)
+	ctx := context.Background()
+	const uid = int64(1000001)
+	insert := func(key string, weight int64, bait string) {
+		t.Helper()
+		if err := db.CatchLogInsert(ctx, uid, "loc", 1, key, "", weight, 0.5, "keep",
+			bait, 1, 10, 1, "level_001_lake"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("bream", 900, "worm_01")
+	insert("c.roach", 500, "plug_m_1833")
+
+	sess := newProbeSess(srv)
+	body, ok := hFishStats(&Ctx{Sess: sess, Main: 3, Sub: 2, DecodeOK: true, Log: logging.Discard()})
+	if !ok || len(body) == 0 {
+		t.Fatal("3/2 未处理")
+	}
+	dec, _, err := proto.DecodeValue(body, 0, srv.Table())
+	if err != nil {
+		t.Fatalf("3/2 响应不可解码: %v", err)
+	}
+	f14Name, f15Name := dec.Field(14).Val.Field(0), dec.Field(15).Val.Field(0)
+	if got := f14Name.StrOr(); got != "bream" {
+		t.Fatalf("旧档 f14 浮钓纪录=%q，期望 bream（非拟饵回退浮钓）", got)
+	}
+	if got := f15Name.StrOr(); got != "c.roach" {
+		t.Fatalf("旧档 f15 路亚纪录=%q，期望 c.roach（拟饵回退路亚）", got)
 	}
 }
 
