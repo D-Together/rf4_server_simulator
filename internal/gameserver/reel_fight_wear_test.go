@@ -41,12 +41,12 @@ func TestFightReelSlipOnlyWhenDragExceeded(t *testing.T) {
 	if ticks != 1 || burn != 0 {
 		t.Fatalf("超泄力应记一次打滑且不按曲线烧，实得 ticks=%d burn=%v", ticks, burn)
 	}
-	if want := reelSlipWearForSetting(25); math.Abs(slip-want) > 1e-12 {
+	if want := reelSlipWearForSettingDefault(25); math.Abs(slip-want) > 1e-12 {
 		t.Fatalf("单次打滑磨损应为 %.6f，实得 %.6f", want, slip)
 	}
 	// 鱼再猛也不能放大单次打滑磨损。
 	w = newFightWearForTest(7.7, 1, 9, 50, 1, 1, false)
-	if _, slip, _, _, _ := srv.fightReelTickWear(w, tick); math.Abs(slip-reelSlipWearForSetting(25)) > 1e-12 {
+	if _, slip, _, _, _ := srv.fightReelTickWear(w, tick); math.Abs(slip-reelSlipWearForSettingDefault(25)) > 1e-12 {
 		t.Fatalf("打滑磨损应固定为基准，实得 %.6f", slip)
 	}
 }
@@ -173,7 +173,7 @@ func TestFightReelOilLowersWearAndExtendsBurnTime(t *testing.T) {
 	if !(best < normal && normal < worst) {
 		t.Fatalf("轮油应改变打滑磨损：最佳 %.6f 常规 %.6f 最差 %.6f", best, normal, worst)
 	}
-	baseWear := reelSlipWearForSetting(25)
+	baseWear := reelSlipWearForSettingDefault(25)
 	if math.Abs(best-baseWear*0.8) > 1e-12 || math.Abs(worst-baseWear*1.2) > 1e-12 {
 		t.Fatalf("轮油系数应被收进 0.8~1.2，实得 best=%.6f worst=%.6f", best, worst)
 	}
@@ -572,7 +572,7 @@ func TestFightWearCastBaseLureFactor(t *testing.T) {
 	}
 	// 手算样例：品质 50 轮油在路亚折扣下的每竿消耗（矩阵是百分点，返回寿命比例）。
 	want := (0.32 + 0.04) * reelCastBaseFactorLureDefault / 0.625 / 100
-	if got := reelPartWearFor(reelPartCatOil, 50, lure.partCounts()); math.Abs(got-want) > 1e-9 {
+	if got := reelPartWearFor(reelPartCatOil, 50, lure.partCounts(), reelSlipCalibrationSeconds); math.Abs(got-want) > 1e-9 {
 		t.Fatalf("品质 50 轮油路亚每竿应为 %.6f（14.4bp），实得 %.6f", want, got)
 	}
 	// 打滑/过载是搏鱼事件账，不随钓组折扣缩水。

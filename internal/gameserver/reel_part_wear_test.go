@@ -25,7 +25,7 @@ func TestReelPartWearRatesMatchSpecCalibration(t *testing.T) {
 		{reelPartCatOil, 204}, {reelPartCatGear, 1428}, {reelPartCatBearing, 961},
 		{reelPartCatHandle, 2631}, {reelPartCatSpool, 5000},
 	} {
-		worn := reelPartWearFor(tc.category, 100, typical)
+		worn := reelPartWearFor(tc.category, 100, typical, reelSlipCalibrationSeconds)
 		if worn <= 0 {
 			t.Fatalf("品类 %d 每竿不耗耐久", tc.category)
 		}
@@ -34,12 +34,12 @@ func TestReelPartWearRatesMatchSpecCalibration(t *testing.T) {
 		}
 	}
 	// 摩擦片不参与每竿基准：它的寿命已经由打滑与过载曲线决定，再叠一层会变成第二个摩擦片。
-	if got := reelPartWearFor(reelPartCatWasher, 100, typical); got != 0 {
+	if got := reelPartWearFor(reelPartCatWasher, 100, typical, reelSlipCalibrationSeconds); got != 0 {
 		t.Fatalf("摩擦片不应参与每竿基准，实得 %v", got)
 	}
 	// 低档位正常使用几乎不磨；29 档仍应明显快于结构件，形成高档泄力的成本。
-	washerOneRod := 10 * reelSlipWearForSetting(29)
-	if slowest := reelPartWearFor(reelPartCatSpool, 100, typical); washerOneRod/slowest < 4 {
+	washerOneRod := 10 * reelSlipWearForSettingDefault(29)
+	if slowest := reelPartWearFor(reelPartCatSpool, 100, typical, reelSlipCalibrationSeconds); washerOneRod/slowest < 4 {
 		t.Fatalf("29 档摩擦片相对线杯只快 %.1f 倍，高负荷成本不够明显", washerOneRod/slowest)
 	}
 	// 品质寿命系数：低档货明显更不耐用。
@@ -48,26 +48,26 @@ func TestReelPartWearRatesMatchSpecCalibration(t *testing.T) {
 			t.Fatalf("品质 %.0f 寿命系数=%v，期望 %v", quality, got, want)
 		}
 	}
-	if math.Abs(reelPartWearFor(reelPartCatOil, 15, typical)/reelPartWearFor(reelPartCatOil, 100, typical)-
+	if math.Abs(reelPartWearFor(reelPartCatOil, 15, typical, reelSlipCalibrationSeconds)/reelPartWearFor(reelPartCatOil, 100, typical, reelSlipCalibrationSeconds)-
 		1/reelPartLifeFactor(15)) > 1e-9 {
 		t.Fatal("消耗量必须除以品质寿命系数")
 	}
 	// 没咬钩的空竿只结算基准与泡水两格。
 	empty := reelPartCounts{Rods: 1, Soaks: 1}
-	if got, want := reelPartWearFor(reelPartCatOil, 100, empty), 0.360/100; math.Abs(got-want) > 1e-12 {
+	if got, want := reelPartWearFor(reelPartCatOil, 100, empty, reelSlipCalibrationSeconds), 0.360/100; math.Abs(got-want) > 1e-12 {
 		t.Fatalf("空竿轮油消耗=%v，期望 %v", got, want)
 	}
-	if got, want := reelPartWearFor(reelPartCatBearing, 100, empty), 0.040/100; math.Abs(got-want) > 1e-12 {
+	if got, want := reelPartWearFor(reelPartCatBearing, 100, empty, reelSlipCalibrationSeconds), 0.040/100; math.Abs(got-want) > 1e-12 {
 		t.Fatalf("空竿轴承消耗=%v，期望 %v", got, want)
 	}
 	// 断件冲击只在真断件那一次扣。
-	if got, want := reelPartWearFor(reelPartCatSpool, 100, reelPartCounts{BreakHits: 1}), 0.20/100; math.Abs(got-want) > 1e-12 {
+	if got, want := reelPartWearFor(reelPartCatSpool, 100, reelPartCounts{BreakHits: 1}, reelSlipCalibrationSeconds), 0.20/100; math.Abs(got-want) > 1e-12 {
 		t.Fatalf("断件冲击线杯消耗=%v，期望 %v", got, want)
 	}
-	if got, want := reelPartWearFor(reelPartCatGear, 100, reelPartCounts{BreakHits: 1}), 0.05/100; math.Abs(got-want) > 1e-12 {
+	if got, want := reelPartWearFor(reelPartCatGear, 100, reelPartCounts{BreakHits: 1}, reelSlipCalibrationSeconds), 0.05/100; math.Abs(got-want) > 1e-12 {
 		t.Fatalf("断件冲击齿轮消耗=%v，期望 %v", got, want)
 	}
-	if got := reelPartWearFor(reelPartCatHandle, 100, reelPartCounts{BreakHits: 1}); got != 0 {
+	if got := reelPartWearFor(reelPartCatHandle, 100, reelPartCounts{BreakHits: 1}, reelSlipCalibrationSeconds); got != 0 {
 		t.Fatalf("摇柄不参与断件冲击，实得 %v", got)
 	}
 }
@@ -76,8 +76,8 @@ func TestReelPartSlipWearUsesElapsedSeconds(t *testing.T) {
 	byTicks := reelPartCounts{SlipTicks: 10}
 	bySeconds := reelPartCounts{SlipSecs: 10 * reelSlipCalibrationSeconds}
 	for _, category := range reelWearPartCategories {
-		gotTicks := reelPartWearFor(category, 50, byTicks)
-		gotSeconds := reelPartWearFor(category, 50, bySeconds)
+		gotTicks := reelPartWearFor(category, 50, byTicks, reelSlipCalibrationSeconds)
+		gotSeconds := reelPartWearFor(category, 50, bySeconds, reelSlipCalibrationSeconds)
 		if math.Abs(gotTicks-gotSeconds) > 1e-12 {
 			t.Fatalf("品类 %d 打滑秒数应折算成同寿命：ticks=%.9f seconds=%.9f",
 				category, gotTicks, gotSeconds)
@@ -172,7 +172,7 @@ func TestFightSettlementWearsPartsAndBody(t *testing.T) {
 	counts := w.partCounts()
 	for _, category := range reelWearPartCategories {
 		_, quality, durability := srv.reelPartStateFromRow(ctx, afterRow, category)
-		want := 1 - reelPartWearFor(category, quality, counts)
+		want := 1 - reelPartWearFor(category, quality, counts, reelSlipCalibrationSeconds)
 		if durability >= 1 || math.Abs(durability-want) > 1e-6 {
 			t.Fatalf("品类 %d 本竿应耗到 %.6f，实得 %.6f", category, want, durability)
 		}
@@ -250,7 +250,7 @@ func TestEmptyRodSettlesPartsOnly(t *testing.T) {
 	counts := w.partCounts()
 	for _, category := range reelWearPartCategories {
 		_, quality, durability := srv.reelPartStateFromRow(ctx, row, category)
-		want := 1 - reelPartWearFor(category, quality, counts)
+		want := 1 - reelPartWearFor(category, quality, counts, reelSlipCalibrationSeconds)
 		if math.Abs(durability-want) > 1e-6 {
 			t.Fatalf("空竿品类 %d 耐久应为 %.6f，实得 %.6f", category, want, durability)
 		}
