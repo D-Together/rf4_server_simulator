@@ -52,8 +52,8 @@ func TestTradingCardLaminate(t *testing.T) {
 	}
 	// 四段字段序（2026-11-10 实机异常日志反推）：
 	//   f0 = 811 礼物行数组（args 173）——弹窗靠它画「礼物 / 塑封卡牌合集」卡
-	//   f1 = 物品实例数组（args 61）——奖座树
-	//   f2 = 备用空物品数组  f3 = Guid[]
+	//   f1 = 物品实例数组（args 61）——**卡册本体**（密封态）+ 奖座
+	//   f2 = 同 f1（第二个物品数组）  f3 = Guid[]（卡册 + 同批奖座）
 	f0 := v.Fields[0].Val
 	if f0.Kind != proto.KindArgs || f0.Code == nil || *f0.Code != "173" || len(f0.Items) != 1 {
 		t.Fatalf("f0 应为 1 条 811 礼物行(args 173): %+v", f0)
@@ -62,7 +62,8 @@ func TestTradingCardLaminate(t *testing.T) {
 	if row.Kind != proto.KindObj || row.TypeID != 811 || len(row.Fields) != 4 {
 		t.Fatalf("f0 元素应为 811 礼物行 obj: %+v", row)
 	}
-	// 809 的解说表比结算弹窗（801.f4）后移两位，卡片册在这里是 8 而不是 6。
+	// 809 与 801.f4 是同一张 5 档码表（1 新级别/2 活动/3 数条稀有鱼/4 卡片册/5 集齐水域），
+	// 塑封对应「塑封卡牌合集」= 4。扫频 1..5 实机只画出 2/4/5 三枚，3 因参数为 0 缺席。
 	if src := u64Of(row.Fields[0].Num); src != uint64(laminateGiftSourceDefault) {
 		t.Fatalf("811.f0 来源码应为 %d(809 上下文=塑封卡牌合集): %d", laminateGiftSourceDefault, src)
 	}
@@ -353,5 +354,99 @@ func TestTradingCardLaminateConcurrent(t *testing.T) {
 		if n := countRows(t, db, 7, "statuette_test"); n != 1 {
 			t.Fatalf("iteration %d: concurrent laminate granted %d statuettes", i, n)
 		}
+	}
+}
+
+// 卡册树构造失败时不能「提交了塑封、返回缺卡册的响应」——那正是本 PR 要修的
+// 半成功故障（客户端在物品数组里找卡册画正中卡面，找不到就 IndexOutOfRange、
+// 整窗只剩标题）。2026-11-10 review P2。
+//
+// 构造失败最直接的注入点是卡册实例的 fields_json 坏掉：buildSealedDeckTree
+// 在事务外解不出字段，必须在开事务前就 ReplyFailure，塑封时间戳、技能点、
+// 奖座一样都不能落库。
+func TestTradingCardLaminateRejectsUnbuildableDeckTree(t *testing.T) {
+	s, db := newProgressSrv(t)
+	seedTradingCards(t, db)
+	if _, err := db.SQL.Exec(`INSERT OR REPLACE INTO item_def(numeric_id,item_id,category,attrs_json)
+		VALUES(60004,'statuette_test',72,'{"jnkpgolkkdj":4,"fjfejmomhed":21}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SQL.Exec(`UPDATE item_def SET attrs_json=json_set(attrs_json,'$.pnaapkplkfo',json('["statuette_test"]'))
+		WHERE item_id='tcdeck_test'`); err != nil {
+		t.Fatal(err)
+	}
+	c := t.Context()
+	perch, err := s.CreateItem(c, 7, "card_perch", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crucian, err := s.CreateItem(c, 7, "card_crucian", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addCtx := tradingAlbumRequest(t, s, 2, 760, proto.Str(proto.S("tcdeck_test")), proto.Guid(zeroGUID), proto.Guid(perch.GUID))
+	runTradingAlbumRequest(t, s, addCtx, false)
+	addCtx = tradingAlbumRequest(t, s, 2, 761, proto.Str(proto.S("tcdeck_test")), proto.Guid(zeroGUID), proto.Guid(crucian.GUID))
+	runTradingAlbumRequest(t, s, addCtx, false)
+	deckGUID := deckRowGUID(t, db, 7, "tcdeck_test")
+	// 把卡册实例字段弄成不可解析，模拟「树构不出来」。
+	if _, err := db.SQL.Exec(`UPDATE item SET fields_json='{' WHERE guid=?`, deckGUID); err != nil {
+		t.Fatal(err)
+	}
+	lamCtx := tradingAlbumRequest(t, s, 4, 762, proto.Guid(deckGUID))
+	runTradingAlbumRequest(t, s, lamCtx, true)
+	// 整单拒绝：字段没被改写、技能点没加、奖座没发、幂等标记没写。
+	var fieldsJSON string
+	if err := db.SQL.QueryRow(`SELECT fields_json FROM item WHERE guid=?`, deckGUID).Scan(&fieldsJSON); err != nil {
+		t.Fatal(err)
+	}
+	if fieldsJSON != "{" {
+		t.Fatalf("卡册树构造失败时不应改写卡册字段，实得 %q", fieldsJSON)
+	}
+	if bonus, _, _ := db.KVGet(c, "skill_bonus:7"); bonus != "" {
+		t.Fatalf("卡册树构造失败时不应加技能点，实得 %q", bonus)
+	}
+	if _, _, err := db.KVGet(c, deckLaminatePointKey(deckGUID)); err == nil {
+		t.Fatal("卡册树构造失败时不应写塑封技能点幂等标记")
+	}
+	if n := countRows(t, db, 7, "statuette_test"); n != 0 {
+		t.Fatalf("卡册树构造失败时不应发奖座，实得 %d 尊", n)
+	}
+}
+
+// buildSealedDeckTree 的契约：构不出卡册树必须返回 error，不能返回 nil 让调用方
+// 悄悄降级成「只有奖座」的响应（那正是客户端 IndexOutOfRange 的成因）。
+func TestBuildSealedDeckTreeRequiresDeck(t *testing.T) {
+	s, db := newProgressSrv(t)
+	seedTradingCards(t, db)
+	c := t.Context()
+	perch, err := s.CreateItem(c, 7, "card_perch", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addCtx := tradingAlbumRequest(t, s, 2, 780, proto.Str(proto.S("tcdeck_test")), proto.Guid(zeroGUID), proto.Guid(perch.GUID))
+	runTradingAlbumRequest(t, s, addCtx, false)
+	deckGUID := deckRowGUID(t, db, 7, "tcdeck_test")
+	// 健康卡册：树必须构得出来（否则下面几条断言就成了「永远失败」）。
+	if tree, err := s.buildSealedDeckTree(c, 7, deckGUID, 1); err != nil || tree == nil {
+		t.Fatalf("健康卡册应能构造密封态树: tree=%v err=%v", tree, err)
+	}
+	// 字段坏掉 → error，不是 nil。
+	if _, err := db.SQL.Exec(`UPDATE item SET fields_json='{' WHERE guid=?`, deckGUID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.buildSealedDeckTree(c, 7, deckGUID, 1); err == nil {
+		t.Fatal("fields_json 损坏时 buildSealedDeckTree 必须返回 error（不得降级为 nil）")
+	}
+	// 字段被清空（只有 f0 都没有）→ error，不能让事务里按 fields[1] 取密封位。
+	if _, err := db.SQL.Exec(`UPDATE item SET fields_json='[]' WHERE guid=?`, deckGUID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.buildSealedDeckTree(c, 7, deckGUID, 1); err == nil {
+		t.Fatal("卡册字段为空时 buildSealedDeckTree 必须返回 error")
+	}
+	// 归属不符 → error。
+	if _, err := s.buildSealedDeckTree(c, 8, deckGUID, 1); err == nil {
+		t.Fatal("非本人卡册时 buildSealedDeckTree 必须返回 error")
 	}
 }

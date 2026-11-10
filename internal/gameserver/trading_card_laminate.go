@@ -178,7 +178,21 @@ func hTradingCardLaminate(ctx *Ctx) ([]byte, bool) {
 	// 树要在事务外构造（ItemToTree 读静态库，写锁期间池化读会饿死），因此把
 	// 密封时间戳提前取定，事务内复用同一个值，保证树与落库一致。
 	sealTs := uint64(proto.WindowsFiletimeNow())
-	deckTree := s.buildSealedDeckTree(c, uid, deckGUID, sealTs)
+	deckTree, err := s.buildSealedDeckTree(c, uid, deckGUID, sealTs)
+	if err != nil {
+		// 卡册树是这条响应能否渲染的前提（客户端在物品数组里找卡册画正中卡面，
+		// 找不到就 IndexOutOfRange、整窗只剩标题）。构不出来就不能塑封：
+		// 宁可整单失败让玩家重试，也不能提交一件客户端看不到结果的塑封
+		// （2026-11-10 review P2：半成功故障）。
+		ctx.Log.Warn("卡册塑封响应卡册树构造失败", "deck", deckGUID, "err", err)
+		ctx.ReplyFailure("System.IO.IOException", "卡册塑封失败，请重试")
+		return nil, true
+	}
+	// 来源码必须在开事务**之前**取：laminateGiftSource → tunableF 在缓存过期
+	// （>30s）时会查 tunables 表，而连接池固定 MaxOpenConns(1)，事务已占用唯一
+	// 连接，这条查询只能等到连接超时（2026-11-10 review P1 实测 2.0004s），
+	// 而且失败后还会把空缓存写回去、配置继续回退默认值。
+	giftSource := s.laminateGiftSource()
 	tx, err := beginEconomyTx(c, s.DB)
 	if err != nil {
 		ctx.ReplyFailure("System.IO.IOException", "卡册塑封失败，请重试")
@@ -298,9 +312,7 @@ func hTradingCardLaminate(ctx *Ctx) ([]byte, bool) {
 	// 现在排在数组首位：之前只放奖座，排在首位也不顶用，必须是卡册本体。
 	itemsVal := func() *proto.Value {
 		v := proto.Args(proto.S("61"))
-		if deckTree != nil {
-			v.Items = append(v.Items, deckTree)
-		}
+		v.Items = append(v.Items, deckTree)
 		v.Items = append(v.Items, trees.Items...)
 		return v
 	}
@@ -309,7 +321,7 @@ func hTradingCardLaminate(ctx *Ctx) ([]byte, bool) {
 	guidArr = append(guidArr, deckGUID)
 	guidArr = append(guidArr, guids...)
 	body, err := proto.EncodeValue(wiregen.MustMakeObj("gglppphenoi", map[int]*proto.Value{
-		0: s.laminateGiftRows(giftItems, giftResults),
+		0: s.laminateGiftRows(giftItems, giftResults, giftSource),
 		1: itemsVal(),
 		2: itemsVal(),
 		3: proto.GuidArr(guidArr),
@@ -340,37 +352,49 @@ func hTradingCardLaminate(ctx *Ctx) ([]byte, bool) {
 	}
 	ctx.Log.Info("卡册塑封完成", "uid", uid, "deck", deck.ItemID, "rewards", len(trees.Items),
 		"granted", granted, "skillPoint", pointGranted,
-		"giftSource", s.laminateGiftSource(),
+		"giftSource", giftSource,
 		"giftItems", len(giftItems.Items), "giftResults", len(giftResults.Items))
 	return body, true
 }
 
 // buildSealedDeckTree 事务外构造卡册的**密封态**物品树：把 f1 密封时间戳
-// 换成即将落库的 sealTs，再按正式链路 ItemToTree 出树。读库失败返回 nil，
-// 响应退化成「只有奖座」（旧行为），不至于整单失败。
-func (s *Server) buildSealedDeckTree(ctx context.Context, uid int64, deckGUID string, sealTs uint64) *proto.Value {
+// 换成即将落库的 sealTs，再按正式链路 ItemToTree 出树。
+//
+// 失败**不再降级**为 nil：这条响应靠卡册树画弹窗正中的卡面，缺了它就是本 PR
+// 要修的那个故障（IndexOutOfRange → 正文全空）。调用方在开事务前据此
+// ReplyFailure，连塑封都不提交。
+func (s *Server) buildSealedDeckTree(ctx context.Context, uid int64, deckGUID string, sealTs uint64) (*proto.Value, error) {
 	row, err := s.DB.GetItemByGUID(ctx, deckGUID)
-	if err != nil || row == nil || row.UID != uid || row.Container != tradingCardContainer {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if row == nil || row.UID != uid || row.Container != tradingCardContainer {
+		return nil, fmt.Errorf("卡册不存在或不属于当前玩家: guid=%s", deckGUID)
 	}
 	fields, err := FieldsFromJSON(row.FieldsJSON)
-	if err != nil || len(fields) < 2 {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if len(fields) < 2 {
+		return nil, fmt.Errorf("卡册字段不足: guid=%s fields=%d", deckGUID, len(fields))
 	}
 	fields[1].Num = ptrU64(sealTs)
 	// 与 updateItemFieldsTx 同样的收尾（创建刻度前移），保证树和落库行一致。
 	bumpCreatedTicks(fields, row.WireClass)
 	fj, err := FieldsToJSON(fields)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	sealed := *row
 	sealed.FieldsJSON = fj
 	tree, err := s.ItemToTree(ctx, &sealed)
-	if err != nil || tree == nil {
-		return nil
+	if err != nil {
+		return nil, err
 	}
-	return tree
+	if tree == nil {
+		return nil, fmt.Errorf("卡册树为空: guid=%s", deckGUID)
+	}
+	return tree, nil
 }
 
 // ── 809.f0 的礼物行与物品槽位 ──
@@ -380,7 +404,7 @@ func (s *Server) buildSealedDeckTree(ctx context.Context, uid int64, deckGUID st
 //   1. f1/f2 必须能找出**卡册本体**，否则控件取 [0] 越界、整窗只余标题；
 //   2. 811.f3 留空同样整窗空白（2026-11-10 19:01 实证），它也不是可有可无的；
 //   3. 811.f2 与 f3 里都放奖座时，礼物详情格子里会出现**两尊**奖座（官方只有一尊），
-//      所以默认 f2 放奖座、f3 只放卡册本体（详情格里不画卡册）。
+//      所以 f2 恒空、f3 只放奖座（见 laminateGiftParts 的定型说明）。
 
 // laminateGiftParts 组出 811 礼物行的 f2（礼物物品格）与 f3（结果数组）。
 //
@@ -388,6 +412,7 @@ func (s *Server) buildSealedDeckTree(ctx context.Context, uid int64, deckGUID st
 //   - 礼物详情格 = f2 ∪ f3，每个元素画一格；两段都放奖座会画成两尊（官方只有一尊）；
 //   - f3 留空会让控件对 results 取 [0] 越界（IndexOutOfRangeException at
 //     RUIGameResultWidget.hknalfnfjeg），整窗只剩标题；
+//
 // 所以「空的只能是 f2」。
 func laminateGiftParts(trees *proto.Value) (items, results *proto.Value) {
 	items = proto.Args(proto.S("61"))
@@ -403,14 +428,17 @@ func laminateGiftParts(trees *proto.Value) (items, results *proto.Value) {
 // 礼物卡片驱动：f0 为 null 时客户端不画任何卡，所以哪怕奖座早就发过也要把
 // 这行带上（物品取本次 ACK 里的奖座树）。
 //
+// giftSource 由调用方在**事务外**取好传入（tunableF 会查库，见 hTradingCardLaminate
+// 里的 P1 注释），这里不再调用 laminateGiftSource。
+//
 // 恒为**单行**：多行时客户端切到「徽章横排」的紧凑版式，中间那块卡面陈列会消失。
-func (s *Server) laminateGiftRows(items, results *proto.Value) *proto.Value {
+func (s *Server) laminateGiftRows(items, results *proto.Value, giftSource int) *proto.Value {
 	rows := proto.Args(proto.S("173"))
 	row := wiregen.MustMakeObj("bkmnmjcfbic", map[int]*proto.Value{
-		0: proto.U32(uint32(s.laminateGiftSource())), // fjfejmomhed=来源码
-		1: proto.U32(0),                              // kbobbfmmibp=来源参数（塑封无参）
-		2: items,                                     // nbkhfhenbag=礼物物品
-		3: results,                                   // fmpbnollnmf=结果物品数组（红线：不发 null）
+		0: proto.U32(uint32(giftSource)), // fjfejmomhed=来源码
+		1: proto.U32(0),                  // kbobbfmmibp=来源参数（塑封无参）
+		2: items,                         // nbkhfhenbag=礼物物品
+		3: results,                       // fmpbnollnmf=结果物品数组（红线：不发 null）
 	})
 	rows.Items = append(rows.Items, row)
 	return rows
