@@ -31,11 +31,11 @@ func TestHappyHourXPAddsToBaseAndReplaysOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := r.baseXP + int64(math.Round(float64(r.baseXP)*.5))
-	if r.totalXP != want || len(r.bonuses) != 1 || r.bonuses[0].Kind != 56 {
+	if r.totalXP != want || len(r.bonuses) != 1 || r.bonuses[0].Kind != 57 {
 		t.Fatalf("breakdown %+v", r)
 	}
 	entry := s.buildSettle813(ctx, uid, f, r).Field(8).Val.Field(6).Val.ArgItem(0)
-	if u32Of(entry.Field(4).Num) != 56 {
+	if u32Of(entry.Field(4).Num) != 57 {
 		t.Fatalf("native happy-hour entry %+v", entry)
 	}
 	replayed, err := s.settleCatchOnce(ctx, uid, f, 1)

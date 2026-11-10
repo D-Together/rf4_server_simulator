@@ -166,7 +166,8 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 		sess.updateHappyHour(time.Now(), false)
 	}
 	if happy {
-		bonuses = append(bonuses, catchXPBonus{Kind: 56, GUID: zeroGUID, Multiplier: .5, XP: int64(math.Round(float64(xp) * .5))})
+		// 57 才是客户端结算面板的「欢乐时光」加成行；56 是另一类加成，客户端不会显示。
+		bonuses = append(bonuses, catchXPBonus{Kind: 57, GUID: zeroGUID, Multiplier: .5, XP: int64(math.Round(float64(xp) * .5))})
 	}
 	card, err := s.prepareCatchCard(ctx, uid, f, bait)
 	if err != nil {
