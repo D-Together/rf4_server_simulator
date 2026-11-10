@@ -65,7 +65,7 @@ var eventRodTypes = map[int64][]int64{
 	9203: {3}, 9302: {3}, 9402: {3}, 9501: {3},
 	10001: {1}, 10101: {1},
 	11201: {3}, 11203: {9, 10}, 11503: {3, 4, 5}, 11603: {9},
-	12102: {9}, 12303: {3, 4, 5}, 12503: {9, 10}, 12602: {3},
+	12102: {9}, 12201: {10}, 12303: {3, 4, 5}, 12503: {9, 10}, 12602: {3},
 	13001: {1, 2}, 13003: {3, 4, 5}, 13102: {3, 4, 5}, 13302: {3}, 13402: {3},
 	13501: {1, 2}, 13603: {1, 2},
 	14001: {1, 2}, 14002: {3, 4, 5}, 14101: {1, 2}, 14102: {3, 4, 5},
@@ -198,7 +198,7 @@ var eventQualificationRules = []qualificationRuleDef{
 	// 12403 缺口：「下列 6 种鱼类」名单未知。
 	{ID: 12403, Event: qevFishLanded, Counted: qGapCounted},
 	// 12501 分支子线钓组=ThreeWay(10)，与永久 2103 同源。
-	{ID: 12501, Event: qevFishLanded, Counted: qCountSpecies(qLocLevelIn(evLocLadoga), qRigIn(10), qWeightAtLeast(1500))},
+	{ID: 12501, Event: qevFishLanded, Counted: qCountSpecies(qLocLevelIn(evLocLadoga), qRigIn(10), qWeightAtLeast(1501))},
 	{ID: 12502, Event: qevFishLanded, Counted: qCountSingle(qLocLevelIn(evLocVolkhov, evLocLadoga, evLocLadogaIs), qSpeciesIn("a_salmon"), qWeightAtLeast(15000))},
 	// 12503 文案第三处水域缺失（「旧奥斯特罗格湖、琥珀湖或…」），按已知两水域判（待补）。
 	{ID: 12503, Event: qevFishLanded, Counted: qCountSingle(qLocLevelIn(evLocOstrog, evLocAmber), qWeightAtLeast(12000))},

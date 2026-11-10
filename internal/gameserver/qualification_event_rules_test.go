@@ -322,9 +322,35 @@ func TestEventRule5007Conditions(t *testing.T) {
 	if got := at(decode(19203), 4); got != 3 {
 		t.Fatalf("19203 钓组大类应为 3，实得 %d", got)
 	}
+	// 12201 飞德竿 → 竿型 [10]。
+	if got := u32s(decode(12201).Fields[5].Val); len(got) != 1 || got[0] != 10 {
+		t.Fatalf("12201 竿型应为 [10]，实得 %v", got)
+	}
 	// 10102 顺流位 → Idx27=64。
 	if got := at(decode(10102), 27); got != 64 {
 		t.Fatalf("10102 顺流位应为 64，实得 %d", got)
+	}
+}
+
+// 12501 文案为「超过 1.5 公斤」，1500g 不应计入，1501g 才计入。
+func TestEventStrictWeightBoundary(t *testing.T) {
+	var rule qualificationRuleDef
+	for _, r := range eventQualificationRules {
+		if r.ID == 12501 {
+			rule = r
+			break
+		}
+	}
+	if rule.Counted == nil {
+		t.Fatal("未找到 12501 规则")
+	}
+	ev := qualificationEvent{Species: "fish", WeightG: 1500, LocLevel: evLocLadoga, RigType: 10}
+	if key := rule.Counted(ev); key != "" {
+		t.Fatalf("1500g 不应计入 12501，实得键 %q", key)
+	}
+	ev.WeightG = 1501
+	if key := rule.Counted(ev); key == "" {
+		t.Fatal("1501g 应计入 12501")
 	}
 }
 
