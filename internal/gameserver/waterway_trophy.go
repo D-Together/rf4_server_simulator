@@ -16,10 +16,15 @@ import (
 // 水域奖杯（`trophy_level_<水域 systemID>`，物品类别 72 奖赏，
 // wire 类 enikeammfen / type_id 2015，走 3/16 奖励面板）。
 //
-// 官方语义：把一个水域的「渔夫稀有鱼」面板集齐——该水域地图鱼种列表里每一种都至少有
+// 官方语义：把一个水域的「渔夫稀有鱼」面板集齐——该水域面板收录的每一种都至少有
 // 一条上星（grade 3）或蓝冠（grade 4）记录——就发一枚该水域的奖杯作为奖励。
-// 判定口径与 3/17 面板完全一致（同一张 map_fish_roster 名册、同一条
-// recordTrophyGrade 准入门槛），所以「面板填满」和「拿到奖杯」永远同时发生。
+// 判定口径与 3/17 面板完全一致（同一份 trophyFishWhitelist 收录清单、同一条
+// recordTrophyGrade 准入门槛）。
+//
+// 判定时机是 **14/5 入护落库之后**，不是 14/4 结算：`catch_log` 只在入护时写入，
+// 14/6 放生不写；图鉴、307.f16 星号、3/17 面板全从 `catch_log` 统计。若在结算时
+// 就发，「发奖杯 → 随后放生」会留下「有奖杯、面板没满」的错位（2026-11-10 review P2）。
+// 入护之后再判定，放生的鱼自然不计数，「面板填满」与「拿到奖杯」严格等价。
 //
 // 奖杯是纪念品：卖掉、丢掉、转到小屋之后都不会重发，因此发放记录单独写在 kv 里，
 // 不能依赖「现在背包里有没有这枚奖杯」来判断是否发过。
@@ -28,33 +33,6 @@ const (
 	waterwayTrophyHome        = "level_000_home" // 家园不是水域，没有奖杯定义
 	waterwayTrophyContainer   = "backpack"       // 先放背包，玩家自己决定要不要摆进小屋
 	waterwayTrophyKeyTemplate = "waterway-trophy:%d:%s"
-)
-
-// 「渔夫稀有鱼」集齐礼物在结算界面（811 礼物行）里的来源码。
-//
-// 811.f0 是礼物来源枚举，客户端按它取礼物卡片上那句说明。本地化表里的候选文案
-// （Localization.csv 里的出现顺序**不是**码值顺序，别照着 +1 推）：
-//
-//	kDlg_Catched_GiftsNewLevel             "达到 {0} 级"
-//	kDlg_Catched_GiftsGameEvent            "纪念游戏活动"
-//	kDlg_Catched_GiftsTradingCardDeck      "塑封卡牌合集"
-//	kDlg_Catched_GiftsTrophyCountReached   "钓到了数条稀有鱼"
-//	kDlg_Catched_GiftsTrophyTableCollected "捕获了该水域的所有稀有鱼"  ← 要的就是这条
-//
-// 实机扫频（2026-11-10，同一次结算里两枚奖杯各挂一个候选码）标定的结果：
-//
-//	1 = 新级别礼物（达到 N 级，早已验证）
-//	2 = 纪念游戏活动（In honor of the game event）
-//	3 = 客户端无处理分支：同一次结算里给了 3，界面上什么都没画（卡片不出现）
-//	4 = 集齐该水域全部稀有鱼（TrophyTableCollected）
-//	5 = 钓到若干奖杯（TrophyCountReached）
-//	6 = 塑封卡牌合集（TradingCardDeck）
-//
-// 也就是说枚举是 1/2/4/5/6 连续占位，3 是空号（客户端不渲染），不是「卡片册」——
-// 卡片册是 6。这个顺序与本地化表的出现顺序无关，纯靠实机扫频才理清。
-const (
-	giftSourceTrophyTableCollected = 4
-	waterwayTrophyGiftSourceKey    = "waterway_trophy_gift_source"
 )
 
 // waterwayTrophyProgress 是某个水域的奖杯进度：地图鱼种总数与已上星的鱼种数。
@@ -144,79 +122,6 @@ func (s *Server) whitelistTrophyProgress(ctx context.Context, uid int64, locLeve
 		return p, err
 	}
 	return p, nil
-}
-
-// waterwayTrophyProgressWithCatch 把「刚钓上来、还没入护」的这尾鱼先计入分子。
-//
-// 结算界面（801/4 的画面）在玩家按「入护 / 释放」之前就出现了，此时 catch_log 还没有
-// 这尾鱼的行（入护才写），所以结算那一刻直接算进度会永远差最后一条，礼物就发不出来。
-// 这里在既有进度上补上本尾鱼：只有落在该水域面板清单内、且已经上星/蓝冠、且此前没有
-// 同鱼种达标记录时才 +1。
-func (s *Server) waterwayTrophyProgressWithCatch(ctx context.Context, uid int64, locLevel, fishKey string, grade int64) (waterwayTrophyProgress, error) {
-	p, err := s.waterwayTrophyProgressFor(ctx, uid, locLevel)
-	if err != nil || fishKey == "" || grade < recordTrophyGrade {
-		return p, err
-	}
-	inScope := false
-	if wl := trophyFishWhitelistSet(locLevel); wl != nil {
-		_, inScope = wl[fishKey]
-	} else {
-		var n int64
-		if qerr := s.DB.SQL.QueryRowContext(ctx, `SELECT COUNT(*) FROM loc_fish lf
-			JOIN loc_alias a ON a.loc = lf.loc WHERE a.alias=? AND lf.fish_key=?`, locLevel, fishKey).Scan(&n); qerr != nil {
-			return p, qerr
-		}
-		inScope = n > 0
-	}
-	if !inScope {
-		return p, nil
-	}
-	var locName string
-	if qerr := s.DB.SQL.QueryRowContext(ctx, `SELECT COALESCE(loc,'') FROM loc_alias WHERE alias=?`, locLevel).Scan(&locName); qerr != nil && !errors.Is(qerr, sql.ErrNoRows) {
-		return p, qerr
-	}
-	var counted int64
-	if qerr := s.DB.SQL.QueryRowContext(ctx, `SELECT COUNT(*) FROM catch_log
-		WHERE uid=? AND fish_key=? AND grade>=?
-		  AND (loc_level=? OR (COALESCE(loc_level,'')='' AND loc=?))`,
-		uid, fishKey, int64(recordTrophyGrade), locLevel, locName).Scan(&counted); qerr != nil {
-		return p, qerr
-	}
-	if counted == 0 {
-		p.Done++
-	}
-	return p, nil
-}
-
-// waterwayTrophyForCatch 在钓获结算时判定：这尾鱼是不是该水域面板的最后一条。
-// 是则当场发奖杯（幂等）并返回物品行，供结算界面渲染「捕获了该水域的所有稀有鱼」礼物；
-// 否则返回 (nil, nil)。
-func (s *Server) waterwayTrophyForCatch(ctx context.Context, uid int64, f *RolledFish) (*store.Item, error) {
-	if s == nil || s.DB == nil || f == nil || f.LocLevel == "" {
-		return nil, nil
-	}
-	// 没上星/蓝冠的鱼不可能补上最后一格（每一格都要求 grade>=3），先挡掉绝大多数。
-	if f.Grade < recordTrophyGrade {
-		return nil, nil
-	}
-	itemID, err := s.waterwayTrophyItemID(ctx, f.LocLevel)
-	if err != nil || itemID == "" {
-		return nil, err
-	}
-	key := fmt.Sprintf(waterwayTrophyKeyTemplate, uid, f.LocLevel)
-	if _, done, kerr := s.DB.KVGet(ctx, key); kerr != nil && !errors.Is(kerr, sql.ErrNoRows) {
-		return nil, kerr
-	} else if done {
-		return nil, nil
-	}
-	p, err := s.waterwayTrophyProgressWithCatch(ctx, uid, f.LocLevel, f.Species, f.Grade)
-	if err != nil {
-		return nil, err
-	}
-	if p.Total <= 0 || p.Done < p.Total {
-		return nil, nil
-	}
-	return s.issueWaterwayTrophy(ctx, uid, f.LocLevel, itemID, p)
 }
 
 // grantWaterwayTrophy 在该水域集齐后发放奖杯。已经发过、没集齐、或该水域没有奖杯
@@ -327,96 +232,6 @@ func (s *Server) ensureWaterwayTrophies(ctx context.Context, uid int64) []*store
 		if it != nil {
 			out = append(out, it)
 		}
-	}
-	return out
-}
-
-// waterwayTrophyGiftSource 取 811.f0 的来源码（可被 tunable 覆盖，便于实机校准）。
-func (s *Server) waterwayTrophyGiftSource() int {
-	v := s.tunableF(waterwayTrophyGiftSourceKey, float64(giftSourceTrophyTableCollected))
-	if v <= 0 || v > 255 {
-		return giftSourceTrophyTableCollected
-	}
-	return int(v)
-}
-
-// waterwayTrophyGiftDemo 是排查开关（默认关）：打开后，在任何水域上星/蓝冠时，只要
-// 背包里已经有该水域的奖杯，就把这枚**已有**奖杯当作礼物塞进结算界面，用来确认礼物
-// 卡片的来源码与文案。不发放任何物品、不改 kv，纯展示。
-const waterwayTrophyGiftDemoKey = "waterway_trophy_gift_demo"
-
-// existingWaterwayTrophy 取玩家背包里已有的该水域奖杯（演示用，不发放）。
-func (s *Server) existingWaterwayTrophy(ctx context.Context, uid int64, locLevel string) *store.Item {
-	itemID, err := s.waterwayTrophyItemID(ctx, locLevel)
-	if err != nil || itemID == "" {
-		return nil
-	}
-	var guid string
-	if err := s.DB.SQL.QueryRowContext(ctx, `SELECT guid FROM item WHERE uid=? AND item_id=? LIMIT 1`,
-		uid, itemID).Scan(&guid); err != nil || guid == "" {
-		return nil
-	}
-	it, err := s.DB.GetItemByGUID(ctx, guid)
-	if err != nil || it == nil || it.UID != uid {
-		return nil
-	}
-	return it
-}
-
-// waterwayTrophyGiftSweepKey 是来源码扫频开关（默认关）：值形如 "6,4"，打开后在
-// 演示模式下为每个来源码各出一条礼物行、各挂一枚**不同**的已有奖杯，这样结算界面
-// 会同时出现多张卡片，按奖杯认卡即可反查「哪张卡对应哪个来源码」——一次钓获就能
-// 定准 811.f0 枚举，不用反复猜、反复重启。
-const waterwayTrophyGiftSweepKey = "waterway_trophy_gift_sweep"
-
-// waterwayTrophyGiftSweep 解析扫频列表（逗号分隔的来源码，最多 6 个，范围 1..255）。
-func (s *Server) waterwayTrophyGiftSweep() []int {
-	raw := strings.TrimSpace(s.tunableS(waterwayTrophyGiftSweepKey, ""))
-	if raw == "" {
-		return nil
-	}
-	var out []int
-	for _, part := range strings.Split(raw, ",") {
-		n, err := strconv.Atoi(strings.TrimSpace(part))
-		if err != nil || n <= 0 || n > 255 {
-			continue
-		}
-		out = append(out, n)
-		if len(out) == 6 {
-			break
-		}
-	}
-	return out
-}
-
-// existingTrophyItems 取玩家背包里前 n 枚水域奖杯（演示/扫频用，不发放）。
-func (s *Server) existingTrophyItems(ctx context.Context, uid int64, n int) []*store.Item {
-	if s == nil || s.DB == nil || n <= 0 {
-		return nil
-	}
-	rows, err := s.DB.SQL.QueryContext(ctx, `SELECT guid FROM item
-		WHERE uid=? AND item_id LIKE ? AND container=? ORDER BY item_id LIMIT ?`,
-		uid, waterwayTrophyItemPrefix+"%", waterwayTrophyContainer, n)
-	if err != nil {
-		return nil
-	}
-	var guids []string
-	for rows.Next() {
-		var guid string
-		if err := rows.Scan(&guid); err != nil {
-			rows.Close()
-			return nil
-		}
-		guids = append(guids, guid)
-	}
-	rows.Close()
-	var out []*store.Item
-	for _, guid := range guids {
-		it, err := s.DB.GetItemByGUID(ctx, guid)
-		if err != nil || it == nil || it.UID != uid {
-			continue
-		}
-		out = append(out, it)
 	}
 	return out
 }

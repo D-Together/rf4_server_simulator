@@ -131,3 +131,92 @@ func TestBuildFishTrophiesFiltersByPanelWhitelist(t *testing.T) {
 		}
 	}
 }
+
+// 白名单是反推数据，最容易出的错是「拼错 key / 同一格写两遍 / 把家园写进去」——这类
+// 错误不会让编译失败，只会让某个水域永远集不齐。这里把结构约束钉住。
+func TestTrophyFishWhitelistStructure(t *testing.T) {
+	t.Parallel()
+	for water, cells := range trophyFishWhitelist {
+		if water == waterwayTrophyHome {
+			t.Fatalf("家园不该出现在面板收录清单里: %s", water)
+		}
+		if len(cells) == 0 {
+			t.Fatalf("%s 的清单是空的，应直接不建条目", water)
+		}
+		seen := make(map[string]bool, len(cells))
+		for _, c := range cells {
+			if c.key == "" || c.zh == "" {
+				t.Fatalf("%s 有空白格子: %+v", water, c)
+			}
+			if seen[c.key] {
+				t.Fatalf("%s 的 key %q 重复出现", water, c.key)
+			}
+			seen[c.key] = true
+		}
+	}
+	// unspawnable 里的 key 必须真的在该水域清单里，否则是拼错了 key、白白少一个分母。
+	for water, keys := range trophyFishWhitelistUnspawnable {
+		if len(trophyFishWhitelist[water]) == 0 {
+			t.Fatalf("%s 没有清单却记了不可生成鱼种", water)
+		}
+		present := map[string]bool{}
+		for _, c := range trophyFishWhitelist[water] {
+			present[c.key] = true
+		}
+		for _, key := range keys {
+			if !present[key] {
+				t.Fatalf("%s 的 unspawnable key %q 不在清单里（拼错了？）", water, key)
+			}
+		}
+	}
+	// missing / unspawnable 都是数据缺口，只允许出现在有清单的水域。
+	for water := range trophyFishWhitelistMissing {
+		if len(trophyFishWhitelist[water]) == 0 {
+			t.Fatalf("%s 没有清单却记了缺格", water)
+		}
+	}
+}
+
+// 苏拉河面板上那一格「鲑鱼」在 loc_wiki_fish 里派不出来（k_salmon 只属于阿赫图巴河），
+// 旧实现把它算进分母 → 分母 16、分子最多 15，奖杯永远发不出来。修好之后分母应是
+// 「能拿到的格子数」，把 15 种真实鱼种都上星就该集齐。
+func TestWaterwayTrophySuraUnspawnableCellDoesNotBlock(t *testing.T) {
+	t.Parallel()
+	s, db := newDetachTestServer(t)
+	ctx := context.Background()
+	const uid int64 = 1000001
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	const water = "level_008_sura_river"
+	wl := trophyFishWhitelistSet(water)
+	if len(wl) == 0 {
+		t.Fatal("测试依赖 level_008_sura_river 的白名单")
+	}
+	if _, bad := wl["k_salmon"]; bad {
+		t.Fatal("k_salmon 在苏拉河派不出来，不该留在判定集合里")
+	}
+	if total := trophyFishWhitelistTotal(water); total != len(wl)+trophyFishWhitelistMissing[water] {
+		t.Fatalf("分母应为「可生成格子 %d + 缺格 %d」= %d，实得 %d",
+			len(wl), trophyFishWhitelistMissing[water],
+			len(wl)+trophyFishWhitelistMissing[water], total)
+	}
+	i := 0
+	for key := range wl {
+		i++
+		if _, err := db.SQL.Exec(`INSERT INTO catch_log
+			(ts,loc,spot,fish_key,name_zh,weight_g,length_m,source,bait,grade,xp,silver,loc_level,uid,catch_guid)
+			VALUES(1,'loc',0,?,?,1000,0.4,'rod','worm',3,0,0,?,?,?)`,
+			key, key, water, uid, fmt.Sprintf("%032d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := s.waterwayTrophyProgressFor(ctx, uid, water)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Done != int64(len(wl)) || p.Total != int64(len(wl)+trophyFishWhitelistMissing[water]) {
+		t.Fatalf("苏拉河可生成格子全部上星后应是 %d/%d，实得 %d/%d",
+			len(wl), len(wl)+trophyFishWhitelistMissing[water], p.Done, p.Total)
+	}
+}

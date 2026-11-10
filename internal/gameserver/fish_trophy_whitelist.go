@@ -151,6 +151,9 @@ var trophyFishWhitelist = map[string][]trophyFishCell{
 		{key: "rudd", zh: "红鳍鱼"},
 		{key: "asp", zh: "赤梢鱼"},
 		{key: "dace", zh: "雅罗鱼"},
+		// 面板上这一格显示「鲑鱼」，但苏拉河的 loc_wiki_fish 37 种里没有鲑鱼
+		// （k_salmon 只出现在阿赫图巴河），派不出鱼就永远上不了星。格子保留
+		// 在清单里如实反映面板，判定时由 trophyFishWhitelistUnspawnable 扣掉。
 		{key: "k_salmon", zh: "鲑鱼"},
 		{key: "bh_carp", zh: "鳙鱼"},
 	},
@@ -387,6 +390,21 @@ var trophyFishWhitelistMissing = map[string]int{
 	"level_012_north_sea": 1, // 面板上的「鲣鱼」：5.004kg/62cm，对不上任何已有 key
 }
 
+// trophyFishWhitelistUnspawnable 记录「面板上有、本服这张图却派不出」的鱼种 key。
+//
+// 苏拉河面板截图里有一格显示「鲑鱼」，当时按显示名映射成了 k_salmon；但
+// `loc_wiki_fish` 里 k_salmon 只出现在阿赫图巴河，苏拉河那 37 种里没有它，而正常派鱼
+// 走的就是 loc_wiki_fish——这一格永远上不了星，面板就永远集不齐，奖杯也永远发不出去
+// （2026-11-10 review P2）。这里把它从分母里扣掉、分子也不计：玩家把**能拿到的格子**
+// 全部上星就该拿到奖杯，而不是被一格根本不存在的鱼卡死。
+//
+// 与 trophyFishWhitelistMissing 的区别：missing 是「认不出是哪种鱼」（分母 +1、
+// 分子永远不加，宁可晚发也不误发）；unspawnable 是「认得出，但本服钓不到」（分母
+// 一并扣掉，不阻塞）。两者都是数据缺口，补齐鱼种或确认真实 key 后删掉对应条目即可。
+var trophyFishWhitelistUnspawnable = map[string][]string{
+	"level_008_sura_river": {"k_salmon"},
+}
+
 // trophyFishCell 是面板上一个格子：key 是 catch_log.fish_key，zh 是客户端显示名
 // （只用于注释/排障，判定一律用 key）。
 type trophyFishCell struct {
@@ -401,20 +419,49 @@ func trophyFishWhitelistSet(placeID string) map[string]struct{} {
 	if len(cells) == 0 {
 		return nil
 	}
+	skip := trophyFishWhitelistUnspawnableSet(placeID)
 	set := make(map[string]struct{}, len(cells))
 	for _, c := range cells {
-		if c.key != "" {
-			set[c.key] = struct{}{}
+		if c.key == "" {
+			continue
 		}
+		if _, bad := skip[c.key]; bad {
+			continue
+		}
+		set[c.key] = struct{}{}
+	}
+	return set
+}
+
+// trophyFishWhitelistUnspawnableSet 返回该水域「本服派不出」的 key 集合（可能为 nil）。
+func trophyFishWhitelistUnspawnableSet(placeID string) map[string]struct{} {
+	keys := trophyFishWhitelistUnspawnable[placeID]
+	if len(keys) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		set[k] = struct{}{}
 	}
 	return set
 }
 
 // trophyFishWhitelistTotal 返回该水域面板的格子总数（含认不出的那些）。0 表示没有清单。
 func trophyFishWhitelistTotal(placeID string) int {
-	n := len(trophyFishWhitelist[placeID])
-	if n == 0 {
+	cells := trophyFishWhitelist[placeID]
+	if len(cells) == 0 {
 		return 0
 	}
-	return n + trophyFishWhitelistMissing[placeID]
+	skip := trophyFishWhitelistUnspawnableSet(placeID)
+	reachable := 0
+	for _, c := range cells {
+		if c.key == "" {
+			continue
+		}
+		if _, bad := skip[c.key]; bad {
+			continue
+		}
+		reachable++
+	}
+	return reachable + trophyFishWhitelistMissing[placeID]
 }

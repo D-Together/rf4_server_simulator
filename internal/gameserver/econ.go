@@ -3,6 +3,7 @@ package gameserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"math/rand"
 	"strings"
@@ -308,12 +309,23 @@ func (s *Server) fishingKeep(ctx *Ctx) ([]byte, bool) {
 		// 本尾已落 catch_log；14/4 结算卡 f7 的档案快照早于落库、不含本尾，
 		// 在此补推新档案，等级旁星号（307.f16）即时计入新奖杯鱼种。
 		ctx.Sess.Push2_1()
-		// 水域奖杯：这一尾可能刚好补上该水域最后一种上星鱼。
+		// 水域奖杯：这一尾可能刚好补上该水域面板的最后一种鱼。
+		//
+		// 只在 keptInNet（本次真的写进 keepnet_items + catch_log）时判定：
+		// 图鉴、307.f16 星号、3/17 面板都只认 catch_log，14/6 放生不写，所以
+		// 「入护即判定」才保证「面板填满」与「拿到奖杯」严格等价（review P2）。
 		if keptInNet {
 			if trophy, terr := s.grantWaterwayTrophy(cctx, uid, keepLevel); terr != nil {
 				ctx.Log.Warn("水域奖杯发放失败", "water", keepLevel, "err", terr)
 			} else if trophy != nil {
+				// 结算界面（801）早于入护，已经发不出去了；改用背包增量 + 系统播报，
+				// 与稀有鱼奖座、福袋开箱同一通道。
 				ctx.Sess.pushWaterwayTrophies([]*store.Item{trophy})
+				name := s.lootItemName(cctx, trophy.ItemID)
+				if name == "" {
+					name = trophy.ItemID
+				}
+				ctx.Sess.pushSystemChat(fmt.Sprintf("集齐该水域全部稀有鱼：%s", name))
 			}
 		}
 		out := proto.Args(proto.S("61"))
