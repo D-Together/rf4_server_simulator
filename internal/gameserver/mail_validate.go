@@ -74,6 +74,7 @@ func validateBundleExpandable(ctx context.Context, db *store.DB, itemID string, 
 		return fmt.Errorf("组合包没有内含物: %s", itemID)
 	}
 	instances := int64(0)
+	totals := make(map[string]int64)
 	for _, raw := range contents {
 		entry, _ := raw.(map[string]any)
 		inner, _ := entry["cemjmlpafmc"].(string)
@@ -95,7 +96,8 @@ func validateBundleExpandable(ctx context.Context, db *store.DB, itemID string, 
 		if child.Category == bundleCategory {
 			return fmt.Errorf("不支持嵌套组合包: %s -> %s", itemID, inner)
 		}
-		if _, ok := resolveWireClass(child); !ok {
+		class, ok := resolveWireClass(child)
+		if !ok {
 			return fmt.Errorf("内含物类别尚不支持: %s: %d", inner, child.Category)
 		}
 		units := quantity * packs
@@ -107,6 +109,43 @@ func validateBundleExpandable(ctx context.Context, db *store.DB, itemID string, 
 			return fmt.Errorf("内含物实例数超过上限 %d: %s", maxBundlePreparedItems, inner)
 		}
 		instances += count
+
+		if !countableCategories[child.Category] {
+			continue
+		}
+		if itemQtyFieldIdx(class.Class) < 0 {
+			return fmt.Errorf("组合包计件内含物缺少数量字段: %s", inner)
+		}
+		limit := bundleQuantityLimit(class.Class)
+		childAttrs, aerr := bundleAttrs(child)
+		if aerr != nil {
+			return aerr
+		}
+		base := int64(1)
+		if rawBase, exists := childAttrs[csQty]; exists {
+			base, aerr = bundlePositiveQuantity(rawBase)
+			if aerr != nil {
+				return fmt.Errorf("组合包内含物单位量非法: %s: %w", inner, aerr)
+			}
+		}
+		absolute, _ := entry[csQtyAbsolute].(bool)
+		var total int64
+		if absolute {
+			// 绝对个数条目：units 即最终件数，不乘子物定义默认量。
+			total = units
+			if total > limit {
+				return fmt.Errorf("组合包内含物数量超过数量槽上限: %s", inner)
+			}
+		} else {
+			if base > limit/units {
+				return fmt.Errorf("组合包内含物单位换算溢出: %s", inner)
+			}
+			total = base * units
+		}
+		if totals[inner] > limit-total {
+			return fmt.Errorf("组合包内含物总量溢出: %s", inner)
+		}
+		totals[inner] += total
 	}
 	return nil
 }

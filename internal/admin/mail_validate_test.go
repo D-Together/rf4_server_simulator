@@ -205,3 +205,83 @@ func TestMailSendRejectsNestedBundle(t *testing.T) {
 		t.Fatal("被拒绝的邮件不应入队")
 	}
 }
+
+// TestMailSendRejectsUnclaimableCountableBundle 覆盖领取准备阶段最后几类
+// 可计件内含物校验。每一条都曾在发件侧漏检：邮件返回 200 入队，但玩家领取时
+// prepareBundleItems 才报数量槽溢出或单位换算错误。
+func TestMailSendRejectsUnclaimableCountableBundle(t *testing.T) {
+	tests := []struct {
+		name       string
+		childAttrs string
+		bundleArgs string
+		want       string
+	}{
+		{
+			name:       "unit_conversion_overflow",
+			childAttrs: `{"ljnnpokapig":2147483648}`,
+			bundleArgs: `[{"cemjmlpafmc":"worm_01","ljnnpokapig":2}]`,
+			want:       "单位换算溢出",
+		},
+		{
+			name:       "absolute_quantity_slot_limit",
+			childAttrs: `{"ljnnpokapig":30}`,
+			bundleArgs: `[{"cemjmlpafmc":"worm_01","ljnnpokapig":4294967296,"mlapkoadfnh":true}]`,
+			want:       "数量槽上限",
+		},
+		{
+			name:       "invalid_child_unit_quantity",
+			childAttrs: `{"ljnnpokapig":0}`,
+			bundleArgs: `[{"cemjmlpafmc":"worm_01","ljnnpokapig":1}]`,
+			want:       "单位量非法",
+		},
+		{
+			name:       "same_item_cumulative_overflow",
+			childAttrs: `{"ljnnpokapig":30}`,
+			bundleArgs: `[{"cemjmlpafmc":"worm_01","ljnnpokapig":3000000000,"mlapkoadfnh":true},{"cemjmlpafmc":"worm_01","ljnnpokapig":3000000000,"mlapkoadfnh":true}]`,
+			want:       "总量溢出",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _, call := mailTestAPI(t)
+			if _, err := srv.db.SQL.Exec(`UPDATE item_def SET attrs_json=? WHERE item_id='worm_01'`, tc.childAttrs); err != nil {
+				t.Fatal(err)
+			}
+			bundleAttrs := `{"ieopbeejfmc":false,"nbkhfhenbag":` + tc.bundleArgs + `}`
+			if _, err := srv.db.SQL.Exec(`UPDATE item_def SET attrs_json=? WHERE item_id='AV_shamp1_pack_6'`, bundleAttrs); err != nil {
+				t.Fatal(err)
+			}
+			code, body := mailSend(t, call,
+				`{"uid":1000001,"text":"测试","items":[{"item_id":"AV_shamp1_pack_6","qty":1}]}`)
+			if code != 400 {
+				t.Fatalf("不可领取组合包应 400, 实得 %d: %s", code, body)
+			}
+			if !strings.Contains(body, tc.want) {
+				t.Fatalf("错误信息应包含 %q, 实得: %s", tc.want, body)
+			}
+			if queued(srv) {
+				t.Fatal("被拒绝的邮件不应入队")
+			}
+		})
+	}
+}
+
+// TestMailSendAcceptsAbsoluteCountableBundle 确保 mlapkoadfnh=true 的合法
+// 绝对数量条目不会被默认单位量换算误拒。
+func TestMailSendAcceptsAbsoluteCountableBundle(t *testing.T) {
+	srv, _, call := mailTestAPI(t)
+	if _, err := srv.db.SQL.Exec(`UPDATE item_def SET attrs_json='{"ljnnpokapig":30}' WHERE item_id='worm_01'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.db.SQL.Exec(`UPDATE item_def SET attrs_json='{"ieopbeejfmc":false,"nbkhfhenbag":[{"cemjmlpafmc":"worm_01","ljnnpokapig":100,"mlapkoadfnh":true}]}' WHERE item_id='AV_shamp1_pack_6'`); err != nil {
+		t.Fatal(err)
+	}
+	code, body := mailSend(t, call,
+		`{"uid":1000001,"text":"测试","items":[{"item_id":"AV_shamp1_pack_6","qty":1}]}`)
+	if code != 200 {
+		t.Fatalf("合法绝对数量组合包应 200, 实得 %d: %s", code, body)
+	}
+	if !queued(srv) {
+		t.Fatal("合法邮件应入队")
+	}
+}
