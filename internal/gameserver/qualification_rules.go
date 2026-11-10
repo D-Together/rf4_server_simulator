@@ -34,33 +34,34 @@ const (
 
 // qualificationEvent 只携带判断需要的本次事件数据。
 type qualificationEvent struct {
-	Kind       qualificationEventKind
-	Species    string  // 鱼种 key（去重计数用）
-	NameZh     string  // 中文名（鱼记录渲染用）
-	WeightG    int64   // 体重（克）
-	LengthM    float64 // 体长（米）
-	RigType    int64   // 本杆钓组类型（rigmeta.go:rigTypeNames）
-	RodType    int64   // 竿型（celffbjpmma）
-	RodPower   string  // 竿硬度档尾缀（UL/L/ML/…，rodPowerClass）
-	Bait       string  // 钩上饵/拟饵 item_id
-	BaitCat    int64   // 饵品类（17 拟饵 / 27 天然饵）
-	BaitClass  int64   // 天然饵饵类（item_def fopbhlmkcpe：2/7=昆虫，9=颗粒，13=面团）
-	BaitFlavor int64   // 天然饵味型（item_def acclagajcdn）
-	LureLenCM  float64 // 拟饵长度（厘米，item_def bbhhojphpfa）
-	BaitSizeMM float64 // 饵尺寸/直径（毫米，item_def hkgndoipdlc）
-	Grade      int64   // 档位（1..4，4=蓝冠）
-	CatchGUID  string  // 本尾鱼 echo GUID
-	Rarity     int64   // 物种稀有度（species_rarity：0 普通 1 稀有 2 超稀有）
-	DepthCM    int64   // 钓深（厘米）
-	IsShore    bool    // 岸钓（非船上）
-	IsNight    bool    // 夜间（19:00–06:00，worldDayAndHour）
-	Drift      bool    // 咬钩时钓组处于顺流移动（14/7 0x40 StreamMoving）
-	LocLevel   string  // 水域 key（地点过滤用）
-	XP         int64   // 本尾鱼经验（pending.XP，settleCatchXP 写入）
-	MainLine   int64   // 主线材质（1 尼龙 2 碳线 3 编织…）
-	LeaderMat  int64   // 前导线材质（1 尼龙 2 碳线…）
-	CastM      float64 // 本杆抛投距离（米）
-	RodTestMax float64 // 竿测试上限（克，rodTestG）
+	Kind           qualificationEventKind
+	Species        string  // 鱼种 key（去重计数用）
+	NameZh         string  // 中文名（鱼记录渲染用）
+	WeightG        int64   // 体重（克）
+	LengthM        float64 // 体长（米）
+	RigType        int64   // 本杆钓组类型（rigmeta.go:rigTypeNames）
+	RodType        int64   // 竿型（celffbjpmma）
+	RodPower       string  // 竿硬度档尾缀（UL/L/ML/…，rodPowerClass）
+	Bait           string  // 钩上饵/拟饵 item_id
+	BaitCat        int64   // 饵品类（17 拟饵 / 27 天然饵）
+	BaitClass      int64   // 天然饵饵类（item_def fopbhlmkcpe：2/7=昆虫，9=颗粒，13=面团）
+	BaitFlavor     int64   // 天然饵味型（item_def acclagajcdn）
+	LureLenCM      float64 // 拟饵长度（厘米，item_def bbhhojphpfa）
+	BaitSizeMM     float64 // 饵尺寸/直径（毫米，item_def hkgndoipdlc）
+	Grade          int64   // 档位（1..4，4=蓝冠）
+	CatchGUID      string  // 本尾鱼 echo GUID
+	Rarity         int64   // 物种稀有度（species_rarity：0 普通 1 稀有 2 超稀有）
+	DepthCM        int64   // 钓深（厘米）
+	IsShore        bool    // 岸钓（非船上）
+	IsNight        bool    // 夜间（19:00–06:00，worldDayAndHour）
+	Drift          bool    // 咬钩时钓组处于顺流移动（14/7 0x40 StreamMoving）
+	LocLevel       string  // 水域 key（地点过滤用）
+	XP             int64   // 本尾鱼经验（pending.XP，settleCatchXP 写入）
+	MainLine       int64   // 主线材质（1 尼龙 2 碳线 3 编织…）
+	LeaderMat      int64   // 前导线材质（1 尼龙 2 碳线…）
+	CastM          float64 // 本杆抛投距离（米）
+	RodTestMax     float64 // 竿测试上限（克，rodTestG）
+	LineStrengthKG float64 // 鱼线强度（公斤，主线/前导线已装配最小值，kngaaefkpka）
 }
 
 type qualificationRuleDef struct {
@@ -88,6 +89,9 @@ const (
 // qualificationRodTypesFor 返回任务允许的竿型（celffbjpmma）；空=任意。
 // 同一份表同时用于服务端过滤与 5007.Idx5 下发，保证「鱼竿」文案与判定一致。
 func qualificationRodTypesFor(ruleID int64) []int64 {
+	if ruleID/1000 >= 9 {
+		return eventRodTypes[ruleID]
+	}
 	switch ruleID / 1000 {
 	case 1:
 		return []int64{rodTypeSpinning}
@@ -131,6 +135,9 @@ func qualificationRodTypesFor(ruleID int64) []int64 {
 
 // qualificationRodPowerFor 返回任务的竿硬度档限制（befnkekakei：1=UL 2=L）。
 func qualificationRodPowerFor(ruleID int64) []int64 {
+	if ruleID/1000 >= 9 {
+		return eventRodPowers[ruleID]
+	}
 	if ruleID/1000 == 3 {
 		return []int64{1, 2}
 	}
@@ -142,6 +149,9 @@ func qualificationRodPowerFor(ruleID int64) []int64 {
 
 // qualificationRigClassFor 返回任务的钓组大类（efgbdocjcan：1 浮钓 2 路亚 3 底钓）。
 func qualificationRigClassFor(ruleID int64) int64 {
+	if ruleID/1000 >= 9 {
+		return eventRigClass[ruleID]
+	}
 	switch ruleID / 1000 {
 	case 1, 2, 3:
 		return 2
@@ -452,37 +462,12 @@ var qualificationRules = []qualificationRuleDef{
 	{ID: 8603, Event: qevFishLanded, Counted: qCountSingle(qRarityAtLeast(1))},
 }
 
-// ---- 未实装：限时活动分支 9..20（273 条，留给后续实现）----
+// ---- 限时活动分支 9..20（273 条）见 qualification_event_rules.go ----
 //
-// 上表只覆盖永久资格分支 1..8（168 条 / 文案 171 条，缺 3 条）。活动分支 9..20
-// 目前一条判定都没有，所以面板里这些任务进度恒为 0、永远无法完成。链路本身已
-// 全部打通（活动节点 event_switches.go、阶段 5012/5013 与倒计时、5007 下发），
-// 差的只是条件判断。
-//
-// 全部 444 条任务文案（分支 1..20）已从客户端挖出，见
-// assets/qualification_texts_zh.json 的 tasks 字段：键=RuleID，值=简中描述。
-// 条件一律以文案为准反推（分支只是分组，条件全在文字里）。id 规则同
-// qualificationRuleID()：分支*1000+(阶段-1)*100+任务序号。
-//
-// 各分支任务数：9/10/11/12/13/15/16/17 各 21，14、18 各 30，19 为 22，20 为 23。
-//
-// 实装方式与上表完全一致，每加一条只加一行：
-//
-//	{ID: 19001, Event: qevFishLanded, Counted: qCountSingle(qLocLevelIn("level_..."), ...)}
-//
-// 需要同步改的地方：
-//   - qualificationRodTypesFor()：9..20 走 default 返回 nil（任意竿型）。文案里
-//     写了具体竿型的（如 20103「手竿」、20104「中轻型/轻型/超轻型路亚竿」）要把
-//     分支/任务号补进 switch，否则 5007.Idx5 下发与判定都会放宽。
-//   - qualificationTargets.json：只有 1..8，未收录编号回退 1，所以活动任务分母
-//     恒显示 1；要显示真实分母（3 种鱼、10 种鱼…）得把编号补进该表。
-//
-// 前置：19/20 有两条条件现有事件字段判不了，需要先扩 qualificationEvent 与 14/4
-// 装配（其余条件——水域、竿型/硬度、饵与饵类、重量、稀有度、去重计数、岸钓、
-// 夜间、钓深、抛投距离、竿测试上限——现有字段已够）：
-//   - 鱼线强度：19 的 5 公斤线、20 的 3 公斤线 → 加 LineStrengthKG，取主线/前导
-//     线 item_def 的强度字段，取法同 qualificationLineMaterials()。
-//   - 渔线轮尺寸：20 的「大小不超过 3000 的渔线轮」→ 加 ReelSize，取轮 item_def。
+// 活动规则在 init 里并入本表，复用同一判定/封顶/增量链路。水域/鱼种/饵类/线强度
+// 映射与缺口清单（名单未知的水域/鱼种、假啮齿拟饵、累计总重）见该文件头注释。
+// 活动任务的竿型/硬度/钓组大类由 eventRodTypes/eventRodPowers/eventRigClass 提供，
+// qualificationRodTypesFor/RodPowerFor/RigClassFor 对分支 >=9 查这三张表。
 
 // qualificationCountedGUID 把去重键映射成一个稳定 GUID。同键同 GUID（去重）、
 // 异键异 GUID；该 GUID 同时作为 5003 鱼记录列表里对应记录的键。
@@ -582,6 +567,7 @@ func (s *Server) qualificationEventForCatch(ctx context.Context, f *RolledFish, 
 	}
 	rodType, rodPower, rodTestMax := s.qualificationRod(ctx, f.GearGUID)
 	mainLine, leaderMat := s.qualificationLineMaterials(ctx, f.GearGUID)
+	lineStrength := s.qualificationLineStrength(ctx, f.GearGUID)
 	rarity := int64(0)
 	if s.DB != nil {
 		rarity = s.DB.SpeciesRarity(ctx, f.Species)
@@ -599,6 +585,7 @@ func (s *Server) qualificationEventForCatch(ctx context.Context, f *RolledFish, 
 	ev.LocLevel, ev.XP = f.LocLevel, f.XP
 	ev.MainLine, ev.LeaderMat = mainLine, leaderMat
 	ev.CastM = f.CastM
+	ev.LineStrengthKG = lineStrength
 	return ev
 }
 
@@ -701,4 +688,33 @@ func (s *Server) qualificationLineMaterials(ctx context.Context, rodGUID string)
 		return 0
 	}
 	return materialOf(11, "fopbhlmkcpe"), materialOf(15, "ocmbfkebgpp")
+}
+
+// lineAttrMaxLoadKG 是线/前导线定义的最大负载字段（F32 位型，公斤）。
+const lineAttrMaxLoadKG = "kngaaefkpka"
+
+// qualificationLineStrength 返回竿上鱼线强度（公斤）：主线(cat11)与前导线(cat15)
+// 已装配者取最小值（最弱一环决定有效强度）；都未装配时返回 0（判定不拦）。
+func (s *Server) qualificationLineStrength(ctx context.Context, rodGUID string) float64 {
+	if rodGUID == "" {
+		return 0
+	}
+	comps := s.storedRigComponents(ctx, rodGUID)
+	min := 0.0
+	for _, category := range []int64{11, 15} {
+		for _, k := range rigCompKeysOfCategory(comps, category) {
+			row, err := s.DB.GetItemByGUID(ctx, comps[k].GUID)
+			if err != nil || row == nil {
+				continue
+			}
+			def, derr := s.DB.GetItemDef(ctx, row.NumericID)
+			if derr != nil || def == nil {
+				continue
+			}
+			if kg := itemDefF32(def, lineAttrMaxLoadKG); kg > 0 && (min == 0 || kg < min) {
+				min = kg
+			}
+		}
+	}
+	return min
 }

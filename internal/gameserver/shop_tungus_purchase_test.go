@@ -129,13 +129,15 @@ func TestTungusShopShelfUsesPricedLocalGoods(t *testing.T) {
 
 func TestTungusShopPurchaseGrantsDrinkAndGift(t *testing.T) {
 	for _, tc := range []struct {
-		itemID string
-		gold   int64
-		qty    int64
-		field  int
+		itemID   string
+		gold     int64
+		qty      int64
+		field    int
+		buyPrice int64
+		receipts int
 	}{
-		{"tungus_bot", 22, 2, 1},
-		{"tungus_12pack", 129, 1, 2},
+		{"tungus_bot", 22, 2, 1, 0, 0},
+		{"tungus_12pack", 129, 1, 2, 129, 1},
 	} {
 		t.Run(tc.itemID, func(t *testing.T) {
 			srv, db := newTungusShopTestServer(t)
@@ -159,7 +161,7 @@ func TestTungusShopPurchaseGrantsDrinkAndGift(t *testing.T) {
 				t.Fatalf("购买响应f%d应包含一件商品，礼盒购买时不展开: %+v", tc.field, goods)
 			}
 			items, err := db.ListItemsByContainer(t.Context(), tungusShopTestUID, "backpack")
-			if err != nil || len(items) != 1 || items[0].ItemID != tc.itemID || items[0].Qty != tc.qty || items[0].BuyPrice != tc.gold {
+			if err != nil || len(items) != 1 || items[0].ItemID != tc.itemID || items[0].Qty != tc.qty || items[0].BuyPrice != tc.buyPrice {
 				t.Fatalf("购买后物品应与扣款一致: %+v %v", items, err)
 			}
 			tree, err := srv.ItemToTree(t.Context(), items[0])
@@ -170,8 +172,8 @@ func TestTungusShopPurchaseGrantsDrinkAndGift(t *testing.T) {
 				t.Fatalf("入库物品树必须可编码: %v", err)
 			}
 			var receipts int
-			if err := db.SQL.QueryRow(`SELECT COUNT(*) FROM kv WHERE k=?`, storePurchaseKey(tungusShopTestUID, items[0].GUID)).Scan(&receipts); err != nil || receipts != 1 {
-				t.Fatalf("必须保存商品购买凭据: count=%d err=%v", receipts, err)
+			if err := db.SQL.QueryRow(`SELECT COUNT(*) FROM kv WHERE k=?`, storePurchaseKey(tungusShopTestUID, items[0].GUID)).Scan(&receipts); err != nil || receipts != tc.receipts {
+				t.Fatalf("退货凭据数量错误: count=%d want=%d err=%v", receipts, tc.receipts, err)
 			}
 			assertTungusShopBalances(t, db, 1000-tc.gold, 1, 1)
 		})

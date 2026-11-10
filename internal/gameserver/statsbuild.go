@@ -27,14 +27,27 @@ type catchStatRow struct {
 	LocLevel string
 	// GUID 见 store.CatchRecord.GUID：纪录卡的模型族要靠它跟渔护/溜鱼对齐。
 	GUID string
+	// TackleCat 是钓法大类快照（1=浮钓 2=路亚 3=底钓 11=海钓，0=未知）。
+	// 0 是历史行：只能回退「拟饵/非拟饵」旧口径，不能当成已知的浮钓。
+	TackleCat int64
 }
+
+// 钓法大类取值，与技能大类（skills_ops.go fishingSkillCatForRig）和
+// catch_log.tackle_cat 同源。
+const (
+	tackleCatUnknown  = int64(0)
+	tackleCatFloat    = int64(1)
+	tackleCatSpinning = int64(2)
+	tackleCatBottom   = int64(3)
+	tackleCatMarine   = int64(11)
+)
 
 func (s *Server) loadCatchStatRows(ctx context.Context, uid int64) ([]catchStatRow, error) {
 	rows, err := s.DB.SQL.QueryContext(ctx, `
 		SELECT COALESCE(ts,0), COALESCE(loc,''), COALESCE(spot,0), COALESCE(fish_key,''),
 		       COALESCE(weight_g,0), COALESCE(length_m,0), COALESCE(source,''), COALESCE(bait,''),
 		       COALESCE(grade,0), COALESCE(xp,0), COALESCE(silver,0), COALESCE(loc_level,''),
-		       COALESCE(catch_guid,'')
+		       COALESCE(catch_guid,''), COALESCE(tackle_cat,0)
 		FROM catch_log WHERE uid=? ORDER BY id`, uid)
 	if err != nil {
 		return nil, err
@@ -44,7 +57,7 @@ func (s *Server) loadCatchStatRows(ctx context.Context, uid int64) ([]catchStatR
 	for rows.Next() {
 		var r catchStatRow
 		if err := rows.Scan(&r.TS, &r.Loc, &r.Spot, &r.FishKey, &r.WeightG, &r.LengthM,
-			&r.Source, &r.Bait, &r.Grade, &r.XP, &r.Silver, &r.LocLevel, &r.GUID); err != nil {
+			&r.Source, &r.Bait, &r.Grade, &r.XP, &r.Silver, &r.LocLevel, &r.GUID, &r.TackleCat); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -105,6 +118,10 @@ func (s *Server) buildStats321(ctx context.Context, uid int64) (*proto.Value, er
 	}
 	lureByBait := s.baitLureFlags(ctx, distinctBaits)
 	isLure := func(bait string) bool { return lureByBait[bait] }
+	// familyOf 是本次统计唯一的钓法归属入口：有落库快照用快照，历史行回退
+	// 「拟饵→路亚、其余→浮钓」。竿/钓组/诱饵聚合与三张钓法纪录卡共用它，
+	// 避免同一尾鱼在纪录卡里算海钓、在聚合里算浮钓。
+	familyOf := func(r catchStatRow) int64 { return tackleFamilyOf(r, isLure) }
 	baitCount := map[string]int64{}
 	baitRare := map[string]int64{}
 	baitOrder := make([]string, 0)
@@ -120,7 +137,7 @@ func (s *Server) buildStats321(ctx context.Context, uid int64) (*proto.Value, er
 			baitOrder = append(baitOrder, r.Bait)
 		}
 		baitCount[r.Bait]++
-		rod, rig, _ := tackleOfBait(isLure(r.Bait))
+		rod, rig := rodAndRigOfFamily(familyOf(r))
 		if r.Grade >= 3 {
 			baitRare[r.Bait]++
 			rodRare[rod]++
@@ -136,7 +153,7 @@ func (s *Server) buildStats321(ctx context.Context, uid int64) (*proto.Value, er
 		f := &RolledFish{Species: r.FishKey, WeightG: r.WeightG, Grade: r.Grade}
 		return s.fishFightPullFor(f, s.fishFightProfileFor(f))
 	}
-	cards := buildRecordCards(rows, pullOf, isLure)
+	cards := buildRecordCards(rows, pullOf, familyOf)
 	card := func(key string) *proto.Value {
 		r, ok := cards[key]
 		return s.recordCard320(r, ok, isLure)
@@ -193,17 +210,30 @@ func (s *Server) buildStats321(ctx context.Context, uid int64) (*proto.Value, er
 	sort.SliceStable(baitKeys, func(i, j int) bool {
 		return baitCount[baitKeys[i]] > baitCount[baitKeys[j]]
 	})
-	baitArgs := proto.Args(proto.S("128"))
+	// 321 明确区分 f19「饵料统计」与 f21「拟饵统计」（wire_spec 字段名实证），
+	// 二者元素类不同，此前把所有钓饵都塞进 f21 是语义错配：
+	//   f19 元素 = 318 gconafdfchk {cemjmlpafmc systemID, nomdkkcbclc 计数}，容器 args 127
+	//   f21 元素 = 319 keoejejkenf（{品类, 鱼饵/拟饵 systemID, 字符串参数, 计数}），容器 args 128
+	// 容器码来自 argcode_table.json 的 by_type_id / by_elem，不是推断。
+	baitArgs := proto.Args(proto.S("127")) // 天然饵 → 饵料统计
+	lureArgs := proto.Args(proto.S("128")) // 拟饵 → 拟饵统计
 	for _, b := range baitKeys {
-		_, _, hook := tackleOfBait(isLure(b))
-		baitArgs.Items = append(baitArgs.Items, wiregen.MustMakeObj("keoejejkenf", map[int]*proto.Value{
-			0: proto.U32(uint32(hook)),
-			1: proto.StrVal(b),
-			2: proto.StrVal(""),
-			3: proto.U32(uint32(baitCount[b])),
+		if isLure(b) {
+			_, _, hook := tackleOfBait(true)
+			lureArgs.Items = append(lureArgs.Items, wiregen.MustMakeObj("keoejejkenf", map[int]*proto.Value{
+				0: proto.U32(uint32(hook)),
+				1: proto.StrVal(b),
+				2: proto.StrVal(""),
+				3: proto.U32(uint32(baitCount[b])),
+			}))
+			continue
+		}
+		baitArgs.Items = append(baitArgs.Items, wiregen.MustMakeObj("gconafdfchk", map[int]*proto.Value{
+			0: proto.StrVal(b),
+			1: proto.U32(uint32(baitCount[b])),
 		}))
-		_ = baitRare[b]
 	}
+	_ = baitRare
 
 	rodArgs := proto.Args(proto.S("125"))
 	for _, cat := range sortedCountKeys(rodCount) {
@@ -223,10 +253,13 @@ func (s *Server) buildStats321(ctx context.Context, uid int64) (*proto.Value, er
 	// 字段槽位语义按客户端 UI 消费链对齐：
 	// 0 总钓获 1 稀有 2 蓝冠 3 脱钩 4 单日条数 5 单日重量(kg) 6 鱼种卡列表
 	// 7 最大渔获 8 最优竞争力（拉力） 9 冒险鱼卡 10 最多银币
-	// 11 U64 12 最多经验 13 U64 14 浮钓最大 15 路亚最大 16 底钓最大鱼
-	// 17 竿类聚合 18 钓法聚合 19/20 数组(语义未证) 21 诱饵聚合 22 int。
-	// 当前 catch_log 没有可靠的钓法/钓组快照，无法区分浮钓与底钓，也缺少
-	// 冒险鱼口径，因此 f9/f16 继续保持 null，不用其他维度占位。
+	// 12 最多经验 14 浮钓最大 15 路亚最大 16 底钓最大鱼
+	// 17 竿类聚合（族级代表值，非真实竿型） 18 钓组聚合（同上）
+	// 19 饵料聚合 20 制作聚合 21 拟饵聚合
+	// 11/13/22 语义未定，恒发 0；9（冒险鱼）缺业务口径，发 null。
+	//
+	// 注意 11/13 不是「损坏的钓竿/渔轮」：按该假设下发实测后，面板对应卡片
+	// 仍显示 0，故不得用未证实的语义占用槽位。
 	return wiregen.MustMakeObj("jahbacemfof", map[int]*proto.Value{
 		0: proto.U32(uint32(total)),
 		1: proto.U32(uint32(rare)),
@@ -241,17 +274,17 @@ func (s *Server) buildStats321(ctx context.Context, uid int64) (*proto.Value, er
 		8:  card("strongest"),
 		9:  proto.Null(),
 		10: card("max_silver"),
-		11: proto.U64(0),
+		11: proto.U64(0), // 语义未定，见上方说明
 		12: card("max_xp"),
-		13: proto.U64(0),
+		13: proto.U64(0), // 语义未定，见上方说明
 		14: card("max_float"),
 		15: card("max_spin"),
-		16: proto.Null(),
+		16: card("max_bottom"),
 		17: rodArgs,
 		18: rigArgs,
-		19: proto.Null(),
+		19: baitArgs,
 		20: proto.Null(),
-		21: baitArgs,
+		21: lureArgs,
 		22: proto.U32(0),
 	}), nil
 }
@@ -276,8 +309,70 @@ func (s *Server) baitLureFlags(ctx context.Context, baits []string) map[string]b
 	return out
 }
 
-// tackleOfBait 钓法归属：路亚归纺车（竿 1/钓组 5/钩品 17），浮钓归
-// 浮钓竿（竿 3/钓组 1/钩品 27）。
+// tackleFamilyOf 返回这条渔获的钓法大类。
+//
+// 快照优先：catch_log.tackle_cat 是入护当刻的钓法真源（见 migration
+// 00055）。历史行没有快照（0）时只能回退旧口径——拟饵算路亚、其余算浮钓；
+// 这个回退会把海钓/底钓历史渔获算进浮钓，是已修的错源，只在无法判定时使用。
+func tackleFamilyOf(r catchStatRow, isLure func(string) bool) int64 {
+	switch r.TackleCat {
+	case tackleCatFloat, tackleCatSpinning, tackleCatBottom, tackleCatMarine:
+		return r.TackleCat
+	}
+	if isLure(r.Bait) {
+		return tackleCatSpinning
+	}
+	return tackleCatFloat
+}
+
+// tackleCatForRig 把钓组类型映射到钓法大类，与技能大类口径一致
+// （skills_ops.go fishingSkillCatForRig）。
+//
+// 与技能大类的唯一区别：技能页对未知正数是"按浮钓计"（保证熟练度有归属），
+// 但统计快照要落库且不可回溯，把未知钓组写成浮钓会永久污染浮钓纪录卡，
+// 因此这里先确认钓组属于已知四族之一，未知值返回 0（未知），由 321 侧回退。
+func tackleCatForRig(rigType int64) int64 {
+	if rigType <= 0 {
+		return tackleCatUnknown
+	}
+	if marineRigType(rigType) {
+		return tackleCatMarine
+	}
+	if bottomRigTypes[rigType] {
+		return tackleCatBottom
+	}
+	if rigTypeLureFamily[rigType] {
+		return tackleCatSpinning
+	}
+	if floatRigTypes[rigType] {
+		return tackleCatFloat
+	}
+	return tackleCatUnknown
+}
+
+// rodAndRigOfFamily 给出钓法族对应的代表竿型/钓组类型（wire 类 gjndofnpibn.f0
+// celffbjpmma / emehdoalanl.f0 jppmjnahbpo 的枚举值）。
+//
+// 注意这是**族级代表值，不是真实竿型/钓组**：catch_log 目前只记录钓法大类
+// （tackle_cat），没有记录当次使用的具体 rod_type 与 rig_type。因此同族内的
+// 差异会被合并——例如底钓族的 Feeder/Picker/Carp/Spod 全部计为 Feeder(10)，
+// 路亚族的 Spinning/Casting/Jerking 全部计为 Spinning(1)。
+// 要按真实竿型/钓组统计，需在 catch_log 同步保存 rod_type/rig_type 后再聚合。
+func rodAndRigOfFamily(family int64) (rod, rig int64) {
+	switch family {
+	case tackleCatSpinning:
+		return 1, 5 // Spinning 纺车 / rig_Lure
+	case tackleCatBottom:
+		return 10, 12 // Feeder 飞德 / rig_BottomSimple
+	case tackleCatMarine:
+		return 15, 50 // Pilker 海竿 / rig_MarinePilker
+	default:
+		return 3, 1 // Telescopic 手竿 / rig_FloatSimple
+	}
+}
+
+// tackleOfBait 钓法归属：路亚归纺车（竿 1/钓组 5/钩品 17），其余归
+// 浮钓竿（竿 3/钓组 1/钩品 27）。仅用于没有钓法快照的诱饵卡与钩品字段。
 func tackleOfBait(lure bool) (rod, rig, hook int64) {
 	if lure {
 		return 1, 5, 17
@@ -294,15 +389,19 @@ func sortedCountKeys(m map[int64]int64) []int64 {
 	return out
 }
 
-// buildRecordCards 只为 bait 非空的日志生成纪录卡。当前可可靠计算的六张卡：
+// buildRecordCards 只为 bait 非空的日志生成纪录卡。当前可可靠计算的七张卡：
 //
 //	biggest      全场最重
 //	strongest    搏鱼拉力最强（鱼种冲刺倍率 × 重量，与 14/14 拉力同源）
 //	max_xp       单条经验最多
 //	max_silver   单条银币最多
-//	max_float    非拟饵最重（底钓方法快照缺失，暂沿用旧口径）
-//	max_spin     路亚（拟饵品类 17）最重
-func buildRecordCards(rows []catchStatRow, pullOf func(catchStatRow) float64, isLure func(string) bool) map[string]catchStatRow {
+//	max_float    浮钓族最重
+//	max_spin     路亚族最重
+//	max_bottom   底钓族最重
+//
+// 三张钓法卡按 familyOf 互斥分族；海钓渔获没有对应槽位，只参与 biggest /
+// strongest / max_xp / max_silver 这类不分钓法的卡。
+func buildRecordCards(rows []catchStatRow, pullOf func(catchStatRow) float64, familyOf func(catchStatRow) int64) map[string]catchStatRow {
 	out := map[string]catchStatRow{}
 	var usable []catchStatRow
 	for _, r := range rows {
@@ -331,16 +430,24 @@ func buildRecordCards(rows []catchStatRow, pullOf func(catchStatRow) float64, is
 		}{row: r, pull: pullOf(r)}
 	}
 	sort.SliceStable(byPull, func(i, j int) bool { return byPull[i].pull > byPull[j].pull })
-	var floatC, spinC []catchStatRow
+	// 三张钓法纪录卡严格按钓法族互斥：浮钓只收浮钓、路亚只收路亚、底钓只收
+	// 底钓；海钓没有对应槽位，因此不进任何一张（此前海钓渔获被算进浮钓）。
+	var floatC, spinC, bottomC []catchStatRow
 	for _, r := range usable {
-		if isLure(r.Bait) {
+		switch familyOf(r) {
+		case tackleCatSpinning:
 			spinC = append(spinC, r)
-		} else {
+		case tackleCatBottom:
+			bottomC = append(bottomC, r)
+		case tackleCatMarine:
+			// 海钓渔获没有独立纪录卡槽位，不进浮钓/路亚/底钓任一张。
+		default:
 			floatC = append(floatC, r)
 		}
 	}
 	sort.SliceStable(floatC, func(i, j int) bool { return floatC[i].WeightG > floatC[j].WeightG })
 	sort.SliceStable(spinC, func(i, j int) bool { return spinC[i].WeightG > spinC[j].WeightG })
+	sort.SliceStable(bottomC, func(i, j int) bool { return bottomC[i].WeightG > bottomC[j].WeightG })
 
 	out["biggest"] = byWeight[0]
 	out["strongest"] = byPull[0].row
@@ -351,6 +458,9 @@ func buildRecordCards(rows []catchStatRow, pullOf func(catchStatRow) float64, is
 	}
 	if len(spinC) > 0 {
 		out["max_spin"] = spinC[0]
+	}
+	if len(bottomC) > 0 {
+		out["max_bottom"] = bottomC[0]
 	}
 	return out
 }

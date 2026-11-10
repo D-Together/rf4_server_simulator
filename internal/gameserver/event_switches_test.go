@@ -120,8 +120,8 @@ func TestEnvironmentAnniversaryNodesFollowSwitch(t *testing.T) {
 	for _, branch := range branches {
 		counts := eventTaskCounts[branch]
 		total := 0
-		for _, n := range counts {
-			total += int(n)
+		for si, n := range counts {
+			total += int(eventEmittableCount(branch, uint64(si+1), n))
 		}
 		wantCounts = append(wantCounts, wantBranch{branch, counts, total})
 	}
@@ -143,23 +143,30 @@ func TestEnvironmentAnniversaryNodesFollowSwitch(t *testing.T) {
 		total := 0
 		for si, stage := range stages.Items {
 			tasks := stage.Fields[1].Val
-			if tasks == nil || uint64(len(tasks.Items)) != want.counts[si] {
-				t.Fatalf("分支 %d 阶段 %d 任务数应为 %d，实得 %v",
-					want.branch, si+1, want.counts[si], tasks)
+			emittable := eventEmittableCount(want.branch, uint64(si+1), want.counts[si])
+			if tasks == nil || uint64(len(tasks.Items)) != emittable {
+				t.Fatalf("分支 %d 阶段 %d 下发任务数应为 %d，实得 %v",
+					want.branch, si+1, emittable, tasks)
 			}
-			for ti, task := range tasks.Items {
+			emitIdx := 0
+			for taskNo := uint64(1); taskNo <= want.counts[si]; taskNo++ {
+				if !eventTaskEmittable(want.branch, uint64(si+1), taskNo) {
+					continue
+				}
+				task := tasks.Items[emitIdx]
 				rules := task.Fields[1].Val
 				if rules == nil || len(rules.Items) != 1 {
 					t.Fatalf("活动任务必须带 1 条规则")
 				}
 				rule := rules.Items[0]
-				wantID := qualificationRuleID(want.branch, uint64(si+1), uint64(ti+1))
+				wantID := qualificationRuleID(want.branch, uint64(si+1), taskNo)
 				if got := *rule.Fields[0].Num; got != wantID {
 					t.Fatalf("活动规则类型应为 %d，实得 %d", wantID, got)
 				}
 				if got := *rule.Fields[3].Num; got == 0 {
 					t.Fatalf("活动规则 %d 进度分母必须 > 0", wantID)
 				}
+				emitIdx++
 			}
 			total += len(tasks.Items)
 		}
@@ -207,8 +214,8 @@ func TestEnvironmentNewYearNodesFollowSwitch(t *testing.T) {
 			t.Fatalf("分支 %d 缺少任务数配置", branch)
 		}
 		total := 0
-		for _, n := range counts {
-			total += int(n)
+		for si, n := range counts {
+			total += int(eventEmittableCount(branch, uint64(si+1), n))
 		}
 		want = append(want, wantBranch{branch, len(counts), total})
 	}
@@ -233,19 +240,25 @@ func TestEnvironmentNewYearNodesFollowSwitch(t *testing.T) {
 			if tasks == nil {
 				t.Fatalf("分支 %d 阶段 %d 无任务列表", w.branch, si+1)
 			}
-			for ti, task := range tasks.Items {
+			emitIdx := 0
+			for taskNo := uint64(1); taskNo <= eventTaskCounts[w.branch][si]; taskNo++ {
+				if !eventTaskEmittable(w.branch, uint64(si+1), taskNo) {
+					continue
+				}
+				task := tasks.Items[emitIdx]
 				rules := task.Fields[1].Val
 				if rules == nil || len(rules.Items) != 1 {
 					t.Fatalf("新年任务必须带 1 条规则")
 				}
 				rule := rules.Items[0]
-				wantID := qualificationRuleID(w.branch, uint64(si+1), uint64(ti+1))
+				wantID := qualificationRuleID(w.branch, uint64(si+1), taskNo)
 				if got := *rule.Fields[0].Num; got != wantID {
 					t.Fatalf("新年规则类型应为 %d，实得 %d", wantID, got)
 				}
 				if got := *rule.Fields[3].Num; got == 0 {
 					t.Fatalf("新年规则 %d 进度分母必须 > 0", wantID)
 				}
+				emitIdx++
 			}
 			total += len(tasks.Items)
 		}

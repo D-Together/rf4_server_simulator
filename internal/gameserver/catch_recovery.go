@@ -85,7 +85,8 @@ func (s *Server) recoverCompletedCatchLocked(st *FishState) (*store.KeepnetEntry
 	}
 	entry := &store.KeepnetEntry{UID: uid, EchoGUID: fish.FishGUID, Species: fish.Species,
 		NameZh: fish.Name, WeightG: fish.WeightG, LengthM: fish.LengthM, Cat: fish.Grade,
-		KeepLoc: st.Loc, KeepSpot: int64(st.Spot), KeepBait: st.Bait, KeepLevel: level, TS: caughtAt}
+		KeepLoc: st.Loc, KeepSpot: int64(st.Spot), KeepBait: st.Bait, KeepLevel: level, TS: caughtAt,
+		TackleCat: tackleCatForRig(st.RigType)}
 	kept, err := s.DB.KeepFishingCatchWithCapacity(ctx, entry, receipt.TotalXP, receipt.Silver, capacity)
 	if err != nil {
 		return nil, err

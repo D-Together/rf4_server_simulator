@@ -32,6 +32,6 @@ func PrepareRestoredRecord(ctx context.Context, db *store.DB, key string, grade,
 	}
 	k, p := db.SpeciesLengthKP(ctx, key)
 	k, p = calibratedLengthKP(key, k, p)
-	r.WeightG, r.LengthM = weight, k*math.Pow(float64(weight), p)
+	r.WeightG, r.LengthM = weight, speciesLengthM(key, k, p, float64(weight))
 	return r, nil
 }
