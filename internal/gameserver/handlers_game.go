@@ -40,6 +40,9 @@ func hProfile(ctx *Ctx) ([]byte, bool) {
 	if err != nil {
 		return nil, false
 	}
+	// 水域奖杯补发：覆盖「离线期间集齐」与「本补丁上线前就已经集齐」的水域。
+	// 幂等，已发过的水域只查一次 kv 标记就跳过。
+	ctx.Sess.pushWaterwayTrophies(ctx.Sess.Srv.ensureWaterwayTrophies(ctx.Sess.pushCtx(), ctx.Sess.Userid))
 	return body, true
 }
 

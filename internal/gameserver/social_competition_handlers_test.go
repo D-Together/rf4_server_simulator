@@ -107,10 +107,12 @@ func TestAchievementsAndFishTrophiesAreDynamic(t *testing.T) {
 		grade    int64
 		locLevel string
 	}{
+		// 3/17 是「渔夫稀有鱼」陈列面板，只收上星（3）及以上；下面这条 grade 1 的
+		// c.roach 必须被过滤掉，所以该鱼种在面板里只剩下 grade 3 的那尾。
 		{"c.roach", 100, 1, "level_a"},
-		{"c.roach", 300, 2, "level_a"},
+		{"c.roach", 300, 3, "level_a"},
 		{"perch", 900, 3, "level_a"},
-		{"pike", 500, 2, "level_b"},
+		{"pike", 500, 3, "level_b"},
 	} {
 		if err := env.db.CatchLogInsert(ctx, 42, "loc", row.weight, row.fish, row.fish, row.weight,
 			0.3, "keep", "worm", row.grade, 10, 20, row.locLevel); err != nil {
