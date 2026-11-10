@@ -11,7 +11,7 @@ ifeq ($(OFFLINE_TOOLS),1)
 CMDS += import-character local-membership
 endif
 
-.PHONY: build test vet corpus clean
+.PHONY: build test vet corpus clean doccheck hooks
 
 build:
 	@mkdir -p $(BIN)
@@ -25,11 +25,20 @@ endif
 	@rm -f $(BIN)/admin.exe
 	@echo "build -> $(BIN)/"
 
-test: vet
+test: vet doccheck
 	$(GO) test ./...
 
 vet:
 	$(GO) vet ./...
+
+doccheck:
+	$(GO) run ./tools/doccheck
+
+hooks:
+	git config core.hooksPath .githooks
+	@chmod +x .githooks/pre-commit .githooks/pre-push 2>/dev/null || true
+	@echo "hooks -> .githooks（pre-commit: doccheck；pre-push: build + vet）"
+	@echo "没有 GNU Make 时用：powershell -File tools/hooks.ps1"
 
 corpus:
 	$(GO) test ./internal/wiregen/ -run TestCorpusRoundtrip -v

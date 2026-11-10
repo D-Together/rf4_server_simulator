@@ -1,0 +1,14 @@
+#!/bin/sh
+# 仓库唯一 pre-commit 入口。启用：tools/hooks.ps1 或 make hooks
+# （两者都是 git config core.hooksPath .githooks）
+#
+# 这里只跑与平台无关的文档契约校验：
+#   - 文档索引完整性、spec 状态枚举、相对链接、文档路径引用
+#   - 每次约 0.3s，失败信息形如 `路径:行号: [规则] 说明`
+#
+# gofmt 刻意不放在这里：Windows 检出为 CRLF 时 gofmt -l 会把每个文件判成未格式化，
+# 该判定以 Linux 上的 CI 为准（见 docs/agents/workflow.md 门禁表）。
+
+set -e
+
+go run ./tools/doccheck

@@ -1,6 +1,8 @@
 # 钓具助手与满红不爆
 
-Status: done (implementation and automated checks); client validation pending
+Status: done
+
+<!-- 验证：实现与自动化门禁已完成（2026-11-09）；客户端实机验证待回归。 -->
 
 ## Problem
 
