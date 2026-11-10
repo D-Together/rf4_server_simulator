@@ -280,8 +280,10 @@ func TestFightReelSettleWearsWasherAndLowersDrag(t *testing.T) {
 	if math.Abs(after.BaseDragKg-before.BaseDragKg*0.5) > before.BaseDragKg*0.02 {
 		t.Fatalf("烧掉一半寿命后泄力应约减半：before=%.3f after=%.3f", before.BaseDragKg, after.BaseDragKg)
 	}
-	if after.LockedDragKg >= before.LockedDragKg {
-		t.Fatalf("锁轮承力必须随摩擦片剩余寿命一起下降：before=%.3f after=%.3f", before.LockedDragKg, after.LockedDragKg)
+	// 统一口径：锁轮承力=规格×轴承耐久，不随摩擦片寿命衰减（规格表收录的轮子）；
+	// 摩擦片基准制动（1~29 档泄力）已在上面的断言里验证减半。
+	if math.Abs(after.LockedDragKg-before.LockedDragKg) > 1e-9 {
+		t.Fatalf("锁轮承力不应随摩擦片磨损变化：before=%.3f after=%.3f", before.LockedDragKg, after.LockedDragKg)
 	}
 
 	// 每竿一次：重复结算不得再扣一次。

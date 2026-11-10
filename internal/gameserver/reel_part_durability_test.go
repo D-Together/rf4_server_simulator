@@ -104,7 +104,8 @@ func TestReelPartDurabilityLowersDragAndLockStrength(t *testing.T) {
 	if got := reelDragAtSetting(worn, defaultReelDragSetting); math.Abs(got-wantDrag) > 1e-9 {
 		t.Fatalf("旧轴承应把泄力压到 %.6f，实得 %.6f", wantDrag, got)
 	}
-	wantLocked := fresh.LockedDragKg * lost
+	// 统一口径：锁轮承力 = 出厂规格 × 轴承子件耐久（fresh 满轴承 = 规格）。
+	wantLocked := fresh.LockedDragKg * wornBearingDur
 	if math.Abs(worn.LockedDragKg-wantLocked) > 1e-9 {
 		t.Fatalf("旧轴承应把锁轮承力压到 %.6f，实得 %.6f", wantLocked, worn.LockedDragKg)
 	}
@@ -120,7 +121,6 @@ func TestReelPartDurabilityLowersDragAndLockStrength(t *testing.T) {
 	}
 
 	// 齿轮只进传动链：磨完齿轮压锁轮承力，但不该动泄力档位上的制动力。
-	_, gearQuality, _ := srv.reelPartStateFromRow(ctx, wornRow, reelPartCatGear)
 	setReelPartDurabilityForTest(t, srv, db, ctx, reel.GUID, reelPartCatGear, 0)
 	gwear := reelPerfForTest(t, srv, db, ctx, reel.GUID)
 	if math.Abs(gwear.BaseDragKg-fresh.BaseDragKg) > 1e-9 {
@@ -130,9 +130,9 @@ func TestReelPartDurabilityLowersDragAndLockStrength(t *testing.T) {
 		t.Fatalf("泄力档位不含齿轮效率，不该随齿轮磨损变化：%.6f -> %.6f",
 			reelDragAtSetting(fresh, defaultReelDragSetting), got)
 	}
-	lostGear := reelGearFactor(gearQuality, 0) / reelGearFactor(gearQuality, 1)
-	wantGearLocked := fresh.LockedDragKg * lostGear
-	if math.Abs(gwear.LockedDragKg-wantGearLocked) > 1e-9 {
-		t.Fatalf("磨完齿轮应把锁轮承力压到 %.6f，实得 %.6f", wantGearLocked, gwear.LockedDragKg)
+	// 统一口径：锁轮承力=规格×轴承耐久，齿轮磨损不再影响锁轮承力
+	// （官方 4/22 实抓：轮根只跟轴承耐久相关，齿轮无相关性的推断被数据否定）。
+	if math.Abs(gwear.LockedDragKg-fresh.LockedDragKg) > 1e-9 {
+		t.Fatalf("齿轮磨损不应改变锁轮承力：%.6f -> %.6f", fresh.LockedDragKg, gwear.LockedDragKg)
 	}
 }

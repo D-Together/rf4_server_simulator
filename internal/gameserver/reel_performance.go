@@ -227,9 +227,26 @@ func (s *Server) reelMotorCapacityInFields(ctx context.Context, row *store.Item,
 // reelEffectiveLockedDragInFields 是电轮锁轮承力的唯一派生入口：
 // 机械承力与电机有效承力取小，再乘实时倍率。普通轮、缺失电机或电机已损坏时
 // 自动退回普通机械锁轮，避免电机归零把手动摇轮也判成 0。
+//
+// 机械承力口径：规格表（reel_strength.json）命中的轮子 = 出厂轮根规格 × 轴承
+// 子件耐久——与客户端轮根字段同源（官方 4/22 实抓：Turion SW 30000 满耐久
+// 127.94，磨损后 126.35）；本体耐久归 0（轮子损坏）承力归零。未收录轮子回退
+// 旧公式（基础制动力 × 耐久倍率 × 轴承 × 齿轮）。
 func (s *Server) reelEffectiveLockedDragInFields(ctx context.Context, row *store.Item, fields []proto.Field,
 	base, durability, bearingFactor, gearFactor float64) float64 {
-	mechanical := reelLockedDragKg(base, durability, bearingFactor, gearFactor)
+	mechanical := 0.0
+	if row != nil {
+		if spec, ok := reelRootSpec(row.ItemID); ok {
+			if durability > 0 {
+				_, _, bearingDur := s.reelPartStateFromRow(ctx, row, reelPartCatBearing)
+				mechanical = spec * clampUnit(bearingDur)
+			}
+		} else {
+			mechanical = reelLockedDragKg(base, durability, bearingFactor, gearFactor)
+		}
+	} else {
+		mechanical = reelLockedDragKg(base, durability, bearingFactor, gearFactor)
+	}
 	if mechanical <= 0 {
 		return 0
 	}
