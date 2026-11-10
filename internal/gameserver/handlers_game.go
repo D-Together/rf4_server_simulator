@@ -25,6 +25,9 @@ func hProfile(ctx *Ctx) ([]byte, bool) {
 	if !ctx.Sess.Srv.requireDB(ctx) {
 		return nil, false
 	}
+	// 历史塑封卡册的技能点补发：修复前塑封只发奖座、不加点。先补再建档，
+	// 保证本次登录的技能树（5/1）一开始就带着补出来的点。
+	ctx.Sess.Srv.ensureDeckLaminatePoints(ctx.Sess.pushCtx(), ctx.Sess.Userid)
 	p, err := ctx.Sess.Srv.BuildProfile307W(ctx.Sess.pushCtx(), ctx.Sess.Userid,
 		worldTotalGameMin(time.Now()))
 	if err != nil {
