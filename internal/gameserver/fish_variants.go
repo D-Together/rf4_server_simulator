@@ -115,7 +115,7 @@ func (s *Server) fishModelVariantEnabled() bool {
 // 24/22 社交、资格鱼表里都带同一个 GUID，哈希结果必然一致。
 //
 // 但历史存档里有大量 `catch_guid` 为空的 `catch_log` 行（`CatchRecord.GUID` 直接来自
-// `COALESCE(catch_guid,'')`）。旧实现对这些行退化成 `rand.Intn(2)`，于是同一尾旧鱼
+// `COALESCE(catch_guid, 空字符串)`。旧实现对这些行退化成 `rand.Intn(2)`，于是同一尾旧鱼
 // 每刷新一次 3/17 / 3/2 / 社交纪录就可能换一次性别——正好破坏本改动要保证的
 // 「同一尾鱼模型一致」。这里改用**内容种子**兜底：鱼种 + 克重 + 体长（毫米）。
 // 这些字段全部来自同一条记录，四条读路径都拿得到，所以不依赖任何一侧补列。
