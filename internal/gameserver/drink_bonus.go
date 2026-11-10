@@ -39,14 +39,16 @@ func (sess *Session) updateDrinkBonuses(now time.Time) {
 	}
 }
 
-// drinkXPBonusTx 在首次结算事务内冻结酒兴经验，回执重放不重新计时或计算。
+// drinkXPBonusTx 在首次结算事务内冻结酒兴经验：每瓶按自身剩余时长独立衰减，
+// 倍率相加后作为一条 kind 55；回执重放不重新计时或计算。
 func (s *Server) drinkXPBonusTx(ctx context.Context, tx *sql.Tx, uid, baseXP int64, now time.Time) (*catchXPBonus, error) {
 	states, err := store.AdvanceDrinkBonusesTx(ctx, tx, uid, s.drinkRunKey(), now,
 		s.drinkOnline(uid), s.drinkMaxGap())
 	if err != nil {
 		return nil, err
 	}
-	var best catchXPBonus
+	var totalRate float64
+	var top catchXPBonus
 	for _, state := range states {
 		remaining := time.Duration(state.RemainingMillis) * time.Millisecond
 		rate := drinkRateFor(state.Peak, time.Duration(state.DurationMillis)*time.Millisecond, remaining)
@@ -54,19 +56,27 @@ func (s *Server) drinkXPBonusTx(ctx context.Context, tx *sql.Tx, uid, baseXP int
 			// 兼容旧行：迁移新增的 peak 默认为 0，回退类别默认峰值与时长。
 			rate = drinkRate(state.Category, remaining)
 		}
-		if rate > best.Multiplier {
+		if rate <= 0 {
+			continue
+		}
+		totalRate += rate
+		if rate > top.Multiplier {
 			guid := state.SourceGUID
 			if guid == "" {
 				guid = zeroGUID
 			}
-			best = catchXPBonus{Kind: 55, GUID: guid, Multiplier: rate}
+			top = catchXPBonus{Kind: 55, GUID: guid, Multiplier: rate}
 		}
 	}
-	best.XP = int64(math.Round(float64(baseXP) * best.Multiplier))
-	if best.XP <= 0 {
+	if totalRate <= 0 {
 		return nil, nil
 	}
-	return &best, nil
+	bonus := catchXPBonus{Kind: 55, GUID: top.GUID, Multiplier: totalRate}
+	bonus.XP = int64(math.Round(float64(baseXP) * totalRate))
+	if bonus.XP <= 0 {
+		return nil, nil
+	}
+	return &bonus, nil
 }
 
 func (s *Server) runDrinkUseReceiptCleanup(stop <-chan struct{}, done chan<- struct{}) {

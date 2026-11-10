@@ -40,7 +40,7 @@ Status: done
 
 ## Out of Scope
 
-- 不改酒类叠加、离线计时和衰减比例本身。
+- 酒类叠加、10 瓶上限与第 11 瓶淘汰规则见 `specs/changes/drink-bonus-stacking`；本文不重复定义。
 - 不新增官服未提供的酒类数值。
 - 不改所有消耗品的恢复量曲线。
 

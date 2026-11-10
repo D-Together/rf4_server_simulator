@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -22,19 +23,24 @@ func newDrinkBonusDB(t *testing.T) (*DB, string) {
 	return db, path
 }
 
-func refreshDrinkBonus(t *testing.T, db *DB, uid int64, category string, duration time.Duration, source string) {
+func addDrinkBonusPeak(t *testing.T, db *DB, uid int64, category string, peak float64, duration time.Duration, source string) {
 	t.Helper()
 	tx, err := db.SQL.Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := RefreshDrinkBonusTx(context.Background(), tx, uid, category, duration, source); err != nil {
+	if err := AddDrinkBonusTx(context.Background(), tx, uid, category, peak, duration, source); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func addDrinkBonus(t *testing.T, db *DB, uid int64, category string, duration time.Duration, source string) {
+	t.Helper()
+	addDrinkBonusPeak(t, db, uid, category, 0, duration, source)
 }
 
 func drinkBonusByCategory(t *testing.T, statuses []DrinkBonusStatus, category string) DrinkBonusStatus {
@@ -48,12 +54,23 @@ func drinkBonusByCategory(t *testing.T, statuses []DrinkBonusStatus, category st
 	return DrinkBonusStatus{}
 }
 
+func drinkBonusBySource(t *testing.T, statuses []DrinkBonusStatus, source string) DrinkBonusStatus {
+	t.Helper()
+	for _, status := range statuses {
+		if status.SourceGUID == source {
+			return status
+		}
+	}
+	t.Fatalf("missing drink source %q: %+v", source, statuses)
+	return DrinkBonusStatus{}
+}
+
 func TestDrinkBonusOnlinePauseRestartAndSharedRunClock(t *testing.T) {
 	db, path := newDrinkBonusDB(t)
 	ctx := context.Background()
 	start := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
-	refreshDrinkBonus(t, db, 101, "xp", 30*time.Minute, "first")
-	refreshDrinkBonus(t, db, 101, "energy", 10*time.Minute, "coffee")
+	addDrinkBonus(t, db, 101, "xp", 30*time.Minute, "first")
+	addDrinkBonus(t, db, 101, "energy", 10*time.Minute, "coffee")
 	advance := func(run string, at time.Time, online bool) []DrinkBonusStatus {
 		t.Helper()
 		statuses, err := db.AdvanceDrinkBonuses(ctx, 101, run, at, online, 0)
@@ -102,10 +119,10 @@ func TestDrinkBonusOnlinePauseRestartAndSharedRunClock(t *testing.T) {
 	assertElapsed(advance("run-b", start.Add(2*time.Hour+10*time.Second), true), 45*time.Second)
 }
 
-func TestDrinkBonusGapClockRollbackExpiryAndRefresh(t *testing.T) {
+func TestDrinkBonusGapClockRollbackExpiryAndRecovery(t *testing.T) {
 	db, _ := newDrinkBonusDB(t)
 	ctx, start := context.Background(), time.UnixMilli(100000)
-	refreshDrinkBonus(t, db, 102, "xp", time.Minute, "old")
+	addDrinkBonus(t, db, 102, "xp", time.Minute, "old")
 	steps := []struct {
 		at     time.Duration
 		online bool
@@ -135,19 +152,20 @@ func TestDrinkBonusGapClockRollbackExpiryAndRefresh(t *testing.T) {
 			t.Fatalf("at %v remaining=%d want=%d", step.at, got, step.want)
 		}
 	}
-	assertCount(t, db, `SELECT COUNT(*) FROM drink_bonus_effect WHERE uid=102 AND remaining_millis=0`, 1)
-	refreshDrinkBonus(t, db, 102, "xp", 7500*time.Millisecond, "new")
+	// 到期的瓶子直接删除，不留下 0 剩余行。
+	assertCount(t, db, `SELECT COUNT(*) FROM drink_bonus_effect WHERE uid=102`, 0)
+	addDrinkBonus(t, db, 102, "xp", 7500*time.Millisecond, "new")
 	statuses, err := db.AdvanceDrinkBonuses(ctx, 102, "clock", start.Add(24*time.Hour+51*time.Second), true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	status := drinkBonusByCategory(t, statuses, "xp")
 	if status.RemainingMillis != 7500 || status.DurationMillis != 7500 || status.SourceGUID != "new" {
-		t.Fatalf("refresh failed: %+v", status)
+		t.Fatalf("new bottle after expiry failed: %+v", status)
 	}
 }
 
-func TestDrinkBonusRefreshKeepsOtherCategoryAndUsesCallerTransaction(t *testing.T) {
+func TestDrinkBonusAddStacksSameCategoryAndUsesCallerTransaction(t *testing.T) {
 	db, _ := newDrinkBonusDB(t)
 	ctx, start := context.Background(), time.UnixMilli(100000)
 	if _, err := db.SQL.Exec(`INSERT INTO item(guid,uid,item_id,qty) VALUES('test-drink',103,'drink',2)`); err != nil {
@@ -166,10 +184,10 @@ func TestDrinkBonusRefreshKeepsOtherCategoryAndUsesCallerTransaction(t *testing.
 		if _, err := tx.ExecContext(ctx, `UPDATE item SET qty=qty-1 WHERE guid='test-drink'`); err != nil {
 			t.Fatal(err)
 		}
-		if err := RefreshDrinkBonusTx(ctx, tx, 103, "xp", 10*time.Minute, "wine"); err != nil {
+		if err := AddDrinkBonusTx(ctx, tx, 103, "xp", 0, 10*time.Minute, "wine"); err != nil {
 			t.Fatal(err)
 		}
-		if err := RefreshDrinkBonusTx(ctx, tx, 103, "energy", 20*time.Minute, "coffee"); err != nil {
+		if err := AddDrinkBonusTx(ctx, tx, 103, "energy", 0, 20*time.Minute, "coffee"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO kv(k,v) VALUES('test-drink-receipt','saved')`); err != nil {
@@ -197,16 +215,21 @@ func TestDrinkBonusRefreshKeepsOtherCategoryAndUsesCallerTransaction(t *testing.
 	if _, err := AdvanceDrinkBonusesTx(ctx, tx, 103, "run", start.Add(20*time.Second), true, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := RefreshDrinkBonusTx(ctx, tx, 103, "xp", 30*time.Minute, "new-wine"); err != nil {
+	// 同类第二瓶独立生效，不覆盖第一瓶。
+	if err := AddDrinkBonusTx(ctx, tx, 103, "xp", 0, 30*time.Minute, "new-wine"); err != nil {
 		t.Fatal(err)
 	}
 	statuses, err := AdvanceDrinkBonusesTx(ctx, tx, 103, "run", start.Add(20*time.Second), true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	xp, energy := drinkBonusByCategory(t, statuses, "xp"), drinkBonusByCategory(t, statuses, "energy")
-	if xp.RemainingMillis != (30*time.Minute).Milliseconds() || xp.SourceGUID != "new-wine" || energy.RemainingMillis != (20*time.Minute-20*time.Second).Milliseconds() || energy.SourceGUID != "coffee" {
-		t.Fatalf("same-category replacement changed other bonus: %+v", statuses)
+	if len(statuses) != 3 {
+		t.Fatalf("same-category bottles not stacked: %+v", statuses)
+	}
+	wine, newWine := drinkBonusBySource(t, statuses, "wine"), drinkBonusBySource(t, statuses, "new-wine")
+	energy := drinkBonusByCategory(t, statuses, "energy")
+	if wine.RemainingMillis != (10*time.Minute-20*time.Second).Milliseconds() || newWine.RemainingMillis != (30*time.Minute).Milliseconds() || energy.RemainingMillis != (20*time.Minute-20*time.Second).Milliseconds() {
+		t.Fatalf("stacked bottles changed each other: %+v", statuses)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
@@ -221,7 +244,7 @@ func TestDrinkBonusConcurrentConnectionsDoNotDoubleCount(t *testing.T) {
 	}
 	defer other.Close()
 	ctx, start := context.Background(), time.UnixMilli(100000)
-	refreshDrinkBonus(t, db, 104, "xp", time.Minute, "wine")
+	addDrinkBonus(t, db, 104, "xp", time.Minute, "wine")
 	if _, err := db.AdvanceDrinkBonuses(ctx, 104, "run", start, true, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +278,25 @@ func TestDrinkBonusMigrationEmptyUpgradeAndRollback(t *testing.T) {
 		db, _ := newDrinkBonusDB(t)
 		assertCount(t, db, `SELECT COUNT(*) FROM drink_bonus_clock`, 0)
 		assertCount(t, db, `SELECT COUNT(*) FROM drink_bonus_effect`, 0)
-		assertCount(t, db, `SELECT COUNT(*) FROM schema_migrations WHERE version=33 AND name='migrations/00033_drink_bonus.sql'`, 1)
+		assertCount(t, db, `SELECT COUNT(*) FROM schema_migrations WHERE version=54 AND name='migrations/00054_drink_bonus_per_bottle.sql'`, 1)
+		assertCount(t, db, `SELECT COUNT(*) FROM pragma_table_info('drink_bonus_effect') WHERE name='id'`, 1)
+	})
+	t.Run("version_53_upgrades_legacy_rows", func(t *testing.T) {
+		db := openCatchHistoryDBAtVersion(t, 53)
+		if _, err := db.SQL.Exec(`INSERT INTO drink_bonus_effect(uid,category,peak,remaining_millis,duration_millis,source_guid)
+			VALUES(201,'wine',0.19,1000,2000,'legacy-wine'),(201,'spirit',0.10,1500,1800,'legacy-spirit')`); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Migrate(); err != nil {
+			t.Fatal(err)
+		}
+		assertCount(t, db, `SELECT COUNT(*) FROM drink_bonus_effect WHERE uid=201`, 2)
+		assertCount(t, db, `SELECT COUNT(*) FROM drink_bonus_effect WHERE uid=201 AND id>0`, 2)
+		assertCount(t, db, `SELECT COUNT(*) FROM drink_bonus_effect WHERE uid=201 AND category='wine' AND peak=0.19 AND remaining_millis=1000 AND duration_millis=2000 AND source_guid='legacy-wine'`, 1)
+		// 升级后的旧行与新瓶同表共存，同桌可再叠加一瓶。
+		addDrinkBonusPeak(t, db, 201, "wine", 0.10, 20*time.Minute, "new-wine")
+		assertCount(t, db, `SELECT COUNT(*) FROM drink_bonus_effect WHERE uid=201 AND category='wine'`, 2)
+		assertCount(t, db, `SELECT COUNT(*) FROM sqlite_master WHERE name='drink_bonus_effect_legacy_00054'`, 0)
 	})
 	t.Run("version_30_preserves_save", func(t *testing.T) {
 		db := openCatchHistoryDBAtVersion(t, 30)
@@ -278,21 +319,25 @@ func TestDrinkBonusMigrationEmptyUpgradeAndRollback(t *testing.T) {
 		}
 	})
 	t.Run("failed_upgrade_rolls_back", func(t *testing.T) {
-		db := openCatchHistoryDBAtVersion(t, 30)
+		db := openCatchHistoryDBAtVersion(t, 53)
 		if _, err := db.SQL.Exec(`CREATE TRIGGER reject_drink_migration BEFORE INSERT ON schema_migrations
-			WHEN NEW.name='migrations/00033_drink_bonus.sql' BEGIN SELECT RAISE(ABORT,'migration failure'); END`); err != nil {
+			WHEN NEW.name='migrations/00054_drink_bonus_per_bottle.sql' BEGIN SELECT RAISE(ABORT,'migration failure'); END`); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Migrate(); err == nil {
 			t.Fatal("migration failure was ignored")
 		}
-		assertCount(t, db, `SELECT COUNT(*) FROM sqlite_master WHERE name IN ('drink_bonus_clock','drink_bonus_effect')`, 0)
+		// 回滚后旧表与旧结构仍在，重建的逐瓶表与备份表都不应留下。
+		assertCount(t, db, `SELECT COUNT(*) FROM sqlite_master WHERE name='drink_bonus_effect'`, 1)
+		assertCount(t, db, `SELECT COUNT(*) FROM sqlite_master WHERE name='drink_bonus_effect_legacy_00054'`, 0)
+		assertCount(t, db, `SELECT COUNT(*) FROM pragma_table_info('drink_bonus_effect') WHERE name='id'`, 0)
 		if _, err := db.SQL.Exec(`DROP TRIGGER reject_drink_migration`); err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Migrate(); err != nil {
 			t.Fatal(err)
 		}
+		assertCount(t, db, `SELECT COUNT(*) FROM pragma_table_info('drink_bonus_effect') WHERE name='id'`, 1)
 	})
 }
 
@@ -301,27 +346,36 @@ func TestDrinkBonusRejectsInvalidValuesAndEnforcesConstraints(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {
 		category string
+		peak     float64
 		duration time.Duration
-	}{{"", time.Minute}, {"xp", 0}, {"xp", -time.Second}, {"xp", time.Microsecond}} {
+	}{
+		{"", 0, time.Minute},
+		{"xp", 0, 0},
+		{"xp", 0, -time.Second},
+		{"xp", 0, time.Microsecond},
+		{"xp", -0.01, time.Minute},
+		{"xp", 1.01, time.Minute},
+	} {
 		tx, err := db.SQL.Begin()
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = RefreshDrinkBonusTx(ctx, tx, 106, tc.category, tc.duration, "wine")
+		err = AddDrinkBonusTx(ctx, tx, 106, tc.category, tc.peak, tc.duration, "wine")
 		_ = tx.Rollback()
 		if err == nil {
-			t.Fatalf("accepted invalid refresh: %+v", tc)
+			t.Fatalf("accepted invalid add: %+v", tc)
 		}
 	}
 	if _, err := db.AdvanceDrinkBonuses(ctx, 106, "", time.Now(), true, 0); err == nil {
 		t.Fatal("empty run key accepted")
 	}
 	for _, query := range []string{
-		`INSERT INTO drink_bonus_effect VALUES(106,'xp',-1,1000,'wine')`,
-		`INSERT INTO drink_bonus_effect VALUES(106,'xp',1001,1000,'wine')`,
-		`INSERT INTO drink_bonus_effect VALUES(106,'xp',0,0,'wine')`,
-		`INSERT INTO drink_bonus_effect VALUES(106,'',1000,1000,'wine')`,
-		`INSERT INTO drink_bonus_effect VALUES(106,'xp',NULL,1000,'wine')`,
+		`INSERT INTO drink_bonus_effect(uid,category,peak,remaining_millis,duration_millis,source_guid) VALUES(106,'xp',0,-1,1000,'wine')`,
+		`INSERT INTO drink_bonus_effect(uid,category,peak,remaining_millis,duration_millis,source_guid) VALUES(106,'xp',0,1001,1000,'wine')`,
+		`INSERT INTO drink_bonus_effect(uid,category,peak,remaining_millis,duration_millis,source_guid) VALUES(106,'xp',0,0,0,'wine')`,
+		`INSERT INTO drink_bonus_effect(uid,category,peak,remaining_millis,duration_millis,source_guid) VALUES(106,'',0,1000,1000,'wine')`,
+		`INSERT INTO drink_bonus_effect(uid,category,peak,remaining_millis,duration_millis,source_guid) VALUES(106,'xp',NULL,1000,1000,'wine')`,
+		`INSERT INTO drink_bonus_effect(uid,category,peak,remaining_millis,duration_millis,source_guid) VALUES(106,'xp',1.5,1000,1000,'wine')`,
 		`INSERT INTO drink_bonus_clock VALUES(106,'run',1000,2)`,
 	} {
 		if _, err := db.SQL.Exec(query); err == nil {
@@ -367,26 +421,41 @@ func TestCleanupDrinkUseReceiptsRollsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
 func TestDrinkBonusPersistsPerBottlePeak(t *testing.T) {
 	db, _ := newDrinkBonusDB(t)
 	ctx := context.Background()
-	tx, err := db.SQL.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if err := RefreshDrinkBonusTxWithPeak(ctx, tx, 107, "spirit", .10, 1350000*time.Millisecond, "vodka"); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	addDrinkBonusPeak(t, db, 107, "spirit", .10, 1350000*time.Millisecond, "vodka")
+	addDrinkBonusPeak(t, db, 107, "spirit", .12, 9*time.Minute, "whiskey")
 	statuses, err := db.AdvanceDrinkBonuses(ctx, 107, "run", time.UnixMilli(100000), false, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	status := drinkBonusByCategory(t, statuses, "spirit")
-	if status.Peak != .10 || status.DurationMillis != 1350000 || status.SourceGUID != "vodka" {
-		t.Fatalf("persisted drink effect = %+v", status)
+	if len(statuses) != 2 {
+		t.Fatalf("per-bottle rows = %+v", statuses)
 	}
+	vodka, whiskey := drinkBonusBySource(t, statuses, "vodka"), drinkBonusBySource(t, statuses, "whiskey")
+	if vodka.Peak != .10 || vodka.DurationMillis != 1350000 || whiskey.Peak != .12 || whiskey.DurationMillis != (9*time.Minute).Milliseconds() {
+		t.Fatalf("persisted drink effects = %+v", statuses)
+	}
+}
+
+func TestDrinkBonusKeepsTenMostRecentBottles(t *testing.T) {
+	db, _ := newDrinkBonusDB(t)
+	ctx := context.Background()
+	for i := range 10 {
+		addDrinkBonusPeak(t, db, 108, "wine", .1, time.Minute, fmt.Sprintf("b%02d", i))
+	}
+	addDrinkBonusPeak(t, db, 108, "wine", .1, time.Minute, "b10")
+	statuses, err := db.AdvanceDrinkBonuses(ctx, 108, "run", time.UnixMilli(100000), false, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 10 {
+		t.Fatalf("bottles kept = %d: %+v", len(statuses), statuses)
+	}
+	// 第 11 瓶顶掉最早生效的一瓶，其余顺序不变。
+	assertCount(t, db, `SELECT COUNT(*) FROM drink_bonus_effect WHERE uid=108 AND source_guid='b00'`, 0)
+	assertCount(t, db, `SELECT COUNT(*) FROM drink_bonus_effect WHERE uid=108 AND source_guid='b01'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM drink_bonus_effect WHERE uid=108 AND source_guid='b10'`, 1)
 }

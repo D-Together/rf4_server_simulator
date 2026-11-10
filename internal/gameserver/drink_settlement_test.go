@@ -20,7 +20,7 @@ func seedDrinkEffect(t *testing.T, s *Server, category string, remaining time.Du
 	if _, err := store.AdvanceDrinkBonusesTx(ctx, tx, 1000001, s.drinkRunKey(), time.Now(), false, s.drinkMaxGap()); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RefreshDrinkBonusTx(ctx, tx, 1000001, category, remaining, guid); err != nil {
+	if err := store.AddDrinkBonusTx(ctx, tx, 1000001, category, 0, remaining, guid); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -72,14 +72,14 @@ func TestDrinkSettlementAddsToBaseAndFreezesReceipt(t *testing.T) {
 	}
 }
 
-func TestDrinkSettlementUsesHighestDecayedRateAndOnlyActualUpgrade(t *testing.T) {
+func TestDrinkSettlementSumsDecayedRatesAndOnlyActualUpgrade(t *testing.T) {
 	s, db := newProgressSrv(t)
 	ctx := context.Background()
 	const uid = int64(1000001)
 	if _, err := db.EnsureProfile(ctx, uid); err != nil {
 		t.Fatal(err)
 	}
-	// 蜜酒已衰减到5%，红酒10%胜出，不相加。
+	// 蜜酒已衰减到5%，红酒10%，逐瓶求和为15%。
 	seedDrinkEffect(t, s, "mead", 75*time.Second, newFishGUID())
 	source := newFishGUID()
 	seedDrinkEffect(t, s, "wine", 10*time.Minute, source)
@@ -91,8 +91,9 @@ func TestDrinkSettlementUsesHighestDecayedRateAndOnlyActualUpgrade(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.bonuses) != 1 || r.bonuses[0].Multiplier != .1 || r.bonuses[0].GUID != source || r.bonuses[0].XP != 1 {
-		t.Fatalf("highest current rate: %+v", r)
+	// 倍率取各瓶之和，GUID 取当前倍率最高的一瓶。
+	if len(r.bonuses) != 1 || math.Abs(r.bonuses[0].Multiplier-.15) > 1e-12 || r.bonuses[0].GUID != source || r.bonuses[0].XP != 1 {
+		t.Fatalf("summed current rates: %+v", r)
 	}
 	if r.newLevel != 2 || r.levelsGained != 1 || r.totalXp != 300 {
 		t.Fatalf("real progression: %+v", r)
@@ -105,6 +106,35 @@ func TestDrinkSettlementUsesHighestDecayedRateAndOnlyActualUpgrade(t *testing.T)
 	r, err = s.settleCatchOnce(ctx, uid, next, 1)
 	if err != nil || !r.isRecord || r.levelsGained != 0 || u32Of(s.buildSettle813(ctx, uid, next, r).Field(8).Val.Field(1).Num) != 0 {
 		t.Fatalf("record emitted false upgrade: %+v %v", r, err)
+	}
+}
+
+func TestDrinkSettlementStacksTenBottles(t *testing.T) {
+	s, db := newProgressSrv(t)
+	ctx := context.Background()
+	const uid = int64(1000001)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	for range 10 {
+		seedDrinkEffect(t, s, "wine", 10*time.Minute, newFishGUID())
+	}
+	fish := &RolledFish{FishGUID: newFishGUID(), Species: "perch", Grade: 2, WeightG: 642}
+	r, err := s.settleCatchOnce(ctx, uid, fish, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.bonuses) != 1 || r.bonuses[0].Kind != 55 || math.Abs(r.bonuses[0].Multiplier-1) > 1e-9 {
+		t.Fatalf("ten bottles must stack to 1.0: %+v", r)
+	}
+	wantDrink := int64(math.Round(float64(r.baseXP) * r.bonuses[0].Multiplier))
+	if r.bonuses[0].XP != wantDrink || r.totalXP != r.baseXP+wantDrink {
+		t.Fatalf("stacked XP: %+v want %d", r, wantDrink)
+	}
+	entry := s.buildSettle813(ctx, uid, fish, r).Field(8).Val.Field(6).Val.ArgItem(0)
+	kind, amount := entry.Field(4), entry.Field(2)
+	if kind.U32() != 55 || amount.U64() != uint64(wantDrink) {
+		t.Fatalf("native stacked Alco bonus: %+v", entry)
 	}
 }
 
