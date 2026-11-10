@@ -230,6 +230,7 @@ UPDATE catch_log
        SELECT CAST(json_extract(kv.v, '$.SkillID') AS INTEGER)
          FROM kv
         WHERE kv.k = 'catch-settlement:' || catch_log.uid || ':' || lower(catch_log.catch_guid)
+          AND json_valid(kv.v)
           AND CAST(json_extract(kv.v, '$.SkillID') AS INTEGER) IN (1, 2, 3, 11)), 0)
  WHERE tackle_cat = 0 AND catch_guid IS NOT NULL;
 

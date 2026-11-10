@@ -252,7 +252,8 @@ func (s *Server) buildStats321(ctx context.Context, uid int64) (*proto.Value, er
 	// 0 总钓获 1 稀有 2 蓝冠 3 脱钩 4 单日条数 5 单日重量(kg) 6 鱼种卡列表
 	// 7 最大渔获 8 最优竞争力（拉力） 9 冒险鱼卡 10 最多银币
 	// 12 最多经验 14 浮钓最大 15 路亚最大 16 底钓最大鱼
-	// 17 竿类聚合 18 钓法聚合 19 饵料聚合 20 制作聚合 21 拟饵聚合
+	// 17 竿类聚合（族级代表值，非真实竿型） 18 钓组聚合（同上）
+	// 19 饵料聚合 20 制作聚合 21 拟饵聚合
 	// 11/13/22 语义未定，恒发 0；9（冒险鱼）缺业务口径，发 null。
 	//
 	// 注意 11/13 不是「损坏的钓竿/渔轮」：按该假设下发实测后，面板对应卡片
@@ -323,17 +324,38 @@ func tackleFamilyOf(r catchStatRow, isLure func(string) bool) int64 {
 }
 
 // tackleCatForRig 把钓组类型映射到钓法大类，与技能大类口径一致
-// （skills_ops.go fishingSkillCatForRig）。未知钓组返回 0，让历史回退生效。
+// （skills_ops.go fishingSkillCatForRig）。
+//
+// 与技能大类的唯一区别：技能页对未知正数是"按浮钓计"（保证熟练度有归属），
+// 但统计快照要落库且不可回溯，把未知钓组写成浮钓会永久污染浮钓纪录卡，
+// 因此这里先确认钓组属于已知四族之一，未知值返回 0（未知），由 321 侧回退。
 func tackleCatForRig(rigType int64) int64 {
 	if rigType <= 0 {
 		return tackleCatUnknown
 	}
-	return fishingSkillCatForRig(rigType)
+	if marineRigType(rigType) {
+		return tackleCatMarine
+	}
+	if bottomRigTypes[rigType] {
+		return tackleCatBottom
+	}
+	if rigTypeLureFamily[rigType] {
+		return tackleCatSpinning
+	}
+	if floatRigTypes[rigType] {
+		return tackleCatFloat
+	}
+	return tackleCatUnknown
 }
 
-// rodAndRigOfFamily 是各钓法族的默认竿型/钓组类型（wire 类 gjndofnpibn.f0
+// rodAndRigOfFamily 给出钓法族对应的代表竿型/钓组类型（wire 类 gjndofnpibn.f0
 // celffbjpmma / emehdoalanl.f0 jppmjnahbpo 的枚举值）。
-// 族内具体竿型差异（手竿/博洛尼亚/飞德/海竿）没有逐条快照，按族默认值聚合。
+//
+// 注意这是**族级代表值，不是真实竿型/钓组**：catch_log 目前只记录钓法大类
+// （tackle_cat），没有记录当次使用的具体 rod_type 与 rig_type。因此同族内的
+// 差异会被合并——例如底钓族的 Feeder/Picker/Carp/Spod 全部计为 Feeder(10)，
+// 路亚族的 Spinning/Casting/Jerking 全部计为 Spinning(1)。
+// 要按真实竿型/钓组统计，需在 catch_log 同步保存 rod_type/rig_type 后再聚合。
 func rodAndRigOfFamily(family int64) (rod, rig int64) {
 	switch family {
 	case tackleCatSpinning:

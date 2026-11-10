@@ -13,12 +13,17 @@ ALTER TABLE catch_log ADD COLUMN tackle_cat INTEGER NOT NULL DEFAULT 0;
 -- 历史回填：只用已经存在的结算回执真源，不猜。
 -- 14/4 结算与 14/5 入护共用 catch-settlement:<uid>:<fishGUID> 回执，回执里的
 -- SkillID 就是当时那次钓获的钓法大类；catch_log.catch_guid 即该 fishGUID。
--- 没有回执的历史行保持 0，321 侧回退旧的「拟饵/非拟饵」口径。
+--
+-- 用 json_valid() 先过滤：JSON 损坏的回执若直接交给 json_extract 会抛
+-- "malformed JSON" 并中断整条迁移（一个坏回执就让服务起不来）。损坏行跳过，
+-- 保持 0（未知），由 321 侧回退旧口径。
+-- 没有回执的历史行同样保持 0。
 UPDATE catch_log
    SET tackle_cat = COALESCE((
        SELECT CAST(json_extract(kv.v, '$.SkillID') AS INTEGER)
          FROM kv
         WHERE kv.k = 'catch-settlement:' || catch_log.uid || ':' || lower(catch_log.catch_guid)
+          AND json_valid(kv.v)
           AND CAST(json_extract(kv.v, '$.SkillID') AS INTEGER) IN (1, 2, 3, 11)), 0)
  WHERE tackle_cat = 0 AND catch_guid IS NOT NULL;
 
