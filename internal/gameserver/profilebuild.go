@@ -2,6 +2,7 @@ package gameserver
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"rf4server/internal/proto"
@@ -51,6 +52,8 @@ func BuildPose308() *proto.Value {
 // f3=舒适度、f4=幸运惩罚由 player_condition 透传。
 func (s *Server) buildPose308(ctx context.Context, uid int64) *proto.Value {
 	c := s.peekPlayerCondition(ctx, uid)
+	// f8(gnijkfnhcbl) 是天气/世界时钟的分钟偏移量：客户端在它非 0 时会跳过风况
+	// 更新（dbcoebadfkn.cbhjcnkojgc），所以必须保持 0，不能塞欢乐时光数据。
 	return wiregen.MustMakeObj("pnbphpdmppe", map[int]*proto.Value{
 		0: proto.F32(float32(c.Primary)), 1: proto.F32(float32(c.Secondary)), 2: proto.F32(0.0),
 		3: proto.F32(float32(c.Comfort)), 4: proto.F32(float32(c.LuckPenalty)),
@@ -93,12 +96,20 @@ func buildStats322W(wNow int64) *proto.Value {
 	})
 }
 
-// build745 构造通行证状态块。
-func build745() *proto.Value {
+// build745 构造通行证/欢乐时光状态块。
+// f0=状态枚举、f1=欢乐时光结束的世界游戏分钟坐标、f2=结束墙钟（FILETIME）。
+// 客户端主页倒计时（RUIHappyHourWidget.kanomlofomo）按
+//
+//	f1 − (f13.f0 + 档案到达后的真实分钟)
+//
+// 计算，f13.f0 是 BuildStats322W 下发的连续世界游戏分钟 W（客户端
+// hncnmlgnhjm.nfegbblgion 转交 nnfmkefpbdi.mmpnhgcccop），因此 f1 必须写成
+// W + 期望剩余真实分钟；f2 只被状态 2「下一场」使用。
+func build745(hhState int, hhMinutes int64, hhEnd uint64) *proto.Value {
 	return wiregen.MustMakeObj("dnijhkbdfan", map[int]*proto.Value{
-		0: proto.U32(0),
-		1: proto.U32(0),
-		2: proto.U64(pass745F2),
+		0: proto.U32(uint32(hhState)),
+		1: proto.U32(uint32(hhMinutes)),
+		2: proto.U64(hhEnd),
 	})
 }
 
@@ -233,6 +244,34 @@ func (s *Server) BuildProfile307W(ctx context.Context, uid int64, wNow int64) (*
 		s.log.Warn("奖杯鱼种数读取失败，按 0 下发", "uid", uid, "err", rareErr)
 	}
 
+	// f24(pdomjfdnghk/dlgnjgfjcaj).emegkdcimkp 是欢乐时光状态枚举（客户端
+	// RUIHappyHourWidget 的 0~4 分支）：0=未开放（显示"需要高级会员"）、
+	// 1=已就绪（无倒计时）、2=下一场时间、3=进行中（按剩余分钟倒计时）、
+	// 4=今日已结束。客户端显示的真实剩余分钟 = (f1 − W) / 24：f1 与世界时钟
+	// 同为游戏分钟坐标，游戏内 24 分钟才走 1 真实分钟，所以这里按 24 倍写入。
+	// 客户端没有"不限时长"状态：状态 3 的文案只有"{n} 分钟剩余"与"剩余不到
+	// 一分钟"（本地化 kDlg_CP_HappyHour_Status_Activated/Activated2），因此永久
+	// 会员不能下发有限倒计时，改用状态 1（就绪）；总开关关闭时用 4（不进行）。
+	hhState := 0
+	hhMinutes := int64(0)
+	hhEnd := pass745F2
+	if hh, hhErr := s.DB.GetHappyHourStatus(ctx, uid, time.Now()); hhErr == nil && hh.Qualified {
+		switch {
+		case !hh.Enabled:
+			hhState = 4
+		case hh.Unlimited:
+			hhState = 1
+		default:
+			hhMinutes = wNow + (hh.RemainingSeconds+59)/60*24
+			if hhMinutes > math.MaxUint32 {
+				hhMinutes = math.MaxUint32
+			}
+			hhState = 3
+			if hh.ExpiresAt > 0 {
+				hhEnd = uint64(proto.UnixToFiletime(hh.ExpiresAt))
+			}
+		}
+	}
 	return wiregen.MakeObj("ghfbofgdflm", map[int]*proto.Value{
 		0:  proto.U32(uint32(p.UID)),
 		1:  proto.StrVal(p.Name),
@@ -267,7 +306,7 @@ func (s *Server) BuildProfile307W(ctx context.Context, uid int64, wNow int64) (*
 		// 在库表矛盾（bncmdhbgahe=600）——判定为当时误读，2026-11-06
 		// 审查复核后定案保留 181（改动前需官方 307 实抓佐证）。
 		23: proto.Args(proto.S("181"), vouchers...),
-		24: build745(),
+		24: build745(hhState, hhMinutes, hhEnd),
 		25: season,
 	})
 }

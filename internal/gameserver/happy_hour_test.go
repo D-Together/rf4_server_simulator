@@ -6,7 +6,19 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"rf4server/internal/proto"
+	"rf4server/internal/store"
 )
+
+func grantHappyHourTestProfile(t *testing.T, db *store.DB, uid int64) {
+	t.Helper()
+	if _, err := db.SQL.Exec(`INSERT INTO profile(uid,name,membership) VALUES(?,'player',?)
+		ON CONFLICT(uid) DO UPDATE SET membership=?,membership_exp=0`,
+		uid, store.HappyHourUnlimited, store.HappyHourUnlimited); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func registerHappyHourTestSession(t *testing.T, s *Server, sid uint64) *Session {
 	t.Helper()
@@ -127,6 +139,7 @@ func TestHappyHourValidFishingPendingAndCloseFence(t *testing.T) {
 	s, db := newRigTestServer(t)
 	ctx := context.Background()
 	const uid = int64(1000001)
+	grantHappyHourTestProfile(t, db, uid)
 	rod := baitTestRod(t, s)
 	sess := registerHappyHourTestSession(t, s, 828)
 	st := s.fishingState(uid)
@@ -145,8 +158,8 @@ func TestHappyHourValidFishingPendingAndCloseFence(t *testing.T) {
 	if r := sess.updateHappyHour(now, false); !r.Active {
 		t.Fatal("pending fight after bait consumption lost qualification")
 	}
-	if r := sess.updateHappyHour(now.Add(10*time.Second), false); r.RemainingSeconds != 3590 {
-		t.Fatalf("fight time not counted: %+v", r)
+	if r := sess.updateHappyHour(now.Add(10*time.Second), false); r.RemainingSeconds != store.HappyHourUnlimitedSeconds {
+		t.Fatalf("permanent member remaining changed: %+v", r)
 	}
 	var wg sync.WaitGroup
 	for range 12 {
@@ -164,6 +177,7 @@ func TestHappyHourValidFishingPendingAndCloseFence(t *testing.T) {
 func TestHappyHourBiteQualificationPersistsBeforeFailedPush(t *testing.T) {
 	s, db := newRigTestServer(t)
 	const uid = int64(1000001)
+	grantHappyHourTestProfile(t, db, uid)
 	rod := baitTestRod(t, s)
 	baitTestMount(t, s, rod, "worm_01", 2, 350)
 	sess := registerHappyHourTestSession(t, s, 829)
@@ -189,5 +203,63 @@ func TestHappyHourBiteQualificationPersistsBeforeFailedPush(t *testing.T) {
 	restored := rolledFishFromStore(saved.Pending)
 	if restored.FishGUID != fish.FishGUID || !restored.HappyHour || !restored.HappyHourKnown {
 		t.Fatal("recovery changed original qualification")
+	}
+}
+
+// TestProfile307HappyHourState 锁定 307.f24 的状态映射：状态 3 只在
+// "总开关开启 + 有资格 + 限时会员" 时下发；永久会员用 1（就绪，无倒计时），
+// 因为客户端状态机只有 0~4，且状态 3 文案必然是"{n} 分钟剩余"或"剩余不到
+// 一分钟"，不存在"不限时长"表示。
+func TestProfile307HappyHourState(t *testing.T) {
+	db := connectTestDB(t)
+	srv := NewServerForGearTest(t, db)
+	ctx := context.Background()
+	const uid = int64(1000001)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	setMembership := func(kind, exp int64) {
+		t.Helper()
+		if _, err := db.SQL.Exec(`UPDATE profile SET membership=?,membership_exp=? WHERE uid=?`, kind, exp, uid); err != nil {
+			t.Fatal(err)
+		}
+	}
+	build := func(wNow int64) (state, minutes uint32, end uint64) {
+		t.Helper()
+		p, err := srv.BuildProfile307W(ctx, uid, wNow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f24 := p.Fields[24].Val
+		return u32Of(f24.Field(0).Num), u32Of(f24.Field(1).Num), u64Of(f24.Field(2).Num)
+	}
+
+	setMembership(store.HappyHourNone, 0)
+	if state, minutes, end := build(0); state != 0 || minutes != 0 || end != pass745F2 {
+		t.Fatalf("非会员 f24=%d/%d/%d", state, minutes, end)
+	}
+
+	setMembership(store.HappyHourUnlimited, 0)
+	if state, minutes, end := build(0); state != 1 || minutes != 0 || end != pass745F2 {
+		t.Fatalf("永久会员 f24=%d/%d/%d", state, minutes, end)
+	}
+
+	exp := time.Now().Unix() + 3600
+	setMembership(store.HappyHourLimited, exp)
+	const wNow = 1000
+	state, minutes, end := build(wNow)
+	if state != 3 || minutes != wNow+60*24 {
+		t.Fatalf("限时会员 f24=%d/%d/%d", state, minutes, end)
+	}
+	if end != uint64(proto.UnixToFiletime(exp)) {
+		t.Fatalf("限时会员 f2=%d 期望 %d", end, proto.UnixToFiletime(exp))
+	}
+
+	if err := db.TunableSet(ctx, "happy_hour_enabled", "0", "test"); err != nil {
+		t.Fatal(err)
+	}
+	setMembership(store.HappyHourUnlimited, 0)
+	if state, minutes, end := build(0); state != 4 || minutes != 0 || end != pass745F2 {
+		t.Fatalf("总开关关闭 f24=%d/%d/%d", state, minutes, end)
 	}
 }
