@@ -37,6 +37,7 @@ tools/*
 !tools/*.ps1
 !tools/*.py
 !tools/genwire/
+!tools/doccheck/
 
 # 版本更新检测的本地状态
 /update_state.json
