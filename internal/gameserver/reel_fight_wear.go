@@ -27,6 +27,7 @@ const (
 	defaultReelLoadTickSeconds = 1.9
 	// reelSlipCalibrationSeconds 把 29 档单次基准换算成每秒磨损率：
 	// 0.01% / 1.8s = 0.00556%/s，100% 寿命约 5 小时。
+	// 该值改为 tunable（reel_slip_calibration_seconds），此处保留为缺省回落。
 	reelSlipCalibrationSeconds = 1.8
 	// defaultReelLoadMaxTickSeconds 是两条 14/8 之间最多折算的秒数（tunable
 	// reel_load_max_tick_seconds）：客户端卡顿、切场景或掉线会把间隔拉长，超过上限
@@ -38,6 +39,7 @@ const (
 	// 前 10% 时间只掉 3%，最后 10% 时间掉 15%。
 	defaultReelBurnCurve = 1.5
 	// reelBurnCalibrationDragKg 是校准点制动力，取库里摩擦片的 p25 分位。
+	// 该值改为 tunable（reel_burn_calibration_drag_kg），此处保留为缺省回落。
 	reelBurnCalibrationDragKg = 7.7
 )
 
@@ -303,6 +305,28 @@ func (s *Server) fightReelCache(ctx context.Context, uid int64, rodGUID string, 
 	}
 }
 
+// reelSlipCalibrationSecondsTunable 返回打滑磨损率的校准秒数（tunable
+// reel_slip_calibration_seconds）：值越大，同样打滑时长磨得越少。
+// 缺失、非数值、≤0 或非有限值一律回落到代码默认，保证未配置时行为不变。
+func (s *Server) reelSlipCalibrationSeconds() float64 {
+	v := s.tunableF("reel_slip_calibration_seconds", reelSlipCalibrationSeconds)
+	if v <= 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return reelSlipCalibrationSeconds
+	}
+	return v
+}
+
+// reelBurnCalibrationDrag 返回锁轮烧蚀强度系数的校准制动力（tunable
+// reel_burn_calibration_drag_kg）：值越大，同样额定制动力下 T 越短、烧得越快。
+// 缺失、非数值或 ≤0 一律回落到代码默认。
+func (s *Server) reelBurnCalibrationDrag() float64 {
+	v := s.tunableF("reel_burn_calibration_drag_kg", reelBurnCalibrationDragKg)
+	if v <= 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return reelBurnCalibrationDragKg
+	}
+	return v
+}
+
 // reelBurnSecondsFor 给出当前承力状态下的锁轮烧穿时长 T：片子越弱、油越差、
 // 鱼越猛，T 越短。强度系数按摩擦片额定线性铺开（顶级约为校准点 5.3 倍）。
 // 返回 0 表示算不出来，本条不按曲线烧。
@@ -310,7 +334,7 @@ func (s *Server) reelBurnSecondsFor(w fightReelWear) float64 {
 	if w.ratedKg <= 0 || w.lockedKg <= 0 {
 		return 0
 	}
-	strength := w.ratedKg / reelBurnCalibrationDragKg
+	strength := w.ratedKg / s.reelBurnCalibrationDrag()
 	if strength <= 0 {
 		return 0
 	}
@@ -375,7 +399,7 @@ func (s *Server) fightReelTickWear(w fightReelWear, tick float64) (ticks int, sl
 	if match <= 0 {
 		match = 1
 	}
-	slipRate := reelSlipWearForSetting(w.setting) / reelSlipCalibrationSeconds
+	slipRate := s.reelSlipWearForSetting(w.setting) / s.reelSlipCalibrationSeconds()
 	return 1, slipRate * tick * reelSlipOilFactor(w.oilWear) * match, 0, 0, 0
 }
 

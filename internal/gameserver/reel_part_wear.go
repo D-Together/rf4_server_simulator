@@ -51,16 +51,21 @@ type reelPartCounts struct {
 }
 
 // slipUnits 把打滑秒数折算成“标准打滑节拍”数量，旧账没有秒数时回退到次数。
-func (c reelPartCounts) slipUnits() float64 {
+// 校准秒数走 tunable，与摩擦片那条账保持同一口径。
+func (c reelPartCounts) slipUnits(calibrationSeconds float64) float64 {
+	if calibrationSeconds <= 0 {
+		calibrationSeconds = reelSlipCalibrationSeconds
+	}
 	if c.SlipSecs > 0 {
-		return c.SlipSecs / reelSlipCalibrationSeconds
+		return c.SlipSecs / calibrationSeconds
 	}
 	return float64(c.SlipTicks)
 }
 
-// total 报告除了摩擦片之外还有没有要结算的账。
+// total 报告除了摩擦片之外还有没有要结算的账。打滑秒数用代码默认校准秒数折算，
+// 只用于「这笔账是不是空的」这类量级判断，不参与最终磨损值。
 func (c reelPartCounts) total() float64 {
-	return c.Rods + c.OverloadSecs + c.slipUnits() + c.Soaks + float64(c.BreakHits)
+	return c.Rods + c.OverloadSecs + c.slipUnits(reelSlipCalibrationSeconds) + c.Soaks + float64(c.BreakHits)
 }
 
 // reelPartLifeFactor 是品质寿命系数 Fq = clamp(0.25 + 0.75 x 品质/100, 0.35, 1)：
@@ -84,14 +89,14 @@ func reelPartLifeFactor(quality float64) float64 {
 
 // reelPartWearFor 按消耗矩阵算出本竿该零件要扣掉的寿命比例（0~1）。摩擦片不在矩阵里，
 // 返回 0：它的账由泄力打滑与过载曲线单独结。
-func reelPartWearFor(category int64, quality float64, counts reelPartCounts) float64 {
+func reelPartWearFor(category int64, quality float64, counts reelPartCounts, calibrationSeconds float64) float64 {
 	rates, ok := reelPartWearMatrix[category]
 	if !ok {
 		return 0
 	}
 	points := rates.perRod*counts.Rods +
 		rates.perOverloadSec*counts.OverloadSecs +
-		rates.perSlip*counts.slipUnits() +
+		rates.perSlip*counts.slipUnits(calibrationSeconds) +
 		rates.perSoak*counts.Soaks +
 		rates.perBreak*float64(counts.BreakHits)
 	if points <= 0 {
@@ -176,7 +181,7 @@ func (s *Server) wearReelPartsInFields(ctx context.Context, fields []proto.Field
 		if cur <= 0 {
 			continue
 		}
-		worn := reelPartWearFor(category, reelPartQuality(def), counts)
+		worn := reelPartWearFor(category, reelPartQuality(def), counts, s.reelSlipCalibrationSeconds())
 		if worn <= 0 {
 			continue
 		}

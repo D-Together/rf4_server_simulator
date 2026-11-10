@@ -309,6 +309,43 @@ func validateEventBranches(value string) error {
 	return nil
 }
 
+// tunableRange 是数值型 tunable 的合法区间 [min, max]。
+// 下限不是随手取的：它要保证「这个值在数字层面真的有意义」，而不只是「>0 合法」。
+type tunableRange struct {
+	min float64
+	max float64
+}
+
+// reelWearTunableRanges 是摩擦片磨损参数的合法区间。
+//
+// 下限的来由（踩过的坑）：磨损率直接乘进制动力，而制动力是 38.1kg 量级，
+// float64 在这个量级的半数舍入门槛约 3.553e-15 kg。单次 tick 的减量若小于它，
+// 减完之后 cur-wear 仍等于 cur —— 参数看着生效、实际一分不磨，属于静默失效。
+// 反算出手理论最小档位率约 8.39e-17，这里取 1e-12（约 1.2 万倍余量）作为硬下限，
+// 既挡住无意义的小值，又给调参留足空间。
+var reelWearTunableRanges = map[string]tunableRange{
+	// 六个档位的单次磨损率：低于 1e-12 会被 float64 精度吃掉。
+	"reel_slip_wear_low": {min: 1e-12, max: 1},
+	"reel_slip_wear_s25": {min: 1e-12, max: 1},
+	"reel_slip_wear_s26": {min: 1e-12, max: 1},
+	"reel_slip_wear_s27": {min: 1e-12, max: 1},
+	"reel_slip_wear_s28": {min: 1e-12, max: 1},
+	"reel_slip_wear_max": {min: 1e-12, max: 1},
+	// 校准秒数是除数：太小时每小时磨损率被放大到失真。
+	"reel_slip_calibration_seconds": {min: 0.01, max: 3600},
+	// 烧蚀校准制动力也是除数，太小会让 T 直接爆表而被 reelBurnSecondsFor 丢弃。
+	"reel_burn_calibration_drag_kg": {min: 0.01, max: 10000},
+	// 烧穿基准秒：为 0 则 T=0，整条烧蚀通道失效。
+	"reel_locked_burn_base_s": {min: 0.01, max: 3600},
+	// 曲线指数取 0 会把 (t/T)^p 变成常数，烧蚀退化成一次跳变。
+	"reel_locked_burn_curve": {min: 0.1, max: 10},
+	// 负载节拍：太小会让每次上报折算成极短时长，磨损几乎不涨。
+	"reel_load_tick_seconds":     {min: 0.01, max: 600},
+	"reel_load_max_tick_seconds": {min: 0.01, max: 600},
+	// 路亚每竿折扣：0.001=千分之一倍，再小等于免费。
+	"reel_cast_base_factor_lure": {min: 0.001, max: 1},
+}
+
 func (s *Server) handleTunableSet(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Key   string `json:"key"`
@@ -346,6 +383,18 @@ func (s *Server) handleTunableSet(w http.ResponseWriter, r *http.Request) {
 	if req.Key == "event_branches" {
 		if err := validateEventBranches(req.Value); err != nil {
 			httpError(w, 400, err.Error())
+			return
+		}
+	}
+	// 摩擦片磨损相关参数：必须是有限数且落在 [min, max]。
+	// 下限不是保守估计：低于它磨损量会被 float64 精度吃掉，参数静默失效。
+	// 见 specs/changes/reel-wear-tunables。
+	if rng, ok := reelWearTunableRanges[req.Key]; ok {
+		v, err := strconv.ParseFloat(strings.TrimSpace(req.Value), 64)
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < rng.min || v > rng.max {
+			httpError(w, 400, fmt.Sprintf("该参数必须在 %s ~ %s 之间（下限低于精度门槛会静默失效）",
+				strconv.FormatFloat(rng.min, 'g', -1, 64),
+				strconv.FormatFloat(rng.max, 'g', -1, 64)))
 			return
 		}
 	}
