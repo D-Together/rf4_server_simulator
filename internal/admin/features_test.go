@@ -147,6 +147,11 @@ func TestAdminExtendedAPI(t *testing.T) {
 		t.Fatalf("keepnet delete: %d %s", code, body)
 	}
 	assertQueueContains(t, db, "delete_keepnet")
+	if code, body = call("POST", "/api/players/mail/delete", login.Token,
+		`{"uid":1000001,"ids":[2]}`); code != 200 {
+		t.Fatalf("mail delete: %d %s", code, body)
+	}
+	assertQueueContains(t, db, "delete_mail")
 	if code, body = call("POST", "/api/mail/send", login.Token,
 		`{"uid":1000001,"text":"补偿","items":[{"item_id":"worm_01","qty":3}]}`); code != 200 {
 		t.Fatalf("mail send: %d %s", code, body)

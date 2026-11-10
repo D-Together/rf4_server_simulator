@@ -35,6 +35,16 @@ func TestAdminAPI(t *testing.T) {
 	_ = db.EnsureAdmin(context.Background(), "admin", "admin123")
 	uid := int64(1000001)
 	_, _ = db.EnsureProfile(context.Background(), uid)
+	// 发邮件现在会在入队前校验附件物品是否存在（见 mail_validate.go），
+	// 因此这里要像真实库一样先有物品定义。
+	if _, err := db.SQL.Exec(`INSERT OR REPLACE INTO item_def(numeric_id,item_id,category,kind,brand,attrs_json)
+		VALUES(9001,'worm_01',27,'bait','','{}')`); err != nil {
+		t.Fatalf("seed item_def: %v", err)
+	}
+	if _, err := db.SQL.Exec(`INSERT OR REPLACE INTO item_catalog(item_id,name,name_zh,kind,numeric_id)
+		VALUES('worm_01','Worm','红虫','bait',9001)`); err != nil {
+		t.Fatalf("seed item_catalog: %v", err)
+	}
 
 	cfg := config.Admin{HTTPAddr: "127.0.0.1:0", JWTSecret: "test"}
 	srv := NewServer(cfg, db, logging.Discard(), WebFS())

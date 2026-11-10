@@ -147,11 +147,11 @@ func TestBundleMailClaimExpandsAndDoesNotDuplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := economyTestCtx(srv, uid, proto.Args524())
-	if count, _ := srv.acceptMails(c, []int64{id, id}); count != 1 {
+	if count, _, err := srv.acceptMails(c, []int64{id, id}); err != nil || count != 1 {
 		t.Fatalf("领取物品条数=%d", count)
 	}
 	assertBundleContents(t, srv, uid, 20)
-	if count, _ := srv.acceptMails(c, []int64{id}); count != 0 {
+	if count, _, err := srv.acceptMails(c, []int64{id}); err != nil || count != 0 {
 		t.Errorf("重复领取物品条数=%d", count)
 	}
 	assertBundleContents(t, srv, uid, 20)
@@ -176,7 +176,7 @@ func TestBundleMailClaimFailureRollsBack(t *testing.T) {
 		WHEN NEW.item_id='food_egg' BEGIN SELECT RAISE(ABORT,'test bundle failure'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if count, _ := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), ids); count != 0 {
+	if count, _, err := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), ids); err == nil || count != 0 {
 		t.Errorf("失败领取不应提交: %d", count)
 	}
 	for _, id := range ids {
@@ -201,7 +201,7 @@ func TestBundleMailNonStackableContentsAreSeparateItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count, _ := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); count != 6 {
+	if count, _, err := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); err != nil || count != 6 {
 		t.Fatalf("领取物品条数=%d，期望6", count)
 	}
 	rows, err := db.ListItemsByContainer(context.Background(), uid, "backpack")
@@ -237,11 +237,11 @@ func TestBundleMailLegacySnapshotExpands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count, _ := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); count != 1 {
+	if count, _, err := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); err != nil || count != 1 {
 		t.Fatalf("快照组合包领取物品条数=%d", count)
 	}
 	assertBundleContents(t, srv, uid, 20)
-	if count, _ := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); count != 0 {
+	if count, _, err := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); err != nil || count != 0 {
 		t.Errorf("重复领取快照组合包: %d", count)
 	}
 	assertBundleContents(t, srv, uid, 20)
@@ -290,7 +290,7 @@ func TestBundleInvalidDefinitionsDoNotGrantItems(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if count, _ := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); count != 0 {
+			if count, _, err := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); err == nil || count != 0 {
 				t.Errorf("无效包发放了%d条物品", count)
 			}
 			assertBundleMailUnclaimed(t, db, uid, id)
@@ -327,7 +327,7 @@ func TestBundleMailRejectsPaidOrIncompleteSnapshot(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if count, _ := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); count != 0 {
+			if count, _, err := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); err == nil || count != 0 {
 				t.Fatalf("不可领取的快照发放了%d条物品", count)
 			}
 			assertBundleMailUnclaimed(t, db, uid, id)
@@ -406,7 +406,7 @@ func TestBundleMailOverflowPreservesExistingStack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count, _ := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); count != 0 {
+	if count, _, err := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); err == nil || count != 0 {
 		t.Errorf("溢出领取不应提交: %d", count)
 	}
 	after, err := db.GetItemByGUID(ctx, row.GUID)
@@ -429,7 +429,7 @@ func TestBundleUnsupportedContentsPreserveMail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count, _ := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); count != 0 {
+	if count, _, err := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); err == nil || count != 0 {
 		t.Errorf("不支持的子类别不能按兜底类型领取: %d", count)
 	}
 	assertBundleMailUnclaimed(t, db, uid, id)
@@ -466,7 +466,7 @@ func TestBundleMetaQuantityAndMirrors(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if count, granted := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); count != 1 || granted[0].GUID != original.GUID {
+			if count, granted, err := srv.acceptMails(economyTestCtx(srv, uid, proto.Args524()), []int64{id}); err != nil || count != 1 || granted[0].GUID != original.GUID {
 				t.Fatalf("邮件应合并到原堆: count=%d granted=%+v", count, granted)
 			}
 			row, err := db.GetItemByGUID(context.Background(), original.GUID)
