@@ -42,17 +42,20 @@ func TestCleanTreeHasNoIssues(t *testing.T) {
 		"specs/capabilities/c.md": "# 契约\n\n见 `docs/mechanism.md`。\n",
 		"CLAUDE.md":               "# 入口\n\n见 `docs/mechanism.md`。\n",
 	})
-	issues, st, err := Run(root)
+	report, err := Run(root)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(issues) != 0 {
-		t.Fatalf("期望零违规，实际 %d: %v", len(issues), issues)
+	if len(report.Issues) != 0 {
+		t.Fatalf("期望零违规，实际 %d: %v", len(report.Issues), report.Issues)
 	}
-	if st.Specs != 2 {
-		t.Fatalf("期望扫描 2 份 spec，实际 %d", st.Specs)
+	if len(report.Notes) != 0 {
+		t.Fatalf("期望零提示，实际 %d: %v", len(report.Notes), report.Notes)
 	}
-	if st.Refs == 0 {
+	if report.Stats.Specs != 2 {
+		t.Fatalf("期望扫描 2 份 spec，实际 %d", report.Stats.Specs)
+	}
+	if report.Stats.Refs == 0 {
 		t.Fatal("期望统计到文档路径引用，实际 0（规则可能没生效）")
 	}
 }
@@ -62,11 +65,11 @@ func TestUnindexedDocIsReported(t *testing.T) {
 		"docs/README.md": "# 索引\n",
 		"docs/orphan.md": "# 孤儿文档\n",
 	})
-	issues, _, err := Run(root)
+	report, err := Run(root)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	got := issuesByRule(issues, RuleDocIndex)
+	got := issuesByRule(report.Issues, RuleDocIndex)
 	if len(got) != 1 || got[0].Path != "docs/orphan.md" {
 		t.Fatalf("期望命中 docs/orphan.md，实际 %+v", got)
 	}
@@ -79,11 +82,11 @@ func TestInvalidSpecStatusIsReported(t *testing.T) {
 		"specs/changes/b/spec.md": "Status: implemented; partial validation\n",
 		"specs/changes/c/spec.md": "# 没有状态行\n",
 	})
-	issues, _, err := Run(root)
+	report, err := Run(root)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	got := issuesByRule(issues, RuleSpecStatus)
+	got := issuesByRule(report.Issues, RuleSpecStatus)
 	if len(got) != 3 {
 		t.Fatalf("期望 3 条状态违规，实际 %d: %+v", len(got), got)
 	}
@@ -97,11 +100,11 @@ func TestBrokenLinkIsReported(t *testing.T) {
 		"docs/README.md": "# 索引\n\n- [在](here.md)\n- [不在](missing.md)\n- [外部](https://example.com/x.md)\n- [锚点](#section)\n",
 		"docs/here.md":   "# 在\n",
 	})
-	issues, _, err := Run(root)
+	report, err := Run(root)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	got := issuesByRule(issues, RuleLink)
+	got := issuesByRule(report.Issues, RuleLink)
 	if len(got) != 1 || !strings.Contains(got[0].Message, "missing.md") {
 		t.Fatalf("期望只有一条死链命中，实际 %+v", got)
 	}
@@ -124,11 +127,11 @@ func TestBrokenDocRefIsReportedAndPlaceholdersSkipped(t *testing.T) {
 		}, "\n"),
 		"docs/gameplay.md": "# 玩法\n",
 	})
-	issues, _, err := Run(root)
+	report, err := Run(root)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	got := issuesByRule(issues, RuleRef)
+	got := issuesByRule(report.Issues, RuleRef)
 	if len(got) != 1 {
 		t.Fatalf("期望只有 gone.md 一条死引用，实际 %+v", got)
 	}
@@ -137,22 +140,50 @@ func TestBrokenDocRefIsReportedAndPlaceholdersSkipped(t *testing.T) {
 	}
 }
 
-// TestRepositoryDocs 把规则套在本仓库上：漏登记、非法状态、死链必须当场变红。
-func TestRepositoryDocs(t *testing.T) {
-	root := repoRoot(t)
-	issues, st, err := Run(root)
+// TestCapabilitySizeSoftAndHardLimits 锁定 80 行提示 / 150 行失败的边界。
+func TestCapabilitySizeSoftAndHardLimits(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"docs/README.md":                  "# 索引\n",
+		"specs/capabilities/small.md":     strings.Repeat("# 条目\n", capSoftLines),
+		"specs/capabilities/soft-over.md": strings.Repeat("# 条目\n", capSoftLines+20),
+		"specs/capabilities/hard-over.md": strings.Repeat("# 条目\n", capHardLines+1),
+	})
+	report, err := Run(root)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(issues) != 0 {
+	hard := issuesByRule(report.Issues, RuleCapSize)
+	if len(hard) != 1 || hard[0].Path != "specs/capabilities/hard-over.md" {
+		t.Fatalf("期望只命中 hard-over.md，实际 %+v", hard)
+	}
+	if !strings.Contains(hard[0].Message, "必须拆分") {
+		t.Fatalf("硬上限提示措辞异常：%s", hard[0].Message)
+	}
+	soft := issuesByRule(report.Notes, RuleCapSize)
+	if len(soft) != 1 || soft[0].Path != "specs/capabilities/soft-over.md" {
+		t.Fatalf("期望只提示 soft-over.md，实际 %+v", soft)
+	}
+	if report.Stats.Notes != 1 || report.Stats.Issues != 1 {
+		t.Fatalf("统计异常：issues=%d notes=%d", report.Stats.Issues, report.Stats.Notes)
+	}
+}
+
+// TestRepositoryDocs 把规则套在本仓库上：漏登记、非法状态、死链、超长契约必须当场变红。
+func TestRepositoryDocs(t *testing.T) {
+	root := repoRoot(t)
+	report, err := Run(root)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(report.Issues) != 0 {
 		var sb strings.Builder
-		for _, is := range issues {
+		for _, is := range report.Issues {
 			sb.WriteString("  " + is.String() + "\n")
 		}
-		t.Fatalf("文档契约违规 %d 条：\n%s", len(issues), sb.String())
+		t.Fatalf("文档契约违规 %d 条：\n%s", len(report.Issues), sb.String())
 	}
-	if st.Docs == 0 || st.Specs == 0 {
-		t.Fatalf("扫描范围异常：docs=%d specs=%d", st.Docs, st.Specs)
+	if report.Stats.Docs == 0 || report.Stats.Specs == 0 {
+		t.Fatalf("扫描范围异常：docs=%d specs=%d", report.Stats.Docs, report.Stats.Specs)
 	}
 }
 

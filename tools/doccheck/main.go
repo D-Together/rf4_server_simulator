@@ -5,7 +5,8 @@
 //	go run ./tools/doccheck           # 校验当前目录所在仓库
 //	go run ./tools/doccheck -root .   # 显式指定仓库根
 //
-// 任何一条违规都以非零码退出，并逐条打印 `路径:行号: [规则] 说明`。
+// 违规（issues）以非零码退出，并逐条打印 `路径:行号: [规则] 说明`；
+// 提示（notes）只打印、不影响退出码。
 package main
 
 import (
@@ -20,17 +21,21 @@ func main() {
 	root := flag.String("root", ".", "仓库根目录")
 	flag.Parse()
 
-	issues, stats, err := doccheck.Run(*root)
+	report, err := doccheck.Run(*root)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "doccheck: %v\n", err)
 		os.Exit(2)
 	}
-	for _, issue := range issues {
+	for _, note := range report.Notes {
+		fmt.Printf("note: %s\n", note.String())
+	}
+	for _, issue := range report.Issues {
 		fmt.Fprintln(os.Stderr, issue.String())
 	}
-	fmt.Printf("doccheck: docs=%d specs=%d links=%d refs=%d issues=%d\n",
-		stats.Docs, stats.Specs, stats.Links, stats.Refs, stats.Issues)
-	if len(issues) > 0 {
+	st := report.Stats
+	fmt.Printf("doccheck: docs=%d specs=%d links=%d refs=%d issues=%d notes=%d\n",
+		st.Docs, st.Specs, st.Links, st.Refs, st.Issues, st.Notes)
+	if len(report.Issues) > 0 {
 		os.Exit(1)
 	}
 }
