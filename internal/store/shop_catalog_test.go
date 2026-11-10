@@ -36,7 +36,7 @@ func findShopPrice(t *testing.T, rows []*ShopPrice, itemID string) *ShopPrice {
 
 func TestEmbeddedShopCatalogMatchesEvidenceAndCoversAllStores(t *testing.T) {
 	sum := sha256.Sum256(embeddedShopKindDefs)
-	const wantHash = "b559ee1324cccd348c5620b144923dd6f25296b4fa90fb08348428347e558b1b"
+	const wantHash = "fc7805d74e0b267f6cdc4fe4c8761cba4cc09af1d041ed55457d8a352220a875"
 	if got := hex.EncodeToString(sum[:]); got != wantHash {
 		t.Fatalf("商店目录 hash=%s want=%s", got, wantHash)
 	}
@@ -105,6 +105,103 @@ func TestShopCatalogRecordedStoreAndBrandReusePrecedence(t *testing.T) {
 	if len(reused) != 1 || reused[0].ItemID != "brand_recorded_item" || reused[0].Stock != 9 {
 		t.Fatalf("同 kind+同品牌实录未复用: %+v", reused)
 	}
+}
+
+func TestShopCatalogStoreShelfPrecedenceAndCopies(t *testing.T) {
+	catalog, err := embeddedShopKindCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, source, _, known := resolveShopBase("tungus_015", catalog, nil)
+	if !known || source != shopShelfSourceStore || len(base) != 2 {
+		t.Fatalf("逐店目录必须优先于kind模板: known=%v source=%s base=%+v", known, source, base)
+	}
+	if p := findShopPrice(t, base, "tungus_bot"); p.Silver != 0 || p.Gold != 22 || p.Stock != 1 {
+		t.Fatalf("逐店目录价格不符: %+v", p)
+	}
+	base[0].Gold = 999
+	again, _, _, _ := resolveShopBase("tungus_015", catalog, nil)
+	if findShopPrice(t, again, "tungus_bot").Gold != 22 {
+		t.Fatal("解析返回值不得修改内嵌目录")
+	}
+	recorded := map[string][]*ShopPrice{
+		"tungus_015": {
+			{ItemID: "tungus_bot", Gold: 25, Stock: 3},
+			{ItemID: "shad_2556", Silver: 9950, Stock: 9999},
+		},
+	}
+	exact, source, _, _ := resolveShopBase("tungus_015", catalog, recorded)
+	if source != shopShelfSourceRecorded || len(exact) != 3 || exact[0].Gold != 25 || exact[0].Stock != 3 {
+		t.Fatalf("逐店目录只补缺失商品，不得覆盖实录价格库存: source=%s base=%+v", source, exact)
+	}
+	if p := findShopPrice(t, exact, "shad_2556"); p.Silver != 9950 || p.Gold != 0 || p.Stock != 9999 {
+		t.Fatalf("上游原有商品不得替换: %+v", p)
+	}
+	if p := findShopPrice(t, exact, "tungus_12pack"); p.Silver != 0 || p.Gold != 129 || p.Stock != 1 {
+		t.Fatalf("缺失的礼盒应按目录补齐: %+v", p)
+	}
+	exact[0].Gold = 999
+	findShopPrice(t, exact, "tungus_12pack").Gold = 999
+	again, _, _, _ = resolveShopBase("tungus_015", catalog, recorded)
+	if len(recorded["tungus_015"]) != 2 || len(again) != 3 || findShopPrice(t, again, "tungus_bot").Gold != 25 || findShopPrice(t, again, "tungus_12pack").Gold != 129 {
+		t.Fatalf("合并返回值不得修改实录或内嵌目录: %+v", again)
+	}
+	recorded["tungus_015"] = append(recorded["tungus_015"], &ShopPrice{ItemID: "tungus_12pack", Gold: 150, Stock: 4})
+	complete, source, _, _ := resolveShopBase("tungus_015", catalog, recorded)
+	if source != shopShelfSourceRecorded || len(complete) != 3 || findShopPrice(t, complete, "tungus_12pack").Gold != 150 {
+		t.Fatalf("完整实录不得产生重复SKU或被目录覆盖: source=%s base=%+v", source, complete)
+	}
+}
+
+func TestTungusShopAdminAndPurchaseShelvesAgree(t *testing.T) {
+	db, err := OpenWithStatic(filepath.Join(t.TempDir(), "tungus-admin.db"),
+		filepath.Join("..", "..", "server_data", "static.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	if err := db.SetAdminShopOverride(ctx, "tungus_015", "tungus_bot", 0, 30, 0, "test"); err != nil {
+		t.Fatal(err)
+	}
+	items, err := db.ListAdminStoreItems(ctx, "tungus_015", "", 100)
+	if err != nil || len(items) != 95 {
+		t.Fatalf("管理后台应保留93件上游商品并补齐两件特产: count=%d err=%v", len(items), err)
+	}
+	var totalStock int64
+	for _, row := range items {
+		price, err := db.ShopItemGet(ctx, "tungus_015", row.ItemID)
+		if err != nil || price.Silver != row.Silver || price.Gold != row.Gold || price.Stock != row.Stock {
+			t.Fatalf("后台与成交价不一致: admin=%+v purchase=%+v err=%v", row, price, err)
+		}
+		if row.ItemID == "tungus_bot" && (row.Gold != 30 || row.Silver != 0 || row.Stock != 1000) {
+			t.Fatalf("后台应展示覆盖价格和自动补货库存: %+v", row)
+		}
+		totalStock += row.Stock
+	}
+	var recordedCount, recordedStock int64
+	if err := db.SQL.QueryRow(`SELECT COUNT(*), SUM(stock) FROM static.shop_item WHERE store_id='tungus_015'`).Scan(&recordedCount, &recordedStock); err != nil {
+		t.Fatal(err)
+	}
+	if recordedCount != 93 || totalStock != recordedStock+1001 {
+		t.Fatalf("后台应保留上游库存，仅对蜜饮自动补货: recorded=%d total=%d want=%d", recordedCount, totalStock, recordedStock+1001)
+	}
+	stores, err := db.ListAdminStores(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range stores {
+		if row.StoreID == "tungus_015" {
+			if row.ItemCount != 95 || row.TotalStock != totalStock || row.OverrideCount != 1 || row.ShelfSource != shopShelfSourceRecorded {
+				t.Fatalf("后台汇总应与补齐并自动补货后的实录货架一致: %+v", row)
+			}
+			return
+		}
+	}
+	t.Fatal("管理后台缺少通古斯卡特产店")
 }
 
 func TestShopCatalogPreservesCurrencyAndPerStoreOverrides(t *testing.T) {
