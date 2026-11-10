@@ -194,7 +194,13 @@ func u32Values(v []int64) []uint32 {
 func hFog(ctx *Ctx) ([]byte, bool) {
 	var obj *proto.Value
 	if ctx != nil && ctx.Sess != nil && ctx.Sess.Srv != nil {
-		obj = ctx.Sess.Srv.build5003(ctx.Sess.pushCtx(), ctx.Sess.Userid)
+		// 分支奖杯兜底：覆盖功能上线前已完成的历史分支，幂等；
+		// 新发奖杯推 4/22，奖赏面板下次打开（3/16）即可见。
+		srv := ctx.Sess.Srv
+		for _, cup := range srv.ensureQualificationCups(ctx.Sess.pushCtx(), ctx.Sess.Userid) {
+			srv.pushAwardUpdate(ctx.Sess.Userid, cup)
+		}
+		obj = srv.build5003(ctx.Sess.pushCtx(), ctx.Sess.Userid)
 	} else {
 		obj = (*Server)(nil).build5003FromStates(nil, build5012([]uint32{0}, seasonEndFiletime(0)))
 	}
