@@ -296,12 +296,17 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 	// 官方升级礼物：真实升级（非重放）后逐级直发背包，内部按等级幂等；
 	// 钓法大类取本尾鱼（11 级分套依据）。礼物行随结果返回，由 14/4 处理器
 	// 挂结算奖励列表（801 f8）并在响应后推 4/22；聊天播报在发放函数内完成。
+	res := r.result(false)
 	if r.LevelsGained > 0 {
-		res := r.result(false)
 		for _, g := range s.grantLevelUpGifts(ctx, uid, oldLevel, level, r.SkillID) {
 			res.giftItems = append(res.giftItems, g.Items...)
 		}
-		return res, nil
 	}
-	return r.result(false), nil
+	// 稀有鱼 / 超级稀有鱼的**鱼种数**里程碑：这尾鱼让某个鱼种首次上星（或首冠）时，
+	// 可能正好跨过 3/5/10… 与 1/3/5… 的档位。同一种鱼重复上星不推进，所以这里
+	// 必须带上本尾鱼按「鱼种」去重判定（结算早于入护，catch_log 里还没有它）。
+	if gifts := s.rarityMilestoneForCatch(ctx, uid, f); len(gifts) > 0 {
+		res.rarityGifts = gifts
+	}
+	return res, nil
 }
