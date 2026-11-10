@@ -318,7 +318,7 @@ const TUNABLE_DEFS=[
   ['electric_motor_kg_per_power','电轮电机功率折算',1,'电机功率映射为承力公斤的系数；默认1，用于后续实机校准'],
   ['hook_nibble_enabled','嘬饵机制',0,'0=默认关闭，普通鱼和奖杯鱼首次抬竿不判嘬饵；1=恢复钩型嘬饵判定。中钩后的保持率倍率始终生效'],
   ['hook_spawn_match_strength','钩型发鱼软匹配强度',0,'0=默认关闭；1=标准；2=更偏向与钩型匹配的鱼重档位。只影响发鱼，不改后台咬口/保持率倍率'],
-  ['grade_ratio_enabled','档位比例开关',1,'1=默认开启，按下列比例出鱼并完全覆盖鱼猎阶段权重与钩型发鱼软匹配；0=保持原对数正态标定'],
+  ['grade_ratio_enabled','档位比例开关',1,'三选一发鱼模式之一（在「发鱼模式」卡片切换）；开启时按四档滑杆出鱼并覆盖鱼猎阶段权重与钩型发鱼软匹配'],
   ['grade_pct_below','未达标权重',3,'未达标档的相对权重，保存时自动归一'],
   ['grade_pct_qualified','合格权重',87.5,'合格档的相对权重，保存时自动归一'],
   ['grade_pct_trophy','奖杯权重',9,'奖杯档的相对权重，保存时自动归一'],
@@ -601,10 +601,9 @@ function gradeRatioControl(t){
  });
  if(raw.every(v=>v<=0))raw.splice(0,raw.length,...GRADE_RATIO_DEFAULTS);
  const shares=gradeRatioValues(raw);
- const on=String(t.grade_ratio_enabled??1)==='1';
  const rows=GRADE_RATIO_KEYS.map((key,i)=>`<div class="grade-ratio-row"><label for="gr_${key}" style="margin:0;color:${GRADE_RATIO_META[i][1]}">${GRADE_RATIO_META[i][0]}</label><input type="range" min="0" max="100" step="0.1" id="gr_${key}" value="${raw[i]}" oninput="gradeRatioPreview()"><span class="share" id="gr_share_${i}">${shares[i].toFixed(1)}%</span></div>`).join('');
  const bar=shares.map((v,i)=>`<i style="width:${v}%;background:${GRADE_RATIO_META[i][1]}"></i>`).join('');
- return `<div class="tunable-field tunable-wide"><div><label for="tun_grade_ratio_enabled">档位比例开关</label><div class="tunable-hint">默认开启；开启后完全覆盖鱼猎阶段权重与钩型发鱼软匹配</div></div><div><button class="btn sm" id="tun_grade_ratio_enabled" style="min-width:230px;${on?'background:#2f7d4f;border-color:#2f7d4f':'opacity:.6'}" onclick="saveTunableVal('grade_ratio_enabled',${on?0:1})">${on?'档位比例：开（点击关闭）':'档位比例：关（点击开启）'}</button></div></div><div class="grade-ratio-card"><div class="grade-ratio-head"><div><b>四档相对权重</b><div class="tunable-hint">拖动滑杆即可，不需要手动凑满 100%。保存后自动换算成总和 100% 的占比；鱼种缺少档位时，服务端再按可用档位归一。</div></div><div class="grade-ratio-summary" id="gr_summary">实际占比：${shares.map(v=>v.toFixed(1)+'%').join(' / ')}</div></div><div class="grade-ratio-bar" id="gr_bar">${bar}</div>${rows}<div class="grade-ratio-actions"><button class="btn good sm" onclick="saveGradeRatio()">保存四档比例</button><button class="btn alt sm" onclick="resetGradeRatio()">恢复默认比例</button></div></div>`;
+ return `<div class="grade-ratio-card"><div class="grade-ratio-head"><div><b>档位比例·四档相对权重</b><div class="tunable-hint">拖动滑杆即可，不需要手动凑满 100%。保存后自动换算成总和 100% 的占比；鱼种缺少档位时，服务端再按可用档位归一。</div></div><div class="grade-ratio-summary" id="gr_summary">实际占比：${shares.map(v=>v.toFixed(1)+'%').join(' / ')}</div></div><div class="grade-ratio-bar" id="gr_bar">${bar}</div>${rows}<div class="grade-ratio-actions"><button class="btn good sm" onclick="saveGradeRatio()">保存四档比例</button><button class="btn alt sm" onclick="resetGradeRatio()">恢复默认比例</button></div></div>`;
 }
 function gradeRatioPreview(){
  const values=GRADE_RATIO_KEYS.map(key=>parseFloat($('#gr_'+key).value)||0);
@@ -630,8 +629,91 @@ async function resetGradeRatio(){
  gradeRatioPreview();
  await saveGradeRatio();
 }
+// ---- 发鱼模式三选一（档位比例 / 鱼猎四阶段 / 两档制）----
+const SPAWN_MODE_OPTIONS=[
+ ['grade_ratio','档位比例','按下方四档滑杆出鱼，覆盖鱼猎阶段权重与钩型发鱼软匹配'],
+ ['fish_hunt','鱼猎四阶段','淡水按日常/聚鱼/发窝/巨物四阶段出鱼；海钓、路亚同机制'],
+ ['two_stage','两档制（底浮）','底钓/浮钓只有日常与打窝两档，权重见下方滑杆；海钓、路亚仍走四阶段']
+];
+const TWO_STAGE_GROUPS={
+ daily:{keys:['two_stage_daily_below','two_stage_daily_qualified','two_stage_daily_trophy','two_stage_daily_super'],
+        defaults:[10,86.5,3,.5],title:'日常阶段·四档占比',
+        hint:'不打窝（或窝料/环境/昼夜未达标）时按这组占比出鱼'},
+ baited:{keys:['two_stage_baited_below','two_stage_baited_qualified','two_stage_baited_trophy','two_stage_baited_super'],
+         defaults:[1,92,6,1],title:'打窝阶段·四档占比',
+         hint:'窝料就位进入打窝阶段后按这组占比出鱼；奖杯保底与脱钩补偿照常生效'}
+};
+function spawnModeOf(t){
+ if(String(t.grade_ratio_enabled??'')==='1')return 'grade_ratio';
+ if(String(t.two_stage_hunt_enabled??'')==='1')return 'two_stage';
+ if(String(t.fish_hunt_enabled??'')==='1')return 'fish_hunt';
+ return 'legacy';
+}
+async function saveSpawnMode(mode){
+ const opt=SPAWN_MODE_OPTIONS.find(o=>o[0]===mode);
+ if(!opt)return;
+ await api('/api/fish/spawn_mode',{method:'POST',body:JSON.stringify({mode})});
+ toast('发鱼模式已切换为「'+opt[1]+'」，最多 30 秒生效');
+ await loadTunables();
+}
+function twoStageSliderCard(g,t){
+ const cfg=TWO_STAGE_GROUPS[g];
+ const raw=cfg.keys.map((key,i)=>{const v=parseFloat(String(t[key]??cfg.defaults[i]));return Number.isFinite(v)&&v>0?v:0});
+ if(raw.every(v=>v<=0))raw.splice(0,raw.length,...cfg.defaults);
+ const shares=gradeRatioValues(raw);
+ const rows=cfg.keys.map((key,i)=>`<div class="grade-ratio-row"><label for="ts_${g}_${key}" style="margin:0;color:${GRADE_RATIO_META[i][1]}">${GRADE_RATIO_META[i][0]}</label><input type="range" min="0" max="100" step="0.1" id="ts_${g}_${key}" value="${raw[i]}" oninput="twoStagePreview('${g}')"><span class="share" id="ts_${g}_share_${i}">${shares[i].toFixed(1)}%</span></div>`).join('');
+ const bar=shares.map((v,i)=>`<i style="width:${v}%;background:${GRADE_RATIO_META[i][1]}"></i>`).join('');
+ return `<div class="grade-ratio-card"><div class="grade-ratio-head"><div><b>${cfg.title}</b><div class="tunable-hint">${cfg.hint}。保存后自动换算成总和 100% 的占比。</div></div><div class="grade-ratio-summary" id="ts_${g}_summary">实际占比：${shares.map(v=>v.toFixed(1)+'%').join(' / ')}</div></div><div class="grade-ratio-bar" id="ts_${g}_bar">${bar}</div>${rows}<div class="grade-ratio-actions"><button class="btn good sm" onclick="saveTwoStage('${g}')">保存本组比例</button><button class="btn alt sm" onclick="resetTwoStage('${g}')">恢复默认</button></div></div>`;
+}
+function twoStagePreview(g){
+ const cfg=TWO_STAGE_GROUPS[g];
+ const values=cfg.keys.map(key=>parseFloat($('#ts_'+g+'_'+key).value)||0);
+ const shares=gradeRatioValues(values);
+ shares.forEach((share,i)=>{const el=$('#ts_'+g+'_share_'+i);if(el)el.textContent=share.toFixed(1)+'%';const seg=$('#ts_'+g+'_bar')?.children[i];if(seg)seg.style.width=share+'%'});
+ const summary=$('#ts_'+g+'_summary');
+ if(summary)summary.textContent=values.some(v=>v>0)?'实际占比：'+shares.map(v=>v.toFixed(1)+'%').join(' / '):'至少保留一个档位大于 0';
+}
+async function saveTwoStage(g){
+ const cfg=TWO_STAGE_GROUPS[g];
+ const values=cfg.keys.map(key=>parseFloat($('#ts_'+g+'_'+key).value)||0);
+ const total=values.reduce((n,v)=>n+Math.max(0,v),0);
+ if(total<=0){toast('至少保留一个档位大于 0','bad');return}
+ const shares=gradeRatioPercentValues(values);
+ for(let i=0;i<cfg.keys.length;i++){
+  await api('/api/tunables',{method:'POST',body:JSON.stringify({key:cfg.keys[i],value:String(shares[i])})});
+ }
+ toast('已保存：'+shares.map(v=>v.toFixed(1)+'%').join(' / ')+'，最多 30 秒生效');
+ await loadTunables();
+}
+async function resetTwoStage(g){
+ const cfg=TWO_STAGE_GROUPS[g];
+ cfg.keys.forEach((key,i)=>{const el=$('#ts_'+g+'_'+key);if(el)el.value=cfg.defaults[i]});
+ twoStagePreview(g);
+ await saveTwoStage(g);
+}
+function spawnModeControl(t){
+ const mode=spawnModeOf(t);
+ const btns=SPAWN_MODE_OPTIONS.map(([m,label,hint])=>`<button class="btn sm" style="min-width:180px;${mode===m?'background:#2f7d4f;border-color:#2f7d4f':'opacity:.6'}" onclick="askSpawnMode('${m}')" title="${hint}">${label}${mode===m?'：当前':''}</button>`).join('');
+ const legacyNote=mode==='legacy'?'<div class="tunable-hint" style="margin-top:8px">当前三个开关全部关闭：发鱼回退旧的对数正态体重采样路径。请选择上面三种模式之一。</div>':'';
+ const fishHuntNote=mode==='fish_hunt'?'<div class="tunable-hint" style="margin-top:8px">鱼猎四阶段权重内置为固定值（日常 74.7/24/1/0.3 · 聚鱼 54.5/43/2/0.5 · 发窝 30/61.2/6.8/2 · 巨物 10/64/20/6），暂无滑杆；奖杯保底与脱钩补偿照常生效。</div>':'';
+ let body='';
+ if(mode==='grade_ratio')body=gradeRatioControl(t);
+ else if(mode==='two_stage')body=twoStageSliderCard('daily',t)+twoStageSliderCard('baited',t);
+ return `<div class="tunable-field tunable-wide"><div><label>发鱼模式</label><div class="tunable-hint">三种模式互斥，点击即整体切换（写入三个开关，单事务保存）；切换后最多 30 秒生效。海钓与路亚在三种模式下都走四阶段。</div></div><div style="display:flex;gap:8px;flex-wrap:wrap">${btns}</div>${legacyNote}${fishHuntNote}</div>${body}`;
+}
+async function askSpawnMode(mode){
+ const opt=SPAWN_MODE_OPTIONS.find(o=>o[0]===mode);
+ if(!opt)return;
+ const cur=spawnModeOf(lastTunables);
+ if(cur===mode){toast('当前已是「'+opt[1]+'」模式');return}
+ askConfirm('切换发鱼模式','切换为「'+opt[1]+'」？三种模式互斥，会整体改写档位开关组合。',async()=>{
+  try{await saveSpawnMode(mode)}catch(e){toast(e.message,'bad')}
+ });
+}
+let lastTunables={};
 async function loadTunables(){
  const t=await api('/api/tunables');
+ lastTunables=t;
  // 行式布局：左=标签+说明，右=数值+保存/恢复默认，双列排布
  const field=key=>{
   const [,label,def,hint]=TUNABLE_DEFS.find(x=>x[0]===key);
@@ -671,7 +753,7 @@ async function loadTunables(){
   +group('钩型与咬口','嘬饵与发鱼软匹配默认关闭；后台钩型倍率仍独立生效',['hook_nibble_enabled','hook_spawn_match_strength'])
   +group('经验与结算','改后只对新结算的鱼生效，已入护的不重算',['xp_gain','release_xp_ratio'])
   +group('钓获掉卡','本地自定概率；最多 30 秒生效，重连或重复结算不补抽',['card_drop_normal','card_drop_star','card_drop_blue','card_drop_rare_scale'])
-  +`<section class="tunable-group"><h3>鱼获档位比例<small style="font-weight:400;margin-left:8px;color:var(--muted)">滑杆配置相对权重；缺某档阈值时其余档自动归一；开启后完全覆盖旧档位机制</small></h3><div class="tunable-fields">${gradeRatioControl(t)}</div></section>`
+  +`<section class="tunable-group"><h3>发鱼模式<small style="font-weight:400;margin-left:8px;color:var(--muted)">档位比例 · 鱼猎四阶段 · 两档制（底浮）三选一；选中哪种就显示哪组的权重设置</small></h3><div class="tunable-fields">${spawnModeControl(t)}</div></section>`
   +group('钓获礼包','钓上鱼当场开箱，奖励直接进背包并播报',['loot_box_enabled','loot_box_chance','loot_box_trophy_guarantee'])
   +group('聊天通知','跑鱼提示与上钩播报分别设置；保存后最多 30 秒生效',['fish_escape_taunt','fish_hooked_chat'])
   +group('限时活动','同一时间只允许开启一个活动 · 分支 ID 可在下方任意组合，开关决定挂到新年还是周年面板 · 改完都要完整退出游戏重登',['event_newyear_enabled','event_anniversary_enabled','event_branches','event_anniversary_end_unix']);

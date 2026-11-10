@@ -777,6 +777,42 @@ func (d *DB) TunableSet(ctx context.Context, key, value, updatedBy string) error
 	return err
 }
 
+// SpawnModeSet 原子写入发鱼模式三开关：grade_ratio_enabled、fish_hunt_enabled、
+// two_stage_hunt_enabled。三种模式互斥，事务保证不会出现中间态。
+func (d *DB) SpawnModeSet(ctx context.Context, mode, updatedBy string) error {
+	values := map[string]string{
+		"grade_ratio_enabled":    "0",
+		"fish_hunt_enabled":      "0",
+		"two_stage_hunt_enabled": "0",
+	}
+	switch mode {
+	case "grade_ratio":
+		values["grade_ratio_enabled"] = "1"
+	case "fish_hunt":
+		values["fish_hunt_enabled"] = "1"
+	case "two_stage":
+		values["two_stage_hunt_enabled"] = "1"
+	default:
+		return fmt.Errorf("未知发鱼模式: %s", mode)
+	}
+	now := float64(time.Now().Unix())
+	tx, err := d.SQL.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, key := range []string{"grade_ratio_enabled", "fish_hunt_enabled", "two_stage_hunt_enabled"} {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO tunables(key, value, updated_by, updated_ts) VALUES(?,?,?,?)
+			ON CONFLICT (key) DO UPDATE SET value=?, updated_by=?, updated_ts=?`,
+			key, values[key], updatedBy, now,
+			values[key], updatedBy, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // TunableList 全量参数。
 func (d *DB) TunableList(ctx context.Context) (map[string]string, error) {
 	rows, err := d.SQL.QueryContext(ctx, `SELECT key, value FROM tunables ORDER BY key`)

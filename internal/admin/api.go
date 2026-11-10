@@ -98,6 +98,8 @@ func NewServer(cfg config.Admin, db *store.DB, log logger, webFS fs.FS) *Server 
 	mux.HandleFunc("POST /api/fish/config", auth(s.handleFishConfigSave))
 	mux.HandleFunc("POST /api/fish/config/reset", auth(s.handleFishConfigReset))
 	mux.HandleFunc("GET /api/fish/pool", auth(s.handleFishPool))
+	mux.HandleFunc("GET /api/fish/spawn_mode", auth(s.handleSpawnModeGet))
+	mux.HandleFunc("POST /api/fish/spawn_mode", auth(s.handleSpawnModeSet))
 	mux.HandleFunc("GET /api/hooks/profiles", auth(s.handleHookProfiles))
 	mux.HandleFunc("POST /api/hooks/profiles", auth(s.handleHookProfileSave))
 	mux.HandleFunc("GET /api/bait/prefs", auth(s.handleBaitPrefs))
@@ -316,7 +318,7 @@ func (s *Server) handleTunableSet(w http.ResponseWriter, r *http.Request) {
 		httpError(w, 400, "参数错误")
 		return
 	}
-	if (req.Key == "fish_ecology_enabled" || req.Key == "fish_bait_rules_enabled" || req.Key == "fish_distribution_enabled" || req.Key == "fish_weather_enabled" || req.Key == "happy_hour_enabled" || req.Key == "grade_ratio_enabled" || req.Key == "hook_nibble_enabled" || req.Key == "event_anniversary_enabled" || req.Key == "event_newyear_enabled") && req.Value != "0" && req.Value != "1" {
+	if (req.Key == "fish_ecology_enabled" || req.Key == "fish_bait_rules_enabled" || req.Key == "fish_distribution_enabled" || req.Key == "fish_weather_enabled" || req.Key == "happy_hour_enabled" || req.Key == "grade_ratio_enabled" || req.Key == "fish_hunt_enabled" || req.Key == "two_stage_hunt_enabled" || req.Key == "hook_nibble_enabled" || req.Key == "event_anniversary_enabled" || req.Key == "event_newyear_enabled") && req.Value != "0" && req.Value != "1" {
 		httpError(w, 400, "开关只能为 0 或 1")
 		return
 	}
@@ -331,6 +333,13 @@ func (s *Server) handleTunableSet(w http.ResponseWriter, r *http.Request) {
 		v, err := strconv.ParseFloat(req.Value, 64)
 		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
 			httpError(w, 400, "鱼获档位权重必须是非负数字")
+			return
+		}
+	}
+	if strings.HasPrefix(req.Key, "two_stage_daily_") || strings.HasPrefix(req.Key, "two_stage_baited_") {
+		v, err := strconv.ParseFloat(req.Value, 64)
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+			httpError(w, 400, "两档制权重必须是非负数字")
 			return
 		}
 	}
@@ -359,6 +368,56 @@ func (s *Server) handleTunableSet(w http.ResponseWriter, r *http.Request) {
 	// 通知主服立即刷新运行参数；后台也会按缓存周期生效。
 	_ = s.db.QueuePush(r.Context(), mustJSON(map[string]any{"op": "reload_tunables"}))
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+// ---- 发鱼模式 ----
+
+// spawnModeFor 推导当前发鱼模式。三开关互斥由后台维护；直改数据库出现的
+// 组合按 grade_ratio > two_stage > fish_hunt 的优先级解释，全 0 是旧采样路径。
+func spawnModeFor(t map[string]string) string {
+	if t["grade_ratio_enabled"] == "1" {
+		return "grade_ratio"
+	}
+	if t["two_stage_hunt_enabled"] == "1" {
+		return "two_stage"
+	}
+	if t["fish_hunt_enabled"] == "1" {
+		return "fish_hunt"
+	}
+	return "legacy"
+}
+
+func (s *Server) handleSpawnModeGet(w http.ResponseWriter, r *http.Request) {
+	t, err := s.db.TunableList(r.Context())
+	if err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"mode": spawnModeFor(t)})
+}
+
+func (s *Server) handleSpawnModeSet(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		httpError(w, 400, "参数错误")
+		return
+	}
+	switch req.Mode {
+	case "grade_ratio", "fish_hunt", "two_stage":
+	default:
+		httpError(w, 400, "发鱼模式只能是 grade_ratio、fish_hunt 或 two_stage")
+		return
+	}
+	if err := s.db.SpawnModeSet(r.Context(), req.Mode, adminOf(r)); err != nil {
+		httpError(w, 500, err.Error())
+		return
+	}
+	_ = s.db.AuditLogWrite(r.Context(), adminOf(r), "spawn_mode", "mode", req.Mode)
+	// 通知主服立即刷新运行参数；后台也会按缓存周期生效。
+	_ = s.db.QueuePush(r.Context(), mustJSON(map[string]any{"op": "reload_tunables"}))
+	writeJSON(w, map[string]any{"ok": true, "mode": req.Mode})
 }
 
 // ---- 玩家管理 ----

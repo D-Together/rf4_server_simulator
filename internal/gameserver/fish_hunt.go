@@ -30,6 +30,7 @@ const (
 const (
 	tunableHookNibbleEnabled      = "hook_nibble_enabled"
 	tunableHookSpawnMatchStrength = "hook_spawn_match_strength"
+	tunableTwoStageHuntEnabled    = "two_stage_hunt_enabled"
 )
 
 func (s *Server) hookNibbleEnabled() bool {
@@ -38,6 +39,19 @@ func (s *Server) hookNibbleEnabled() bool {
 
 func (s *Server) gradeRatioEnabled() bool {
 	return s != nil && s.tunableF("grade_ratio_enabled", 1) == 1
+}
+
+// twoStageHuntEnabled 是第三种发鱼模式：淡水底钓/浮钓只有日常与打窝两档。
+// 与档位比例、鱼猎四阶段三选一，由后台 spawn_mode 原子切换。
+func (s *Server) twoStageHuntEnabled() bool {
+	return s != nil && s.tunableF(tunableTwoStageHuntEnabled, 0) == 1
+}
+
+// huntStateEnabled 是鱼猎状态机（进度/保底/锚点）的总门。两档制模式把
+// fish_hunt_enabled 关掉，但 pity、窝料进度和锚点重置必须继续记账，
+// 否则切回四阶段时进度凭空丢失；该门只扩权不缩权。
+func (s *Server) huntStateEnabled() bool {
+	return s.fishHuntEnabled() || s.twoStageHuntEnabled()
 }
 
 // effectiveHookSpawnMatchStrength 返回真正参与发鱼的钩型软匹配强度。
@@ -86,6 +100,7 @@ type fishHuntState struct {
 
 type fishHuntReadiness struct {
 	Stage int
+	Mode  int
 	A     float64
 	E     float64
 	G     float64
@@ -100,7 +115,7 @@ func (s *Server) fishHuntEnabled() bool {
 
 func (s *Server) loadFishHuntState(ctx context.Context, uid int64, loc string, spot uint64) *fishHuntState {
 	h := &fishHuntState{UID: uid, Loc: loc, Spot: spot}
-	if !s.fishHuntEnabled() || uid == 0 || loc == "" {
+	if !s.huntStateEnabled() || uid == 0 || loc == "" {
 		return h
 	}
 	var anchorKnown, zoneKnown, compGrade int64
@@ -123,7 +138,7 @@ func (s *Server) loadFishHuntState(ctx context.Context, uid int64, loc string, s
 }
 
 func (s *Server) saveFishHuntState(ctx context.Context, h *fishHuntState) {
-	if !s.fishHuntEnabled() || h == nil || h.UID == 0 || h.Loc == "" {
+	if !s.huntStateEnabled() || h == nil || h.UID == 0 || h.Loc == "" {
 		return
 	}
 	h.UpdatedTS = float64(time.Now().Unix())
@@ -155,7 +170,7 @@ func (s *Server) saveFishHuntState(ctx context.Context, h *fishHuntState) {
 // huntAnchorGroundbait 只在超过 20 米的新窝点时重置狩猎进程。
 // 同一窝点补料只刷新窝账，不清空发窝度。
 func (s *Server) huntAnchorGroundbait(ctx context.Context, uid int64, loc string, spot uint64, x, z float64) {
-	if !s.fishHuntEnabled() {
+	if !s.huntStateEnabled() {
 		return
 	}
 	h := s.loadFishHuntState(ctx, uid, loc, spot)
@@ -255,12 +270,18 @@ func marineDepthMatch(c fishRollContext, t marineFishTraits) float64 {
 // fishHuntReadiness 根据水域模式分派：淡水用窝料，海图用声呐区号和搜索动作。
 func (s *Server) fishHuntReadiness(ctx context.Context, key string, c fishRollContext, h *fishHuntState) fishHuntReadiness {
 	if marineHuntContext(c) {
-		return s.fishMarineHuntReadiness(ctx, key, c, h)
+		out := s.fishMarineHuntReadiness(ctx, key, c, h)
+		out.Mode = fishHuntModeMarine
+		return out
 	}
 	if rigTypeLureFamily[c.rigType] {
-		return s.fishLureHuntReadiness(ctx, key, c, h)
+		out := s.fishLureHuntReadiness(ctx, key, c, h)
+		out.Mode = fishHuntModeLure
+		return out
 	}
-	return s.fishFreshwaterHuntReadiness(ctx, key, c, h)
+	out := s.fishFreshwaterHuntReadiness(ctx, key, c, h)
+	out.Mode = fishHuntModeFreshwater
+	return out
 }
 
 func marineHuntContext(c fishRollContext) bool {
@@ -607,17 +628,57 @@ func (s *Server) fishFreshwaterHuntReadiness(ctx context.Context, key string, c 
 	return out
 }
 
-func fishHuntWeights(stage int, h *fishHuntState, trophyLuck float64,
+// twoStageWeightKeys 返回两档制四档权重的 tunable 键与默认值。
+func twoStageWeightKeys(daily bool) ([4]string, [4]float64) {
+	if daily {
+		return [4]string{"two_stage_daily_below", "two_stage_daily_qualified",
+				"two_stage_daily_trophy", "two_stage_daily_super"},
+			[4]float64{10, 86.5, 3, .5}
+	}
+	return [4]string{"two_stage_baited_below", "two_stage_baited_qualified",
+			"two_stage_baited_trophy", "two_stage_baited_super"},
+		[4]float64{1, 92, 6, 1}
+}
+
+// twoStageGradeWeights 读取两档制四档权重：负值与非数值按 0 处理，
+// 总和归一到 100（与后台滑杆保存口径一致），全 0 回退默认表。
+func (s *Server) twoStageGradeWeights(daily bool) [4]float64 {
+	keys, defs := twoStageWeightKeys(daily)
+	w := [4]float64{}
+	for i := range w {
+		v := s.tunableF(keys[i], defs[i])
+		if v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+			v = 0
+		}
+		w[i] = v
+	}
+	total := w[0] + w[1] + w[2] + w[3]
+	if total <= 0 {
+		return defs
+	}
+	for i := range w {
+		w[i] = w[i] / total * 100
+	}
+	return w
+}
+
+func (s *Server) fishHuntWeights(mode, stage int, h *fishHuntState, trophyLuck float64,
 	comp bool) (w1, w2, w3, w4 float64, forceTrophy bool) {
-	switch stage {
-	case fishHuntGather:
-		w1, w2, w3, w4 = 54.5, 43, 2, .5
-	case fishHuntActive:
-		w1, w2, w3, w4 = 30, 61.2, 6.8, 2
-	case fishHuntGiant:
-		w1, w2, w3, w4 = 10, 64, 20, 6
-	default:
-		w1, w2, w3, w4 = 74.7, 24, 1, .3
+	if mode == fishHuntModeFreshwater && s.twoStageHuntEnabled() {
+		// 两档制：日常与打窝各一张后台可调表；原聚鱼/发窝/巨物阶段全部按打窝出。
+		w := s.twoStageGradeWeights(stage == fishHuntDaily)
+		w1, w2, w3, w4 = w[0], w[1], w[2], w[3]
+	} else {
+		switch stage {
+		case fishHuntGather:
+			w1, w2, w3, w4 = 54.5, 43, 2, .5
+		case fishHuntActive:
+			w1, w2, w3, w4 = 30, 61.2, 6.8, 2
+		case fishHuntGiant:
+			w1, w2, w3, w4 = 10, 64, 20, 6
+		default:
+			w1, w2, w3, w4 = 74.7, 24, 1, .3
+		}
 	}
 	if stage > fishHuntDaily && h != nil {
 		switch {
@@ -757,7 +818,7 @@ func (s *Server) sampleHuntWeight(ctx context.Context, key string, modeMult, sca
 		}
 		return weight, s.rollGradeForRoll(ctx, key, weight, c), readiness
 	}
-	w1, w2, w3, w4, force := fishHuntWeights(readiness.Stage, h, c.skill.TrophyLuck, readiness.Comp)
+	w1, w2, w3, w4, force := s.fishHuntWeights(readiness.Mode, readiness.Stage, h, c.skill.TrophyLuck, readiness.Comp)
 	if strength := s.effectiveHookSpawnMatchStrength(); strength > 0 && !force {
 		compat := s.hookSpawnCompatibilityByGrade(ctx, c, key, scale, modeMult)
 		applyHookSpawnMatch(&w1, &w2, &w3, &w4, compat, strength)
@@ -805,7 +866,7 @@ func (s *Server) sampleHuntWeight(ctx context.Context, key string, modeMult, sca
 }
 
 func (s *Server) recordHuntBite(ctx context.Context, h *fishHuntState) {
-	if !s.fishHuntEnabled() || h == nil {
+	if !s.huntStateEnabled() || h == nil {
 		return
 	}
 	h.ValidBites++
@@ -814,7 +875,7 @@ func (s *Server) recordHuntBite(ctx context.Context, h *fishHuntState) {
 
 // recordHuntCatch 只对同一 FishGUID 计一次，避免 14/4 重放重复推进保底。
 func (s *Server) recordHuntCatch(ctx context.Context, uid int64, loc string, spot uint64, f *RolledFish) {
-	if f == nil || !s.fishHuntEnabled() {
+	if f == nil || !s.huntStateEnabled() {
 		return
 	}
 	h := s.loadFishHuntState(ctx, uid, loc, spot)
@@ -840,7 +901,7 @@ func (s *Server) recordHuntCatch(ctx context.Context, uid int64, loc string, spo
 }
 
 func (s *Server) recordHuntEscape(ctx context.Context, uid int64, loc string, spot uint64, f *RolledFish) {
-	if f == nil || f.Grade < 3 || !s.fishHuntEnabled() {
+	if f == nil || f.Grade < 3 || !s.huntStateEnabled() {
 		return
 	}
 	h := s.loadFishHuntState(ctx, uid, loc, spot)
@@ -870,7 +931,13 @@ func consumeFishHuntCompensation(h *fishHuntState, now int64) {
 	}
 }
 
-func fishHuntStageName(stage int) string {
+func (s *Server) fishHuntStageName(mode, stage int) string {
+	if mode == fishHuntModeFreshwater && s.twoStageHuntEnabled() {
+		if stage == fishHuntDaily {
+			return "日常"
+		}
+		return "打窝"
+	}
 	switch stage {
 	case fishHuntGather:
 		return "聚鱼"
