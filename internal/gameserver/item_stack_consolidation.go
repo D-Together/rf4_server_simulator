@@ -16,8 +16,8 @@ type itemStackGroupKey struct {
 	itemID    string
 }
 
-func nonReturnableCountableCategory(category int64) bool {
-	return countableCategories[category] && !storeReturnCategoryAllowed(category)
+func foodOrBaitStackCategory(category int64) bool {
+	return category == 26 || category == 27
 }
 
 func clearStackStoreReceipt(class string, fields []proto.Field) bool {
@@ -81,7 +81,7 @@ func (s *Server) ConsolidateNonReturnableItemStacks(ctx context.Context) (int, e
 	groups := make(map[itemStackGroupKey][]*store.Item)
 	order := make([]itemStackGroupKey, 0)
 	for _, item := range items {
-		if !nonReturnableCountableCategory(item.category) {
+		if !foodOrBaitStackCategory(item.category) {
 			continue
 		}
 		row := item.row

@@ -134,6 +134,77 @@ func TestConsolidateNonReturnableItemStacksPreservesBoundariesAndReferences(t *t
 	}
 }
 
+func TestConsolidateNonReturnableItemStacksPreservesRecipeBackedGroundbaitInstances(t *testing.T) {
+	srv, db := newEconomyTxTestServer(t)
+	const (
+		uid    = int64(4622)
+		feedID = "recipe_feedcompleted"
+		pvaID  = "recipe_pva_stick_s"
+	)
+	seedEconomyItemDef(t, db, 994021, feedID, 46)
+	seedEconomyItemDef(t, db, 994022, pvaID, 30)
+
+	feedAnimal := economyTestItem(t, srv, uid, feedID, "backpack", 60)
+	feedPlant := economyTestItem(t, srv, uid, feedID, "backpack", 60)
+	pvaAnimal := economyTestItem(t, srv, uid, pvaID, "backpack", 10)
+	pvaPlant := economyTestItem(t, srv, uid, pvaID, "backpack", 10)
+	setStackOrder(t, db, feedAnimal, feedPlant)
+	setStackOrder(t, db, pvaAnimal, pvaPlant)
+
+	recipes := map[string]string{
+		feedAnimal.GUID: `["feedadds_bloodworms"]`,
+		feedPlant.GUID:  `["feedadds_corn"]`,
+		pvaAnimal.GUID:  `["feedadds_casters"]`,
+		pvaPlant.GUID:   `["feedadds_pelets"]`,
+	}
+	for guid, mats := range recipes {
+		if _, err := db.SQL.Exec(`INSERT INTO groundbait_recipe(instance_guid,mats_json,created_ts) VALUES(?,?,1)`, guid, mats); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, itemID := range []string{feedID, pvaID} {
+		rows, _, _ := stackingTestStats(t, db, uid, itemID, "backpack")
+		if rows != 2 {
+			t.Fatalf("测试前置错误：%s 实例数=%d，期望 2", itemID, rows)
+		}
+	}
+	var recipeRows int64
+	if err := db.SQL.QueryRow(`SELECT COUNT(*) FROM groundbait_recipe`).Scan(&recipeRows); err != nil || recipeRows != 4 {
+		t.Fatalf("测试前置错误：配方行=%d err=%v", recipeRows, err)
+	}
+
+	removed, err := srv.ConsolidateNonReturnableItemStacks(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 0 {
+		t.Fatalf("带逐实例配方的窝料/PVA 不得被整理删除: removed=%d", removed)
+	}
+	for _, tc := range []struct {
+		item string
+		qty  int64
+	}{
+		{feedID, 120},
+		{pvaID, 20},
+	} {
+		rows, qty, _ := stackingTestStats(t, db, uid, tc.item, "backpack")
+		if rows != 2 || qty != tc.qty {
+			t.Errorf("%s 的逐实例堆被改变: rows=%d qty=%d", tc.item, rows, qty)
+		}
+	}
+	for guid, want := range recipes {
+		var got string
+		if err := db.SQL.QueryRow(`
+			SELECT r.mats_json FROM groundbait_recipe r
+			JOIN item i ON i.guid=r.instance_guid
+			WHERE r.instance_guid=? AND i.uid=?`, guid, uid).Scan(&got); err != nil {
+			t.Errorf("实例 %s 的配方丢失或成为孤儿: %v", guid, err)
+		} else if got != want {
+			t.Errorf("实例 %s 的配方改变: got=%s want=%s", guid, got, want)
+		}
+	}
+}
+
 func TestConsolidateNonReturnableItemStacksRollsBackOnDeleteFailure(t *testing.T) {
 	srv, db := newEconomyTxTestServer(t)
 	const (
