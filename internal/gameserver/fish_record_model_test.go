@@ -3,6 +3,7 @@ package gameserver
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"rf4server/internal/store"
 )
@@ -140,5 +141,123 @@ func TestFishModelVariantDottedSleeperKey(t *testing.T) {
 		if !seen[want] {
 			t.Fatalf("族 %s 从未被选中：%v", want, seen)
 		}
+	}
+}
+
+// 历史 catch_log 里 catch_guid 为空的行：同一尾鱼在 3/17 面板、3/2 统计、渔护详情、
+// 资格鱼表四处必须给出同一个族名，且反复刷新不变。
+//
+// 旧实现对这些行退化成 rand.Intn(2)，每刷新一次性别都可能换——正好破坏本改动要保证的
+// 「同一尾鱼模型一致」（review P1）。现在改用「鱼种+克重+体长」内容种子兜底。
+func TestRecordCard320StableWithoutCatchGUID(t *testing.T) {
+	db := seedSalmonLines(t)
+	srv := newVariantTestServer(t, map[string]float64{})
+	srv.SetDB(db)
+
+	rec := store.CatchRecord{
+		ID: 991, FishKey: "a_salmon", WeightG: 42564, LengthM: 1.68549,
+		Grade: 4, GUID: "", LocLevel: "level_011_ladoga_02", // catch_guid 缺失
+	}
+	first := srv.recordCard320FromCatch(rec).Field(13).Str
+	if first == nil || *first == "" {
+		t.Fatal("没有 catch_guid 的旧记录也必须拿到族名，不能留空走默认族")
+	}
+	// 反复读取必须一致（旧实现这里每次都可能变）。
+	for i := 0; i < 20; i++ {
+		again := srv.recordCard320FromCatch(rec).Field(13).Str
+		if again == nil || *again != *first {
+			t.Fatalf("同一尾旧鱼第 %d 次读到的族名变了：%v -> %v", i+2, first, again)
+		}
+	}
+
+	// 3/2 统计面板同一尾鱼。
+	statCard := srv.recordCard320(catchStatRow{
+		FishKey: rec.FishKey, WeightG: rec.WeightG, LengthM: rec.LengthM,
+		Grade: rec.Grade, GUID: "", LocLevel: rec.LocLevel,
+	}, true, func(string) bool { return false })
+	if f := statCard.Field(13).Str; f == nil || *f != *first {
+		t.Fatalf("统计面板 320.f13=%v，期望与稀有鱼面板一致的 %q", f, *first)
+	}
+
+	// 渔护详情 25.f11 与结算用同一套推导。
+	entry := &store.KeepnetEntry{
+		EchoGUID: "", Species: rec.FishKey, WeightG: rec.WeightG,
+		LengthM: rec.LengthM, Cat: rec.Grade, KeepLevel: rec.LocLevel,
+	}
+	srv.fillKeepnetVariant(entry)
+	if entry.ModelVariant != *first {
+		t.Fatalf("渔护 25.f11=%q，期望 %q", entry.ModelVariant, *first)
+	}
+
+	// 资格鱼表（5005.f5）在 FishGUID 缺失时同样要稳定。
+	qf := store.QualificationFish{
+		GUID: "ce1f0b1e8dd6a0e0c2c9a5a0d3f9b222", FishGUID: "",
+		Species: rec.FishKey, NameZh: "大西洋鲑", WeightG: rec.WeightG,
+		LengthM: rec.LengthM, Grade: rec.Grade,
+	}
+	q1 := srv.qualificationFishObject(qf).Field(5).Str
+	q2 := srv.qualificationFishObject(qf).Field(5).Str
+	if q1 == nil || q2 == nil || *q1 != *q2 {
+		t.Fatalf("资格鱼表族名不稳定：%v / %v", q1, q2)
+	}
+	if *q1 != *first {
+		t.Fatalf("资格鱼表 5005.f5=%q，期望 %q", *q1, *first)
+	}
+}
+
+// 身份串全缺（没有 GUID、也没有克重）时固定按雌鱼处理：宁可少一种外观，
+// 也不能每次刷新换性别。
+func TestFishVariantSeedFallbacks(t *testing.T) {
+	if got := fishVariantSeed("a_salmon", 1000, 0.5, ""); got == "" {
+		t.Fatal("缺 GUID 时应有内容种子")
+	}
+	if got := fishVariantSeed("a_salmon", 1000, 0.5, zeroGUID); got == "" {
+		t.Fatal("全零 GUID 应视为缺失，退回内容种子")
+	}
+	if got := fishVariantSeed("a_salmon", 1000, 0.5, "ABCDEF"); got != "abcdef" {
+		t.Fatalf("有 GUID 时应归一化为小写原值，得到 %q", got)
+	}
+	if got := fishVariantSeed("", 0, 0, ""); got != "" {
+		t.Fatalf("字段全缺时应返回空种子，得到 %q", got)
+	}
+	if fishVariantMale("") {
+		t.Fatal("空种子必须稳定按雌鱼处理，不能随机")
+	}
+}
+
+// fish_model_variant 置 0 后，已经缓存过族名的活跃鱼与渔护条目必须立刻回退，
+// 不能继续挂着旧族名（review P2）。
+func TestFishModelVariantTunableOffClearsCache(t *testing.T) {
+	db := seedSalmonLines(t)
+	srv := newVariantTestServer(t, map[string]float64{})
+	srv.SetDB(db)
+
+	f := &RolledFish{FishGUID: "0e1d2c3b4a5968778695a4b3c2d1e0f1", Species: "a_salmon",
+		Grade: 2, WeightG: 20000, LengthM: 1.05}
+	if got := srv.fishModelVariantFor(f); got == "" {
+		t.Fatal("开关打开时应算出族名")
+	}
+	entry := &store.KeepnetEntry{EchoGUID: f.FishGUID, Species: f.Species,
+		WeightG: f.WeightG, LengthM: f.LengthM, Cat: f.Grade}
+	srv.fillKeepnetVariant(entry)
+	if entry.ModelVariant == "" {
+		t.Fatal("开关打开时渔护条目应带上族名")
+	}
+
+	// 运行中把开关置 0（模拟改库 30 秒生效）。
+	srv.tunMu.Lock()
+	srv.tunCache["fish_model_variant"] = 0
+	srv.tunAt = time.Now()
+	srv.tunMu.Unlock()
+
+	if got := srv.fishModelVariantFor(f); got != "" {
+		t.Fatalf("开关关闭后活跃鱼不应再用缓存的族名，得到 %q", got)
+	}
+	if f.ModelVariant != "" {
+		t.Fatalf("开关关闭后应清掉 RolledFish 缓存，得到 %q", f.ModelVariant)
+	}
+	srv.fillKeepnetVariant(entry)
+	if entry.ModelVariant != "" {
+		t.Fatalf("开关关闭后渔护条目不应再用缓存的族名，得到 %q", entry.ModelVariant)
 	}
 }

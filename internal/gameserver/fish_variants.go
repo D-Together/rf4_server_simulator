@@ -1,8 +1,9 @@
 package gameserver
 
 import (
+	"fmt"
 	"hash/fnv"
-	"math/rand"
+	"math"
 	"strings"
 
 	"rf4server/internal/proto"
@@ -108,15 +109,38 @@ func (s *Server) fishModelVariantEnabled() bool {
 	return s.tunableF("fish_model_variant", 1) > 0
 }
 
-// fishVariantMale 由鱼实例 GUID 决定雌雄。
+// fishVariantSeed 取「决定雌雄」的身份串。
+//
+// 首选 `catch_guid`：同一尾鱼在溜鱼、结算、渔护、鱼卡、3/17 面板、3/2 纪录、
+// 24/22 社交、资格鱼表里都带同一个 GUID，哈希结果必然一致。
+//
+// 但历史存档里有大量 `catch_guid` 为空的 `catch_log` 行（`CatchRecord.GUID` 直接来自
+// `COALESCE(catch_guid,'')`）。旧实现对这些行退化成 `rand.Intn(2)`，于是同一尾旧鱼
+// 每刷新一次 3/17 / 3/2 / 社交纪录就可能换一次性别——正好破坏本改动要保证的
+// 「同一尾鱼模型一致」。这里改用**内容种子**兜底：鱼种 + 克重 + 体长（毫米）。
+// 这些字段全部来自同一条记录，四条读路径都拿得到，所以不依赖任何一侧补列。
+//
+// 取舍：同鱼种、同克重、同毫米体长的两尾不同鱼会共用族名。这两尾外观本来就一样，
+// 比起「每刷新一次换性别」的可见故障，共用族名无害。
+func fishVariantSeed(species string, weightG int64, lengthM float64, guid string) string {
+	if g := strings.ToLower(strings.TrimSpace(guid)); g != "" && g != zeroGUID {
+		return g
+	}
+	if species == "" || weightG <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s|%d|%d", strings.ToLower(species), weightG, int64(math.Round(lengthM*1000)))
+}
+
+// fishVariantMale 由身份串决定雌雄。
 //
 // 不能用 rand：同一尾鱼溜鱼时抽一次、结算/渔护再抽一次会错位，
-// 出现「溜的是雄鱼、鱼护里变雌鱼」。对 GUID 做哈希后四处永远一致。
-func fishVariantMale(guid string) bool {
-	g := strings.ToLower(strings.TrimSpace(guid))
+// 出现「溜的是雄鱼、鱼护里变雌鱼」。对身份串哈希后四条读路径永远一致；
+// 身份串为空（字段全缺）时**固定按雌鱼处理**，宁可少一种外观，也不要每次刷新都变。
+func fishVariantMale(seed string) bool {
+	g := strings.ToLower(strings.TrimSpace(seed))
 	if g == "" {
-		// 没有 GUID（测试或异常路径）只能退化成随机，这类鱼本来也没有稳定身份。
-		return rand.Intn(2) == 1
+		return false
 	}
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(g))
@@ -167,32 +191,32 @@ func pickFishModelVariant(species string, weightG, qualifiedG, blueG int64, male
 	return list[idx]
 }
 
-// fishModelVariantLines 取（入档线，奖杯线，蓝冠线），按鱼种缓存：
+// fishModelVariantLines 取（入档线，蓝冠线），按鱼种缓存：
 // 渔护一次序列化上百条鱼，不能每条都查库。
-func (s *Server) fishModelVariantLines(species string) (int64, int64, int64) {
+//
+// 只缓存两条线——选期数用的是「入档线 → 蓝冠线」之间的相对位置，奖杯线不参与，
+// 所以不读也不传（旧注释声称「结合入档/奖杯/蓝冠三条线」，与实现不符，已改正）。
+func (s *Server) fishModelVariantLines(species string) (int64, int64) {
 	s.variantMu.Lock()
 	if lines, ok := s.variantLines[species]; ok {
 		s.variantMu.Unlock()
-		return lines[0], lines[1], lines[2]
+		return lines[0], lines[1]
 	}
 	s.variantMu.Unlock()
 
-	var qualified, trophy, blue int64
+	var qualified, blue int64
 	if s.DB != nil {
-		if v, t, b := s.DB.GradeLines(s.dbCtx(), species); v != nil && b != nil {
+		if v, _, b := s.DB.GradeLines(s.dbCtx(), species); v != nil && b != nil {
 			qualified, blue = *v, *b
-			if t != nil {
-				trophy = *t
-			}
 		}
 	}
 	s.variantMu.Lock()
 	if s.variantLines == nil {
-		s.variantLines = map[string][3]int64{}
+		s.variantLines = map[string][2]int64{}
 	}
-	s.variantLines[species] = [3]int64{qualified, trophy, blue}
+	s.variantLines[species] = [2]int64{qualified, blue}
 	s.variantMu.Unlock()
-	return qualified, trophy, blue
+	return qualified, blue
 }
 
 // fishModelVariantForFish 是族名的唯一入口：同一尾鱼（GUID）在任何界面都得到同一个族名。
@@ -204,17 +228,24 @@ func (s *Server) fishModelVariantForFish(species string, weightG int64, lengthM 
 	if _, ok := fishModelVariants[species]; !ok {
 		return ""
 	}
-	qualified, _, blue := s.fishModelVariantLines(species)
+	qualified, blue := s.fishModelVariantLines(species)
 	parrMax := int64(s.tunableF("fish_variant_parr_max_g", defaultFishVariantParrMaxG))
 	smoltMax := int64(s.tunableF("fish_variant_smolt_max_g", defaultFishVariantSmoltMaxG))
 	juvenileMaxM := s.tunableF("fish_variant_juvenile_max_m", defaultFishVariantJuvenileMaxM)
-	return pickFishModelVariant(species, weightG, qualified, blue, fishVariantMale(guid),
+	male := fishVariantMale(fishVariantSeed(species, weightG, lengthM, guid))
+	return pickFishModelVariant(species, weightG, qualified, blue, male,
 		lengthM, parrMax, smoltMax, juvenileMaxM)
 }
 
 // fishModelVariantFor 取这尾待结算鱼的族名，并回写到 RolledFish 上供日志核对。
 func (s *Server) fishModelVariantFor(f *RolledFish) string {
 	if f == nil {
+		return ""
+	}
+	// 开关关闭要立刻生效：RolledFish 上的 ModelVariant 是缓存，直接复用会出现
+	// 「fish_model_variant 已置 0，活跃的那尾鱼还挂着旧族名」（review P2）。
+	if !s.fishModelVariantEnabled() {
+		f.ModelVariant = ""
 		return ""
 	}
 	if f.ModelVariant != "" {
@@ -225,8 +256,16 @@ func (s *Server) fishModelVariantFor(f *RolledFish) string {
 }
 
 // fillKeepnetVariant 给渔护条目补上族名（幂等：已算过就不再算）。
+// 开关关闭时把缓存清掉，保证已加载的渔护条目也立刻回到鱼种默认族。
 func (s *Server) fillKeepnetVariant(e *store.KeepnetEntry) {
-	if e == nil || e.ModelVariant != "" {
+	if e == nil {
+		return
+	}
+	if !s.fishModelVariantEnabled() {
+		e.ModelVariant = ""
+		return
+	}
+	if e.ModelVariant != "" {
 		return
 	}
 	e.ModelVariant = s.fishModelVariantForFish(e.Species, e.WeightG, e.LengthM, e.Cat, e.EchoGUID)
