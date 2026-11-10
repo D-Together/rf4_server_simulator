@@ -139,6 +139,10 @@ type CatchRecord struct {
 	XP       int64
 	Silver   int64
 	LocLevel string
+	// GUID 是这尾鱼的实例 guid（catch_log.catch_guid）。3/17 纪录卡的预览模型族
+	// 与渔护/溜鱼必须由同一尾鱼推导（见 fishModelVariantForFish），缺了它就退化
+	// 成鱼种默认族——也就是玩家在渔夫稀有鱼面板里看到的那个淘汰老模型。
+	GUID string
 }
 
 // PlayerCatchRecords 按记录顺序返回玩家的全部个人钓获。
@@ -147,7 +151,8 @@ func (d *DB) PlayerCatchRecords(ctx context.Context, uid int64) ([]CatchRecord, 
 		SELECT id, COALESCE(ts,0), COALESCE(loc,''), COALESCE(spot,0),
 		       COALESCE(fish_key,''), COALESCE(name_zh,''), COALESCE(weight_g,0),
 		       COALESCE(length_m,0), COALESCE(source,''), COALESCE(bait,''),
-		       COALESCE(grade,0), COALESCE(xp,0), COALESCE(silver,0), COALESCE(loc_level,'')
+		       COALESCE(grade,0), COALESCE(xp,0), COALESCE(silver,0), COALESCE(loc_level,''),
+		       COALESCE(catch_guid,'')
 		FROM catch_log WHERE uid=? ORDER BY id`, uid)
 	if err != nil {
 		return nil, err
@@ -158,7 +163,7 @@ func (d *DB) PlayerCatchRecords(ctx context.Context, uid int64) ([]CatchRecord, 
 		var r CatchRecord
 		if err := rows.Scan(&r.ID, &r.TS, &r.Loc, &r.Spot, &r.FishKey, &r.NameZh,
 			&r.WeightG, &r.LengthM, &r.Source, &r.Bait, &r.Grade, &r.XP, &r.Silver,
-			&r.LocLevel); err != nil {
+			&r.LocLevel, &r.GUID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -171,7 +176,8 @@ func (d *DB) BestCatchByWater(ctx context.Context, uid int64, water string) (*Ca
 	const cols = `id, COALESCE(ts,0), COALESCE(loc,''), COALESCE(spot,0),
 		COALESCE(fish_key,''), COALESCE(name_zh,''), COALESCE(weight_g,0),
 		COALESCE(length_m,0), COALESCE(source,''), COALESCE(bait,''),
-		COALESCE(grade,0), COALESCE(xp,0), COALESCE(silver,0), COALESCE(loc_level,'')`
+		COALESCE(grade,0), COALESCE(xp,0), COALESCE(silver,0), COALESCE(loc_level,''),
+		COALESCE(catch_guid,'')`
 	var row *sql.Row
 	if water == "" {
 		row = d.SQL.QueryRowContext(ctx, `SELECT `+cols+` FROM catch_log
@@ -185,7 +191,7 @@ func (d *DB) BestCatchByWater(ctx context.Context, uid int64, water string) (*Ca
 	var r CatchRecord
 	err := row.Scan(&r.ID, &r.TS, &r.Loc, &r.Spot, &r.FishKey, &r.NameZh,
 		&r.WeightG, &r.LengthM, &r.Source, &r.Bait, &r.Grade, &r.XP, &r.Silver,
-		&r.LocLevel)
+		&r.LocLevel, &r.GUID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

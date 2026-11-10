@@ -158,6 +158,10 @@ type KeepnetEntry struct {
 	KeepBait  string  `json:"keep_bait"`
 	KeepLevel string  `json:"keep_level"`
 	TS        float64 `json:"ts"`
+	// ModelVariant 这尾鱼在客户端用的 FishFamily 族名（a_salmon_f2 等）；
+	// 空=用鱼种默认族。不入库：每次序列化按（鱼种、体重、体长、GUID）重算，
+	// 同一尾鱼在任何界面都得到同一个族名。
+	ModelVariant string `json:"-"`
 }
 
 // KeepnetList 全量条目（按时间升序）。

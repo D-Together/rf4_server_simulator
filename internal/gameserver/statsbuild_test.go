@@ -163,7 +163,7 @@ func TestRecordCardDefaultsAndCategory81(t *testing.T) {
 	if got := categoryWireClass[81]; got.Class != "kbpmmclfipg" || got.TypeID != 1470 {
 		t.Fatalf("category 81 映射=%+v，期望 kbpmmclfipg/1470", got)
 	}
-	card := recordCard320(catchStatRow{
+	card := (&Server{}).recordCard320(catchStatRow{
 		TS: 1.25, FishKey: "roach", Grade: 0, WeightG: 100,
 		LengthM: 0.2, Bait: "worm", LocLevel: "level",
 	}, true, func(string) bool { return false })

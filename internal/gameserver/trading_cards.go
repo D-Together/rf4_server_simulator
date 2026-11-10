@@ -72,9 +72,11 @@ func (s *Server) initializeTradingItem(ctx context.Context, def *store.ItemDef, 
 }
 
 func (s *Server) tradingCardFish(ctx context.Context, fish *RolledFish, caught time.Time) *proto.Value {
-	return buildKeepnet25(&store.KeepnetEntry{EchoGUID: fish.FishGUID, Species: fish.Species,
+	entry := &store.KeepnetEntry{EchoGUID: fish.FishGUID, Species: fish.Species,
 		WeightG: fish.WeightG, LengthM: fish.LengthM, Cat: fish.Grade, KeepLevel: fish.LocLevel,
-		NameZh: fish.Name, TS: float64(caught.UnixNano()) / 1e9}, fish.LocLevel, s.DB.SpeciesRarity(ctx, fish.Species))
+		NameZh: fish.Name, TS: float64(caught.UnixNano()) / 1e9}
+	s.fillKeepnetVariant(entry)
+	return buildKeepnet25(entry, fish.LocLevel, s.DB.SpeciesRarity(ctx, fish.Species), entry.ModelVariant)
 }
 
 type tradingQueryer interface {

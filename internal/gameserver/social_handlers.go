@@ -201,6 +201,10 @@ func hSocialRecordFish(ctx *Ctx) ([]byte, bool) {
 	if loc == "" {
 		loc = row.Loc
 	}
+	// f11（oajeeklppia）同样是模型族参数：留空就退回鱼种默认族（老模型），
+	// 纪录页的预览会跟渔护/溜鱼对不上。这里用 catch_guid 推导同一个族名。
+	modelKey := ctx.Sess.Srv.fishModelVariantForFish(row.FishKey, row.WeightG, row.LengthM,
+		row.Grade, row.GUID)
 	v := wiregen.MustMakeObj("kijhfkcpngc", map[int]*proto.Value{
 		0:  proto.StrVal(row.FishKey),
 		1:  proto.U32(uint32(row.WeightG)),
@@ -213,7 +217,7 @@ func hSocialRecordFish(ctx *Ctx) ([]byte, bool) {
 		8:  proto.StrVal(""),
 		9:  proto.StrVal(loc),
 		10: proto.ArrayOf(nil),
-		11: proto.StrVal(""),
+		11: proto.StrVal(modelKey),
 	})
 	return encodeSocialTree(ctx, v)
 }

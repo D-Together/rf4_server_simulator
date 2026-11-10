@@ -11,14 +11,17 @@ import (
 // 查同一尾鱼来渲染任务鱼表，因此进度集合必须连同鱼记录一起持久化，
 // 不能只存 GUID（鱼护清空后记录仍在）。
 type QualificationFish struct {
-	GUID    string  `json:"guid"`
-	Species string  `json:"species"`
-	NameZh  string  `json:"name_zh"`
-	WeightG int64   `json:"weight_g"`
-	LengthM float64 `json:"length_m"`
-	Grade   int64   `json:"grade"`
-	RigType int64   `json:"rig_type"`
-	RodType int64   `json:"rod_type"`
+	GUID string `json:"guid"`
+	// FishGUID 是这尾鱼真实的实例 guid（catch_log.catch_guid）。GUID 是资格去重键的
+	// md5，不能拿来推导模型族的雌雄；老存档没有这个字段时按 GUID 兜底。
+	FishGUID string  `json:"fish_guid,omitempty"`
+	Species  string  `json:"species"`
+	NameZh   string  `json:"name_zh"`
+	WeightG  int64   `json:"weight_g"`
+	LengthM  float64 `json:"length_m"`
+	Grade    int64   `json:"grade"`
+	RigType  int64   `json:"rig_type"`
+	RodType  int64   `json:"rod_type"`
 }
 
 // QualificationState 一条资格任务的持久化进度。

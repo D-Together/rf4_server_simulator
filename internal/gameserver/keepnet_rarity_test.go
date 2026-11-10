@@ -27,7 +27,7 @@ func TestKeepnet25RarityField(t *testing.T) {
 	}
 
 	e := &store.KeepnetEntry{EchoGUID: "22222222222222222222222222222222", Species: "asp", WeightG: 1200, LengthM: 0.55, Cat: 3, KeepLevel: "level_002_kirzah_river"}
-	tree := buildKeepnet25(e, "", s.rarityOf25(e.Species))
+	tree := buildKeepnet25(e, "", s.rarityOf25(e.Species), "")
 	if got := u32Of(tree.Field(4).Num); got != 2 {
 		t.Fatalf("25.f4=%d want 2", got)
 	}

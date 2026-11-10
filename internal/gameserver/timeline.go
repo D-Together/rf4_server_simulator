@@ -196,7 +196,7 @@ func hFog(ctx *Ctx) ([]byte, bool) {
 	if ctx != nil && ctx.Sess != nil && ctx.Sess.Srv != nil {
 		obj = ctx.Sess.Srv.build5003(ctx.Sess.pushCtx(), ctx.Sess.Userid)
 	} else {
-		obj = build5003FromStates(nil, build5012([]uint32{0}, seasonEndFiletime(0)))
+		obj = (*Server)(nil).build5003FromStates(nil, build5012([]uint32{0}, seasonEndFiletime(0)))
 	}
 	body, err := proto.EncodeValue(obj, wiregen.Table())
 	if err != nil {
