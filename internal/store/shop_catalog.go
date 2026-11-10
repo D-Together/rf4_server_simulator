@@ -34,10 +34,11 @@ type shopCatalogSKU struct {
 }
 
 type shopStoreDefinition struct {
-	Kind   int      `json:"kind"`
-	Brands []string `json:"brands"`
-	MapKey string   `json:"map_key"`
-	Books  []string `json:"books"`
+	Kind   int              `json:"kind"`
+	Brands []string         `json:"brands"`
+	MapKey string           `json:"map_key"`
+	Books  []string         `json:"books"`
+	Shelf  []shopCatalogSKU `json:"shelf,omitempty"`
 }
 
 type shopKindCatalog struct {
@@ -113,6 +114,7 @@ type shopOverrideValue struct {
 
 const (
 	shopShelfSourceRecorded = "recorded"
+	shopShelfSourceStore    = "store_definition"
 	shopShelfSourceBrand    = "brand_reuse"
 	shopShelfSourceKind     = "kind_template"
 	shopShelfSourceMissing  = "missing_evidence"
@@ -227,17 +229,37 @@ func catalogShopPrices(rows []shopCatalogSKU) []*ShopPrice {
 	return out
 }
 
-// resolveShopBase selects the immutable base shelf using the evidence order:
-// exact recorded store -> same kind + same brand-set recorded store ->
-// same-kind representative recording -> empty. Per-store overrides are applied
-// only after this selection.
+// resolveShopBase 优先保留逐店实录及其价格，仅用明确登记的逐店目录补齐缺失商品。
+// 没有逐店实录时才用逐店目录兜底，再依次尝试同类型同品牌实录和同类型模板。
+// 返回的货架不与实录或内嵌目录共享可变行，门店覆盖在选择基础货架后应用。
+//
+// resolveShopBase preserves exact recordings and their prices, adding only missing
+// items explicitly registered in the per-store definition. Without exact recordings,
+// it tries per-store definitions, same-kind/brand recordings, then kind templates.
+// Returned rows do not alias either source; overrides are applied afterward.
 func resolveShopBase(storeID string, catalog *shopKindCatalog, recorded map[string][]*ShopPrice) ([]*ShopPrice, string, shopStoreDefinition, bool) {
 	def, known := catalog.Stores[storeID]
 	if rows := recorded[storeID]; len(rows) > 0 {
-		return copyShopPrices(rows), shopShelfSourceRecorded, def, known
+		base := copyShopPrices(rows)
+		if len(def.Shelf) > 0 {
+			have := make(map[string]bool, len(base)+len(def.Shelf))
+			for _, row := range base {
+				have[row.ItemID] = true
+			}
+			for _, row := range catalogShopPrices(def.Shelf) {
+				if !have[row.ItemID] {
+					base = append(base, row)
+					have[row.ItemID] = true
+				}
+			}
+		}
+		return base, shopShelfSourceRecorded, def, known
 	}
 	if !known {
 		return nil, shopShelfSourceUnknown, def, false
+	}
+	if len(def.Shelf) > 0 {
+		return catalogShopPrices(def.Shelf), shopShelfSourceStore, def, true
 	}
 
 	kindKey := strconv.Itoa(def.Kind)
