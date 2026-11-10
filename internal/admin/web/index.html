@@ -1066,7 +1066,30 @@ function renderSkills(){
 async function saveSkillAvail(){const points=Math.max(0,Math.floor(+$('#skillAvail').value||0));await api('/api/players/skills/points',{method:'POST',body:JSON.stringify({uid:PLAYER.uid,points})});toast('已保存，在线玩家立即收到刷新');await sleep(500);await selectPlayer(PLAYER.uid);setPlayerTab('skills')}
 async function saveSkill(id){const points=+$('#sk_'+id).value;await api('/api/players/skills/update',{method:'POST',body:JSON.stringify({uid:PLAYER.uid,skill_id:id,points})});toast('已保存，在线玩家立即收到刷新');await sleep(500);await selectPlayer(PLAYER.uid);setPlayerTab('skills')}
 async function resetSkills(){askConfirm('清空技能熟练度','把该玩家所有钓鱼技能熟练度设为 0%，不可恢复。',async()=>{for(const s of PLAYER.skills||[])await api('/api/players/skills/update',{method:'POST',body:JSON.stringify({uid:PLAYER.uid,skill_id:s.skill_id,points:0})});toast('已清空熟练度，见审计日志');await selectPlayer(PLAYER.uid);setPlayerTab('skills')})}
-function renderPlayerMail(){const rows=PLAYER.mails||[];$('#playerTabBody').innerHTML=`<div class="table-wrap"><table><thead><tr><th>ID</th><th>正文</th><th>类型</th><th>状态</th><th>时间</th></tr></thead><tbody>${rows.map(m=>`<tr><td>${m.id}</td><td style="white-space:normal">${esc(m.text||'(附件邮件)')}</td><td>${m.kind?'附件':'文本'}</td><td>${m.read?'<span class="pill">已读</span>':'<span class="pill ok">未读</span>'}</td><td>${timeText(m.created_ts)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">邮箱为空</td></tr>'}</tbody></table></div><div class="actions"><button class="btn" onclick="prefillMail(${PLAYER.uid})">给该玩家发邮件</button></div>`}
+function renderPlayerMail(){
+  // 注意：服务端 MailList(uid, false) 返回全部邮件，含已读；read 列即玩家侧未读状态。
+  const rows=PLAYER.mails||[];
+  $('#playerTabBody').innerHTML=`<div class="table-wrap"><table><thead><tr><th>ID</th><th>正文</th><th>类型</th><th>状态</th><th>时间</th><th></th></tr></thead><tbody>${rows.map(m=>`<tr><td>${m.id}</td><td style="white-space:normal">${esc(m.text||'(附件邮件)')}</td><td>${m.kind?'附件':'文本'}</td><td>${m.read?'<span class="pill">已读</span>':'<span class="pill ok">未读</span>'}</td><td>${timeText(m.created_ts)}</td><td><button class="btn bad sm" onclick="deleteMail(${m.id})">删除</button></td></tr>`).join('')||'<tr><td colspan="6" class="empty">邮箱为空</td></tr>'}</tbody></table></div><div class="actions"><button class="btn" onclick="prefillMail(${PLAYER.uid})">给该玩家发邮件</button></div>`;
+}
+async function deleteMail(id){
+  // 用于清理"领不出来"的坏邮件（附件物品不存在/数量超限等）。
+  // 玩家自己删不掉这类信，只能由服主删掉后重发正确的。
+  if(!confirm('确定删除这封邮件？附件会一并丢弃，且不可恢复。'))return;
+  try{
+    await api('/api/players/mail/delete',{method:'POST',body:JSON.stringify({uid:PLAYER.uid,ids:[id]})});
+  }catch(e){
+    toast('删除失败：'+e.message,'bad');
+    return;
+  }
+  toast('已删除，约 2 秒内同步');
+  // 停留在邮箱 tab 原地刷新，不要跳回档案页打断服主操作。
+  try{
+    PLAYER=await api('/api/players/detail?uid='+PLAYER.uid);
+    renderPlayerDetail();
+  }catch(e){
+    toast('刷新失败：'+e.message,'bad');
+  }
+}
 async function kickPlayer(){askConfirm('踢下线','把该玩家从服务器断开，可随时重新登录。',async()=>{await api('/api/players/kick',{method:'POST',body:JSON.stringify({uid:PLAYER.uid})});toast('已踢下线，见审计日志')})}
 async function toggleBan(){const banned=!PLAYER.banned;askConfirm(banned?'封禁玩家':'解除封禁',banned?'该玩家将无法登录游戏。':'该玩家恢复登录资格。',async()=>{await api('/api/players/ban',{method:'POST',body:JSON.stringify({uid:PLAYER.uid,banned})});toast(banned?'已封禁，见审计日志':'已解封，见审计日志');await selectPlayer(PLAYER.uid)})}
 const debounceTimers={};
@@ -1318,7 +1341,15 @@ function renderAttachments(){
 }
 async function sendMail(){
   const uid=+$('#mailUid').value,text=$('#mailText').value.trim();if(!uid)return toast('请填写收件人 UID','bad');if(!text&&!MAIL_ATTACH.length)return toast('正文和附件不能都为空','bad');
-  await api('/api/mail/send',{method:'POST',body:JSON.stringify({uid,text,items:MAIL_ATTACH.map(x=>({item_id:x.item_id,qty:+x.qty||1}))})});toast('已下发，约 2 秒内到达');MAIL_ATTACH=[];renderAttachments();
+  // 后端会在入队前校验附件（物品是否存在、组合包包数是否超上限）。
+  // 校验失败必须当场显示原因，否则服主以为发出去了，玩家却永远领不出来。
+  try{
+    await api('/api/mail/send',{method:'POST',body:JSON.stringify({uid,text,items:MAIL_ATTACH.map(x=>({item_id:x.item_id,qty:+x.qty||1}))})});
+  }catch(e){
+    toast('发送失败：'+e.message,'bad');
+    return;
+  }
+  toast('已下发，约 2 秒内到达');MAIL_ATTACH=[];renderAttachments();
 }
 function previewMail(){const uid=$('#mailUid').value||'未填写';$('#mailPreview').className='';$('#mailPreview').innerHTML=`<div style="padding:14px;border:1px solid var(--line);border-radius:12px;background:#0b1623"><div class="muted">收件人 UID ${esc(uid)}</div><div style="margin:10px 0;white-space:pre-wrap">${esc($('#mailText').value||'(无正文)')}</div><hr style="border:0;border-top:1px solid var(--line)"><div class="muted">附件 ${MAIL_ATTACH.length} 件</div>${MAIL_ATTACH.map(x=>`<div class="pill" style="margin:5px 5px 0 0">${esc(x.name||x.item_id)} × ${x.qty}</div>`).join('')}</div>`}
 function mailTemplate(name){const map={'补偿':'管理员补偿\n\n因近期服务器问题给您带来的不便，特此补偿以下物品，请查收。','活动奖励':'活动奖励\n\n感谢参与本次服务器活动！奖励已随邮件附上。','测试':'测试邮件\n\n这是一封来自管理后台的测试邮件。'};$('#mailText').value=map[name]||map['测试'];previewMail()}

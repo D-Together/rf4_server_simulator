@@ -3,6 +3,7 @@ package gameserver
 import (
 	"context"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -323,5 +324,48 @@ func TestPlayerMailInsertFailureDoesNotNotify(t *testing.T) {
 			}
 			assertNoMailTestPush(t, session)
 		})
+	}
+}
+
+// TestAdminDeleteMailRemovesOnlyTargetedMail 服主清理坏邮件：
+// 只删指定 id，其它邮件与其它玩家的邮件不受影响。
+func TestAdminDeleteMailRemovesOnlyTargetedMail(t *testing.T) {
+	t.Parallel()
+	srv, db := newEconomyTxTestServer(t)
+	ctx := context.Background()
+	const uid, other = int64(2701), int64(2702)
+	for _, u := range []int64{uid, other} {
+		if _, err := db.EnsureProfile(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	badID, err := db.MailInsert(ctx, uid, 0, 0, "坏奖励", []store.MailItem{{
+		ItemID: "AV_shamp1_pack_6", Qty: 99999,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keepID, err := db.MailInsert(ctx, uid, 0, 0, "保留", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherID, err := db.MailInsert(ctx, other, 0, 0, "别人的", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 后台队列传的是十进制字符串 id（见 handlePlayerMailDelete）。
+	srv.execAdminCmd(&AdminCommand{
+		Op: "delete_mail", UID: uid, MailIDs: []string{strconv.FormatInt(badID, 10)},
+	})
+
+	if m, err := db.MailGet(ctx, uid, badID); err == nil && m != nil {
+		t.Fatalf("目标邮件应已删除: %+v", m)
+	}
+	if m, err := db.MailGet(ctx, uid, keepID); err != nil || m == nil {
+		t.Fatalf("同玩家的其它邮件不应被删: %+v err=%v", m, err)
+	}
+	if m, err := db.MailGet(ctx, other, otherID); err != nil || m == nil {
+		t.Fatalf("其它玩家的邮件不应被删: %+v err=%v", m, err)
 	}
 }
