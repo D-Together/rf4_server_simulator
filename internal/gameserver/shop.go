@@ -165,6 +165,20 @@ func hStoreBuy(goldCol bool) Handler {
 			ctx.Log.Warn("商店商品退货属性不可判定", "item", itemID, "err", err)
 			return fail("购买未完成，请刷新商店后重试")
 		}
+		// 定义查询必须在写事务前完成，避免单连接 SQLite 等待自身事务。
+		mergeable := make(map[string]bool, len(prepared))
+		if !returnable {
+			for _, it := range prepared {
+				if _, ok := mergeable[it.ItemID]; ok {
+					continue
+				}
+				def, err := srv.DB.GetItemDefByItemID(cctx, it.ItemID)
+				if err != nil || def == nil {
+					return fail("购买未完成，请刷新商店后重试")
+				}
+				mergeable[it.ItemID] = craftOutputMerges(def)
+			}
+		}
 
 		tx, err := beginEconomyTx(cctx, srv.DB)
 		if err != nil {
@@ -191,8 +205,8 @@ func hStoreBuy(goldCol bool) Handler {
 
 		granted := make([]*store.Item, 0, len(prepared))
 		for _, it := range prepared {
-			// 可退批次独立存放；不可退计件产出按精确 item_id 并入同容器已有堆。
-			row, _, gerr := grantPreparedItemTx(cctx, tx, it, !returnable)
+			// 可退批次与逐实例配方产出独立存放，其余计件产出按 item_id 合并。
+			row, _, gerr := grantPreparedItemTx(cctx, tx, it, mergeable[it.ItemID])
 			if gerr != nil {
 				ctx.Log.Warn("商店入库失败", "item", it.ItemID, "err", gerr)
 				return fail("购买未完成，请刷新商店后重试")

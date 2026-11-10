@@ -31,6 +31,40 @@ func stackingTestStats(t *testing.T, db *store.DB, uid int64, itemID, container 
 	return rows, qty, guid
 }
 
+func TestStorePurchasePreservesRecipeInstances(t *testing.T) {
+	for _, id := range []string{"feedcompleted", "pva_stick_s"} {
+		t.Run(id, func(t *testing.T) {
+			srv, db := newEconomyTxTestServer(t)
+			const uid = int64(4630)
+			if _, err := db.EnsureProfile(t.Context(), uid); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.SQL.Exec(`INSERT INTO shop_item(store_id,item_id,silver,gold,stock) VALUES('recipe_store',?,10,0,100)`, id); err != nil {
+				t.Fatal(err)
+			}
+			old := economyTestItem(t, srv, uid, id, "backpack", 60)
+			const recipe = `["feedadds_corn"]`
+			if _, err := db.SQL.Exec(`INSERT INTO groundbait_recipe(instance_guid,mats_json) VALUES(?,?)`, old.GUID, recipe); err != nil {
+				t.Fatal(err)
+			}
+			buyStackingTestItem(t, srv, uid, "recipe_store", id)
+			buyStackingTestItem(t, srv, uid, "recipe_store", id)
+			rows, qty, _ := stackingTestStats(t, db, uid, id, "backpack")
+			if rows != 3 || qty != 62 {
+				t.Errorf("配方产出必须独立: rows=%d qty=%d want=3/62", rows, qty)
+			}
+			var oldQty int64
+			var mats string
+			if err := db.SQL.QueryRow(`SELECT i.qty,r.mats_json FROM item i JOIN groundbait_recipe r ON r.instance_guid=i.guid WHERE i.guid=?`, old.GUID).Scan(&oldQty, &mats); err != nil {
+				t.Fatal(err)
+			}
+			if oldQty != 60 || mats != recipe {
+				t.Fatalf("原配方实例被改变: qty=%d mats=%s", oldQty, mats)
+			}
+		})
+	}
+}
+
 func TestStorePurchaseMergesNonReturnableStacksByExactItemID(t *testing.T) {
 	srv, db := newEconomyTxTestServer(t)
 	const (

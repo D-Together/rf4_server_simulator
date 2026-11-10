@@ -180,6 +180,14 @@ func (s *Server) ConsolidateNonReturnableItemStacks(ctx context.Context) (int, e
 		}
 
 		for _, drop := range group[1:] {
+			// 删除实例的触发器会清除旧 GUID 别名，必须先在同一事务内重定向。
+			if _, err := tx.ExecContext(ctx, `UPDATE kv SET v=(
+				SELECT json_group_object(key, CASE WHEN value=? THEN ? ELSE value END)
+				FROM json_each(kv.v))
+				WHERE k=? AND EXISTS(SELECT 1 FROM json_each(kv.v) WHERE value=?)`,
+				drop.GUID, keep.GUID, fmt.Sprintf("shortcut-aliases:%d", keep.UID), drop.GUID); err != nil {
+				return 0, err
+			}
 			if _, err := tx.ExecContext(ctx, `UPDATE drink_bonus_effect SET source_guid=? WHERE uid=? AND source_guid=?`,
 				keep.GUID, drop.UID, drop.GUID); err != nil {
 				return 0, err

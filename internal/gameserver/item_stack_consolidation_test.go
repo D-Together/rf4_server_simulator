@@ -2,12 +2,74 @@ package gameserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
 	"rf4server/internal/proto"
 	"rf4server/internal/store"
 )
+
+func TestConsolidateStacksRedirectsAliasOnlyShortcuts(t *testing.T) {
+	for _, rollback := range []bool{false, true} {
+		t.Run(fmt.Sprintf("rollback=%v", rollback), func(t *testing.T) {
+			srv, db := newEconomyTxTestServer(t)
+			const uid = int64(4631)
+			seedEconomyItemDef(t, db, 994031, "alias_food", 26)
+			keep := economyTestItem(t, srv, uid, "alias_food", "backpack", 2)
+			drop := economyTestItem(t, srv, uid, "alias_food", "backpack", 3)
+			other := economyTestItem(t, srv, uid+1, "alias_food", "backpack", 1)
+			setStackOrder(t, db, keep, drop)
+			key := fmt.Sprintf("shortcut-aliases:%d", uid)
+			raw, err := json.Marshal(map[string]string{"4": drop.GUID, "5": drop.GUID, "6": keep.GUID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.SQL.Exec(`INSERT INTO kv(k,v) VALUES(?,?),(?,?)`, key, string(raw), fmt.Sprintf("shortcut-aliases:%d", uid+1), fmt.Sprintf(`{"4":"%s"}`, other.GUID)); err != nil {
+				t.Fatal(err)
+			}
+			if rollback {
+				if _, err := db.SQL.Exec(`CREATE TRIGGER fail_alias_stack_delete BEFORE DELETE ON item BEGIN SELECT RAISE(ABORT,'test'); END`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			removed, err := srv.ConsolidateNonReturnableItemStacks(t.Context())
+			if rollback {
+				if err == nil || removed != 0 {
+					t.Fatalf("未回滚: removed=%d err=%v", removed, err)
+				}
+			} else if err != nil || removed != 1 {
+				t.Fatalf("整理失败: removed=%d err=%v", removed, err)
+			}
+			var gotRaw string
+			if err := db.SQL.QueryRow(`SELECT v FROM kv WHERE k=?`, key).Scan(&gotRaw); err != nil {
+				t.Fatal(err)
+			}
+			var got map[string]string
+			if err := json.Unmarshal([]byte(gotRaw), &got); err != nil {
+				t.Fatal(err)
+			}
+			want := keep.GUID
+			if rollback {
+				want = drop.GUID
+			}
+			if len(got) != 3 || got["4"] != want || got["5"] != want || got["6"] != keep.GUID {
+				t.Fatalf("别名未保留: %v", got)
+			}
+			if err := db.SQL.QueryRow(`SELECT v FROM kv WHERE k=?`, fmt.Sprintf("shortcut-aliases:%d", uid+1)).Scan(&gotRaw); err != nil {
+				t.Fatal(err)
+			}
+			if gotRaw != fmt.Sprintf(`{"4":"%s"}`, other.GUID) {
+				t.Fatalf("改动其他玩家别名: %s", gotRaw)
+			}
+			if !rollback {
+				if n, err := srv.ConsolidateNonReturnableItemStacks(t.Context()); err != nil || n != 0 {
+					t.Fatalf("不幂等: %d %v", n, err)
+				}
+			}
+		})
+	}
+}
 
 func markLegacyStackPurchase(t *testing.T, srv *Server, uid int64, row *store.Item) {
 	t.Helper()
