@@ -246,22 +246,30 @@ func (s *Server) BuildProfile307W(ctx context.Context, uid int64, wNow int64) (*
 
 	// f24(pdomjfdnghk/dlgnjgfjcaj).emegkdcimkp 是欢乐时光状态枚举（客户端
 	// RUIHappyHourWidget 的 0~4 分支）：0=未开放（显示"需要高级会员"）、
-	// 1=已就绪、2=下一场时间、3=进行中（按剩余分钟倒计时）、4=今日已结束。
-	// 客户端显示的真实剩余分钟 = (f1 − W) / 24：f1 与世界时钟同为游戏分钟坐标，
-	// 游戏内 24 分钟才走 1 真实分钟，所以这里按 24 倍写入。
+	// 1=已就绪（无倒计时）、2=下一场时间、3=进行中（按剩余分钟倒计时）、
+	// 4=今日已结束。客户端显示的真实剩余分钟 = (f1 − W) / 24：f1 与世界时钟
+	// 同为游戏分钟坐标，游戏内 24 分钟才走 1 真实分钟，所以这里按 24 倍写入。
+	// 客户端没有"不限时长"状态：状态 3 的文案只有"{n} 分钟剩余"与"剩余不到
+	// 一分钟"（本地化 kDlg_CP_HappyHour_Status_Activated/Activated2），因此永久
+	// 会员不能下发有限倒计时，改用状态 1（就绪）；总开关关闭时用 4（不进行）。
 	hhState := 0
 	hhMinutes := int64(0)
 	hhEnd := pass745F2
 	if hh, hhErr := s.DB.GetHappyHourStatus(ctx, uid, time.Now()); hhErr == nil && hh.Qualified {
-		hhMinutes = wNow + (hh.RemainingSeconds+59)/60*24
-		if hhMinutes > math.MaxUint32 {
-			hhMinutes = math.MaxUint32
-		}
-		hhState = 3
-		if hh.Unlimited {
-			hhEnd = uint64(proto.UnixToFiletime(time.Now().AddDate(100, 0, 0).Unix()))
-		} else if hh.ExpiresAt > 0 {
-			hhEnd = uint64(proto.UnixToFiletime(hh.ExpiresAt))
+		switch {
+		case !hh.Enabled:
+			hhState = 4
+		case hh.Unlimited:
+			hhState = 1
+		default:
+			hhMinutes = wNow + (hh.RemainingSeconds+59)/60*24
+			if hhMinutes > math.MaxUint32 {
+				hhMinutes = math.MaxUint32
+			}
+			hhState = 3
+			if hh.ExpiresAt > 0 {
+				hhEnd = uint64(proto.UnixToFiletime(hh.ExpiresAt))
+			}
 		}
 	}
 	return wiregen.MakeObj("ghfbofgdflm", map[int]*proto.Value{
