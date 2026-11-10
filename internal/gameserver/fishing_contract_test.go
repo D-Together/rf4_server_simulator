@@ -3,6 +3,7 @@ package gameserver
 import (
 	"math"
 	"testing"
+	"time"
 
 	"rf4server/internal/config"
 	"rf4server/internal/logging"
@@ -109,5 +110,11 @@ func TestFish27F19AutoHookByRigFamily(t *testing.T) {
 		if got <= 0 || got >= 0.01 {
 			t.Fatalf("浮钓 %s f19=%f，期望官方量级小值 (0, 0.01)", species, got)
 		}
+	}
+	// 应急回滚开关：浮钓族也应恢复为精确 1。
+	srv.tunCache = map[string]float64{"float_f19_force_one": 1}
+	srv.tunAt = time.Now()
+	if got := f32At(srv.buildFish27(mk("c.roach"), "", "", 1), 19); got != 1 {
+		t.Fatalf("float_f19_force_one=1 时浮钓 f19=%f，期望 1", got)
 	}
 }
