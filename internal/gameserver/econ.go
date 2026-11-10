@@ -303,6 +303,13 @@ func (s *Server) fishingKeep(ctx *Ctx) ([]byte, bool) {
 		}
 		st.mu.Unlock()
 		s.notifyFishKept(ctx.Sess, &kept)
+		// 稀有鱼 / 超级稀有鱼鱼种数奖座：入护才计入图鉴（catch_log 刚落库），
+		// 放生不计——与 3/17 图鉴、307.f16 星号同一口径。奖座推 4/22 并播报。
+		if keptInNet {
+			if gifts := s.rarityMilestoneAfterKeep(cctx, uid); len(gifts) > 0 {
+				pushRarityStatuettesOnKeep(ctx.Sess, gifts)
+			}
+		}
 		// 钓获礼包：入护成功后按概率当场开箱（异步，避免拖慢入护回包）。
 		s.scheduleLootBox(ctx.Sess, &kept)
 		// 本尾已落 catch_log；14/4 结算卡 f7 的档案快照早于落库、不含本尾，

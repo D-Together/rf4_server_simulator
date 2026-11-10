@@ -302,11 +302,8 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 			res.giftItems = append(res.giftItems, g.Items...)
 		}
 	}
-	// 稀有鱼 / 超级稀有鱼的**鱼种数**里程碑：这尾鱼让某个鱼种首次上星（或首冠）时，
-	// 可能正好跨过 3/5/10… 与 1/3/5… 的档位。同一种鱼重复上星不推进，所以这里
-	// 必须带上本尾鱼按「鱼种」去重判定（结算早于入护，catch_log 里还没有它）。
-	if gifts := s.rarityMilestoneForCatch(ctx, uid, f); len(gifts) > 0 {
-		res.rarityGifts = gifts
-	}
+	// 稀有鱼 / 超级稀有鱼的鱼种数奖座**不在这里发**：图鉴口径是 catch_log，
+	// 而 catch_log 要到 14/5 入护才写。结算阶段发会让「拿到奖座后放生」的玩家
+	// 出现「背包有奖座、面板不计数」的不一致，改由 fishingKeep 入护后判定。
 	return res, nil
 }

@@ -71,9 +71,42 @@ func settleWithFish(t *testing.T, s *Server, sess *Session, fish *RolledFish, ca
 
 func fishOwner(sess *Session) int64 { return sess.Userid }
 
-// 第 3 种稀有鱼上星时，结算界面必须当场给「捕获了数条稀有鱼」礼物，
-// 奖品是 statuette_fisherman_3（官方名「3条稀有鱼」），并且同一时刻进背包。
-func TestRarityMilestoneCrossingGrantsFishingStatuette(t *testing.T) {
+// keepWithFish 让 pending 里的这尾鱼走一次 14/5 入护，返回 800。
+// 奖座在入护后才算账，所以断言奖座必须走完整条 14/4 结算 -> 14/5 入护。
+func keepWithFish(t *testing.T, s *Server, sess *Session, fish *RolledFish, call int64) *proto.Value {
+	t.Helper()
+	tree := proto.Args524(proto.Guid(strings.Repeat("0", 32)), proto.Guid(fish.FishGUID))
+	body, handled := s.fishingKeep(&Ctx{Sess: sess, CallID: uint32(call), Main: 14, Sub: 5,
+		Tree: tree, DecodeOK: true, ExpectResponse: true, Log: logging.Discard()})
+	if !handled || len(body) == 0 {
+		t.Fatal("14/5 入护未正常返回")
+	}
+	dec, _, err := proto.DecodeValue(body, 0, sess.Table())
+	if err != nil || dec.Kind != proto.KindObj || dec.TypeID != 800 {
+		t.Fatalf("800 响应不可解码或类型不符: %v", err)
+	}
+	return dec
+}
+
+// releaseWithFish 让 pending 里的这尾鱼走一次 14/6 放生，返回 807。
+func releaseWithFish(t *testing.T, s *Server, sess *Session, fish *RolledFish, call int64) *proto.Value {
+	t.Helper()
+	tree := proto.Args524(proto.Guid(strings.Repeat("0", 32)), proto.Guid(fish.FishGUID))
+	body, handled := s.fishingRelease(&Ctx{Sess: sess, CallID: uint32(call), Main: 14, Sub: 6,
+		Tree: tree, DecodeOK: true, ExpectResponse: true, Log: logging.Discard()})
+	if !handled || len(body) == 0 {
+		t.Fatal("14/6 放生未正常返回")
+	}
+	dec, _, err := proto.DecodeValue(body, 0, sess.Table())
+	if err != nil || dec.Kind != proto.KindObj || dec.TypeID != 807 {
+		t.Fatalf("807 响应不可解码或类型不符: %v", err)
+	}
+	return dec
+}
+
+// 第 3 种稀有鱼上星并**入护**后，背包里应该出现 statuette_fisherman_3（官方名「3条稀有鱼」）。
+// 结算阶段（14/4）刻意不发：图鉴口径是 catch_log，而 catch_log 要到 14/5 才写。
+func TestRarityMilestoneCrossingGrantsStatuetteOnKeep(t *testing.T) {
 	t.Parallel()
 	s, db := newRigTestServer(t)
 	sess := newProbeSess(s)
@@ -90,27 +123,67 @@ func TestRarityMilestoneCrossingGrantsFishingStatuette(t *testing.T) {
 
 	fish := &RolledFish{FishGUID: strings.Repeat("a", 32), Species: "zander", Grade: recordTrophyGrade,
 		WeightG: 2000, LengthM: 0.6, LocLevel: "level_001_lake"}
-	dec := settleWithFish(t, s, sess, fish, 1)
-	line := giftRowOf(dec.Fields[4].Val, uint64(giftSourceTrophyCountReached))
-	if line == nil {
-		t.Fatalf("第 3 种稀有鱼上星时 801.f4 应带来源码 %d 的礼物行（捕获了数条稀有鱼）",
-			giftSourceTrophyCountReached)
-	}
-	items := line.Field(2).Val
-	if items == nil || items.Kind != proto.KindArgs || len(items.Items) != 1 {
-		t.Fatalf("礼物行 f2 应装 1 枚奖座，实得 %+v", items)
-	}
-	if n := countOwnedItem(t, s, uid, "statuette_fisherman_3"); n != 1 {
-		t.Fatalf("statuette_fisherman_3 应已进背包 1 枚，实得 %d", n)
+	settleWithFish(t, s, sess, fish, 1)
+	// 结算只出 801，不入护就不该有奖座。
+	if n := countOwnedItem(t, s, uid, "statuette_fisherman_3"); n != 0 {
+		t.Fatalf("结算阶段不该发奖座（图鉴还没记这尾鱼），实得 %d 枚", n)
 	}
 
-	// 同一尾鱼重放结算：不能重复发，礼物行也不该再出现。
-	dec2 := settleWithFish(t, s, sess, fish, 2)
-	if row := giftRowOf(dec2.Fields[4].Val, uint64(giftSourceTrophyCountReached)); row != nil {
-		t.Fatal("重放结算不该再带稀有鱼里程碑礼物行")
-	}
+	keepWithFish(t, s, sess, fish, 2)
 	if n := countOwnedItem(t, s, uid, "statuette_fisherman_3"); n != 1 {
-		t.Fatalf("重放后奖座不应重复发放，实得 %d 枚", n)
+		t.Fatalf("入护后 statuette_fisherman_3 应为 1 枚，实得 %d", n)
+	}
+	var logged int
+	if err := db.SQL.QueryRow(`SELECT COUNT(*) FROM catch_log WHERE uid=? AND fish_key='zander'`,
+		uid).Scan(&logged); err != nil {
+		t.Fatal(err)
+	}
+	if logged != 1 {
+		t.Fatalf("入护后 catch_log 应有 1 行 zander，实得 %d", logged)
+	}
+
+	// 重复入护（重放）：不能重复发。
+	keepWithFish(t, s, sess, fish, 3)
+	if n := countOwnedItem(t, s, uid, "statuette_fisherman_3"); n != 1 {
+		t.Fatalf("重放入护不应重复发奖座，实得 %d 枚", n)
+	}
+}
+
+// 放生的鱼不进 catch_log，也就不该发奖座——否则会出现「背包有奖座、图鉴不计数」。
+func TestRarityMilestoneReleaseDoesNotGrant(t *testing.T) {
+	t.Parallel()
+	s, db := newRigTestServer(t)
+	sess := newProbeSess(s)
+	uid := sess.Userid
+	if _, err := db.EnsureProfile(t.Context(), uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.TunableSet(t.Context(), "level_gifts_enabled", "0", "test"); err != nil {
+		t.Fatal(err)
+	}
+	insertTrophyCatch(t, s, uid, "level_001_lake", "perch", "河鲈", 1, recordTrophyGrade)
+	insertTrophyCatch(t, s, uid, "level_001_lake", "pike", "白斑狗鱼", 2, recordTrophyGrade)
+
+	fish := &RolledFish{FishGUID: strings.Repeat("d", 32), Species: "zander", Grade: recordTrophyGrade,
+		WeightG: 2000, LengthM: 0.6, LocLevel: "level_001_lake"}
+	settleWithFish(t, s, sess, fish, 1)
+	releaseWithFish(t, s, sess, fish, 2)
+
+	if n := countOwnedItem(t, s, uid, "statuette_fisherman_3"); n != 0 {
+		t.Fatalf("放生的鱼不该计入鱼种数、也不该发奖座，实得 %d 枚", n)
+	}
+	var logged int
+	if err := db.SQL.QueryRow(`SELECT COUNT(*) FROM catch_log WHERE uid=? AND fish_key='zander'`,
+		uid).Scan(&logged); err != nil {
+		t.Fatal(err)
+	}
+	if logged != 0 {
+		t.Fatalf("放生不该写 catch_log，实得 %d 行", logged)
+	}
+	// 放生后再入护同一条鱼也不行：catch_log 与奖座都必须保持不计数。
+	keepWithFish(t, s, sess, fish, 3)
+	if n := countOwnedItem(t, s, uid, "statuette_fisherman_3"); n != 0 {
+		t.Fatalf("已放生的鱼再入护不该发奖座，实得 %d 枚", n)
 	}
 }
 
@@ -129,20 +202,18 @@ func TestRarityMilestoneSameSpeciesDoesNotAdvance(t *testing.T) {
 	insertTrophyCatch(t, s, uid, "level_001_lake", "perch", "河鲈", 1, recordTrophyGrade)
 	insertTrophyCatch(t, s, uid, "level_001_lake", "pike", "白斑狗鱼", 2, recordTrophyGrade)
 
-	// 河鲈第二次上星（更大的个体）。
+	// 河鲈第二次上星（更大的个体），入护。
 	fish := &RolledFish{FishGUID: strings.Repeat("b", 32), Species: "perch", Grade: recordTrophyGrade,
 		WeightG: 3000, LengthM: 0.5, LocLevel: "level_001_lake"}
-	dec := settleWithFish(t, s, sess, fish, 1)
+	settleWithFish(t, s, sess, fish, 1)
+	keepWithFish(t, s, sess, fish, 2)
 
-	if row := giftRowOf(dec.Fields[4].Val, uint64(giftSourceTrophyCountReached)); row != nil {
-		t.Fatal("同鱼种重复上星不该推进鱼种数，也不该发奖座")
-	}
 	if n := countOwnedItem(t, s, uid, "statuette_fisherman_3"); n != 0 {
-		t.Fatalf("不该发 statuette_fisherman_3，实得 %d 枚", n)
+		t.Fatalf("同鱼种重复上星不该推进鱼种数，不该发 statuette_fisherman_3，实得 %d 枚", n)
 	}
 }
 
-// 蓝冠（超级稀有）另有自己的一套档位，首冠即发 statuette_supertrophy_1；
+// 蓝冠（超级稀有）另有自己的一套档位，首冠入护后发 statuette_supertrophy_1；
 // 而稀有鱼档位最矮是 3，单冠时还差两种，不能顺手也发一枚。
 func TestSuperRareMilestoneFirstCrown(t *testing.T) {
 	t.Parallel()
@@ -157,12 +228,9 @@ func TestSuperRareMilestoneFirstCrown(t *testing.T) {
 	}
 	fish := &RolledFish{FishGUID: strings.Repeat("c", 32), Species: "sturgeon", Grade: superTrophyGrade,
 		WeightG: 9000, LengthM: 1.4, LocLevel: "level_001_lake"}
-	dec := settleWithFish(t, s, sess, fish, 1)
+	settleWithFish(t, s, sess, fish, 1)
+	keepWithFish(t, s, sess, fish, 2)
 
-	line := giftRowOf(dec.Fields[4].Val, uint64(giftSourceTrophyCountReached))
-	if line == nil {
-		t.Fatalf("首条蓝冠应带来源码 %d 的礼物行", giftSourceTrophyCountReached)
-	}
 	if n := countOwnedItem(t, s, uid, "statuette_supertrophy_1"); n != 1 {
 		t.Fatalf("首冠应发 statuette_supertrophy_1，实得 %d 枚", n)
 	}

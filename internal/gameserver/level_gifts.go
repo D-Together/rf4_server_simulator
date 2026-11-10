@@ -144,6 +144,8 @@ const giftSourceNewLevel = 1
 // giftSourceTrophyCountReached 是「捕获了数条稀有鱼」的来源码（结算弹窗上下文）：
 // 稀有鱼 / 超级稀有鱼的**鱼种数**跨档时用它把奖座挂进结算礼物卡
 // （kDlg_Catched_GiftsTrophyCountReached）。
+// 目前服务端不再往 801.f4 塞该来源：稀有鱼奖座改为入护后静默到账
+// （见 rarity_milestones.go 的 pushRarityStatuettesOnKeep），保留常量仅供协议对齐。
 const giftSourceTrophyCountReached = 5
 
 // giftRows811 把若干条礼物打包成 811 礼物行数组。外层 args code 173（argcode_table

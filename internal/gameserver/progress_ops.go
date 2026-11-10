@@ -35,7 +35,6 @@ type settleXpResult struct {
 	skillID         int64                              // 310.f2 钓法大类（1 浮钓 / 2 纺车 / 3 底钓 / 11 海钓）
 	skillGain       float64                            // 310.f3 本次实际熟练度增量
 	giftItems       []*store.Item                      // 本次结算直发的升级礼物（仅非重放；挂 801 f8 奖励列表）
-	rarityGifts     []*store.Item                      // 本次结算新发的稀有鱼/超级稀有鱼种类奖座（挂 801 f4 礼物行，来源码 5）
 	qualChanges     map[int64]store.QualificationState // 本尾鱼带来的资格变化（重放时从回执还原）
 }
 
@@ -430,19 +429,14 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 			grants.Items = append(grants.Items, tree)
 		}
 	}
-	// 礼物行：801.f4 = 811 数组。同一数组里可以并存多种来源——升级礼物（f0=1）与
-	// 「捕获了数条稀有鱼」（f0=5，稀有鱼/超级稀有鱼鱼种数跨档时的奖座）；客户端
-	// GameResult 按来源各渲染一张礼物卡片。无礼物保持 null（官服未升级样本形态）。
+	// 礼物行：801.f4 = 811 数组。结算阶段只有升级礼物一种来源（f0=1）；同数组
+	// 并存多来源的渲染能力保留给水域奖杯等后续玩法。无礼物保持 null（官服未升级
+	// 样本形态）。
 	giftRows := proto.Null()
 	if hasFish && res != nil {
 		lines := make([]gift811Line, 0, 2)
 		if len(res.giftItems) > 0 {
 			lines = append(lines, gift811Line{source: giftSourceNewLevel, param: res.newLevel, items: res.giftItems})
-		}
-		// 两族在同一次结算各跨一档时合并成同一行，客户端按同来源取物品并集，
-		// 渲染成一个礼物栈。
-		if len(res.rarityGifts) > 0 {
-			lines = append(lines, gift811Line{source: giftSourceTrophyCountReached, items: res.rarityGifts})
 		}
 		if len(lines) > 0 {
 			if rows, rerr := s.giftRows811(cctx, lines); rerr != nil {
@@ -498,8 +492,8 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 		}
 	}
 	// 礼物 4/22 与卡片同步：801 响应发送后再更新背包缓存，避免与结算快照竞态。
-	if hasFish && res != nil && (len(res.giftItems) > 0 || len(res.rarityGifts) > 0) {
-		gifts := append(append([]*store.Item{}, res.giftItems...), res.rarityGifts...)
+	if hasFish && res != nil && len(res.giftItems) > 0 {
+		gifts := res.giftItems
 		ctx.AfterResponse(func() {
 			for _, row := range gifts {
 				if row != nil {

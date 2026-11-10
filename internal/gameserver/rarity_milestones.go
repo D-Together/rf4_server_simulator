@@ -82,46 +82,21 @@ func (s *Server) raritySpeciesCounts(ctx context.Context, uid int64) (rare, supe
 	return rare, super, err
 }
 
-// speciesReachedGrade 判断某鱼种此前是否已经有 >= minGrade 的入护记录。
-func (s *Server) speciesReachedGrade(ctx context.Context, uid int64, fishKey string, minGrade int64) (bool, error) {
-	var n int64
-	if err := s.DB.SQL.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM catch_log WHERE uid=? AND fish_key=? AND grade>=?`,
-		uid, fishKey, minGrade).Scan(&n); err != nil {
-		return false, err
-	}
-	return n > 0, nil
-}
-
-// raritySpeciesCountsWithCatch 把「刚钓上来、还没入护」的这尾鱼先算进去。
+// rarityMilestoneAfterKeep 在 14/5 入护落库**之后**判定奖座。
 //
-// 结算界面（801/4）在玩家按入护/释放之前就出现，此刻 catch_log 还没有这尾鱼的行
-// （入护 14/5 才写），直接算会永远差最后一种、奖座发不出来。只有该鱼种此前从未
-// 达标才 +1——同一种鱼重复上星不推进进度。
-func (s *Server) raritySpeciesCountsWithCatch(ctx context.Context, uid int64, fishKey string, grade int64) (rare, super int64, err error) {
-	rare, super, err = s.raritySpeciesCounts(ctx, uid)
-	if err != nil || fishKey == "" {
-		return rare, super, err
+// 判定口径与 3/17 图鉴、307.f16 星号完全一致：都只认 catch_log。catch_log 只在
+// 入护时写入（14/6 放生不写），所以奖座也只能在入护后发——否则会出现玩家
+// 「结算时拿到奖座、随后放生，背包里有奖座但图鉴不计数」的错位。
+//
+// 入护时本尾鱼已落库，直接按当前鱼种数补发所有跨过而未发的档位即可；
+// 发放与登录巡检共用 grantRarityMilestones，kv 幂等标记保证不重复。
+func (s *Server) rarityMilestoneAfterKeep(ctx context.Context, uid int64) []*store.Item {
+	rare, super, err := s.raritySpeciesCounts(ctx, uid)
+	if err != nil {
+		s.log.Warn("稀有鱼种数统计失败", "uid", uid, "err", err)
+		return nil
 	}
-	if grade >= recordTrophyGrade {
-		seen, serr := s.speciesReachedGrade(ctx, uid, fishKey, int64(recordTrophyGrade))
-		if serr != nil {
-			return rare, super, serr
-		}
-		if !seen {
-			rare++
-		}
-	}
-	if grade >= superTrophyGrade {
-		seen, serr := s.speciesReachedGrade(ctx, uid, fishKey, int64(superTrophyGrade))
-		if serr != nil {
-			return rare, super, serr
-		}
-		if !seen {
-			super++
-		}
-	}
-	return rare, super, nil
+	return s.grantRarityMilestones(ctx, uid, rare, super)
 }
 
 // issueRarityMilestone 发放一档奖座：kv 幂等标记与物品同一事务提交。
@@ -203,25 +178,6 @@ func (s *Server) grantRarityMilestones(ctx context.Context, uid, rare, super int
 	return out
 }
 
-// rarityMilestoneForCatch 在钓获结算时判定：这尾鱼是否让某个鱼种首次达标、从而跨过
-// 一道奖座档位。返回本次新发的奖座（可能 0~2 枚：稀有鱼与超级稀有鱼各一档），
-// 供结算界面挂 811 礼物行（来源码 5 = 捕获了数条稀有鱼）。
-func (s *Server) rarityMilestoneForCatch(ctx context.Context, uid int64, f *RolledFish) []*store.Item {
-	if s == nil || s.DB == nil || f == nil {
-		return nil
-	}
-	// 没上星的鱼不可能推进任何一档（最矮的门槛也是上星），先挡掉绝大多数渔获。
-	if f.Grade < recordTrophyGrade {
-		return nil
-	}
-	rare, super, err := s.raritySpeciesCountsWithCatch(ctx, uid, f.Species, f.Grade)
-	if err != nil {
-		s.log.Warn("稀有鱼种数统计失败", "uid", uid, "fish", f.Species, "err", err)
-		return nil
-	}
-	return s.grantRarityMilestones(ctx, uid, rare, super)
-}
-
 // pushRarityMilestoneItems 把新发的奖座推 4/22，让客户端背包立刻出现。
 // 登录与面板兜底都走这里：只发数据库不推的话，客户端要等下次拉背包才看得见。
 func pushRarityMilestoneItems(sess *Session, items []*store.Item) {
@@ -232,6 +188,45 @@ func pushRarityMilestoneItems(sess *Session, items []*store.Item) {
 		if it != nil {
 			sess.Srv.pushItemUpdate(sess.Userid, it)
 		}
+	}
+}
+
+// rarityMilestoneLabel 反查奖座对应的档位说明，用于入护播报（「稀有鱼图鉴 3 种」）。
+func rarityMilestoneLabel(itemID string) string {
+	for _, m := range rareSpeciesMilestones {
+		if m.ItemID == itemID {
+			return fmt.Sprintf("稀有鱼图鉴 %d 种", m.Species)
+		}
+	}
+	for _, m := range superRareSpeciesMilestones {
+		if m.ItemID == itemID {
+			return fmt.Sprintf("超级稀有鱼图鉴 %d 种", m.Species)
+		}
+	}
+	return ""
+}
+
+// pushRarityStatuettesOnKeep 在 14/5 入护后推送奖座：4/22 增量进背包，
+// 同时在系统频道播报一行。入护不经过 801 结算界面，没有礼物弹窗，
+// 靠播报让玩家知道「刚才那条鱼解锁了奖座」。
+func pushRarityStatuettesOnKeep(sess *Session, items []*store.Item) {
+	if sess == nil || sess.Srv == nil {
+		return
+	}
+	for _, it := range items {
+		if it == nil {
+			continue
+		}
+		sess.Srv.pushItemUpdate(sess.Userid, it)
+		label := rarityMilestoneLabel(it.ItemID)
+		if label == "" {
+			continue
+		}
+		name := sess.Srv.lootItemName(sess.pushCtx(), it.ItemID)
+		if name == "" {
+			name = it.ItemID
+		}
+		sess.pushSystemChat(fmt.Sprintf("收藏奖座解锁：%s（%s）", name, label))
 	}
 }
 
