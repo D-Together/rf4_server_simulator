@@ -2,7 +2,7 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {chromium}=require('playwright');
 const html=fs.readFileSync(path.join(__dirname,'web/index.html'),'utf8');
-test('params page groups preserve edits and upstream embedded API routing',async()=>{
+test('params tabs preserve edits and upstream embedded API routing',async()=>{
  const browser=await chromium.launch({headless:true,executablePath:process.env.RF4_TEST_BROWSER||path.join(process.env['ProgramFiles(x86)'],'Microsoft/Edge/Application/msedge.exe')});
  const metrics=[];
  try{
@@ -19,18 +19,29 @@ test('params page groups preserve edits and upstream embedded API routing',async
    });
    await page.clock.install();
    await page.goto('http://127.0.0.1:19214'+prefix+'/#params');
-   await page.locator('#tun_xp_gain').waitFor();
-   assert.equal(await page.locator('#tun_fish_weight_cap').getAttribute('placeholder'),'默认 0');
-   assert.equal(await page.locator('.tunable-group').count(),9);
+   await page.locator('button[data-page="gameplay"]').waitFor();
+   assert.equal(await page.locator('#paramsBody .tunable-group[data-page="gameplay"]').count(),6);
+   assert.equal(await page.locator('#paramsBody .tunable-group[data-page="reward"]').count(),5);
+   assert.equal(await page.locator('#paramsBody .tunable-group[data-page="event"]').count(),1);
+   assert.equal(await page.locator('#tun_fish_weight_cap').getAttribute('placeholder'),'未设置');
+   assert.ok((await page.locator('label[for="tun_fish_weight_cap"]').locator('..').innerText()).includes('默认 0'));
    assert.equal(await page.locator('#tun_electric_locked_multiplier').count(),1);
    assert.equal(await page.locator('#tun_electric_motor_kg_per_power').count(),1);
+   assert.equal(await page.locator('#tun_reel_slip_wear_low').isVisible(),true);
+   assert.equal(await page.locator('#tun_reel_burn_calibration_drag_kg').isVisible(),true);
+   await page.locator('button[data-page="reward"]').click();
+   await page.locator('#tun_xp_gain').waitFor({state:'visible'});
+   await page.locator('button[data-page="event"]').click();
+   await page.locator('#tun_event_branches').waitFor({state:'visible'});
+   await page.locator('button[data-page="reward"]').click();
+   await page.locator('#tun_xp_gain').waitFor({state:'visible'});
    await page.locator('#tun_xp_gain').fill('2.5');
    await page.clock.fastForward(8100);
    await page.waitForTimeout(100);
    assert.equal(await page.locator('#tun_xp_gain').inputValue(),'2.5');
    for(const text of ['', '最长合理业务参数名称与说明'.repeat(10), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.repeat(15)]){
-    if(text)await page.locator('.tunable-field label').first().evaluate((e,t)=>e.textContent=t,text);
-    const m=await page.evaluate(()=>({viewport:innerWidth,scroll:document.documentElement.scrollWidth,fields:[...document.querySelectorAll('.tunable-field')].filter(e=>e.querySelector('input')&&e.querySelector('button')).map(e=>{
+    if(text)await page.locator('.tunable-field:visible label').first().evaluate((e,t)=>e.textContent=t,text);
+    const m=await page.evaluate(()=>({viewport:innerWidth,scroll:document.documentElement.scrollWidth,fields:[...document.querySelectorAll('.tunable-field')].filter(e=>e.offsetParent!==null&&e.querySelector('input')&&e.querySelector('button')).map(e=>{
      const input=e.querySelector('input').getBoundingClientRect(),button=e.querySelector('button').getBoundingClientRect(),label=e.querySelector('label');
      return {input:input.width,button:button.width,height:button.height,gap:button.x-input.right,labelScroll:label.scrollWidth,labelWidth:label.clientWidth,font:getComputedStyle(label).fontSize};
     })}));
