@@ -273,7 +273,7 @@ func TestDrinkUseReplayAfterExhaustionAndRestart(t *testing.T) {
 	drinkUseTestCount(t, fresh, `SELECT COUNT(*) FROM drink_bonus_effect WHERE category='wine'`, 0)
 }
 
-func TestDrinkUseDifferentCallsRefreshSameCategory(t *testing.T) {
+func TestDrinkUseDifferentCallsStackSameCategory(t *testing.T) {
 	t.Parallel()
 	s := newDrinkUseTestServer(t)
 	row := drinkUseTestItem(t, s, "tungus_vodka", 3, 0)
@@ -294,13 +294,32 @@ func TestDrinkUseDifferentCallsRefreshSameCategory(t *testing.T) {
 		t.Fatal("different call must consume another portion")
 	}
 	drinkUseTestQty(t, s, row.GUID, 1, 0)
-	var remaining int64
 	// 官服单瓶值：tungus_vodka 10% / 9 游戏小时（24:1 折算 22.5 现实分钟）。
-	if err := s.DB.SQL.QueryRow(`SELECT remaining_millis FROM drink_bonus_effect WHERE category='spirit'`).Scan(&remaining); err != nil || remaining != 1350000 {
-		t.Fatalf("same category did not refresh: %d %v", remaining, err)
-	}
-	drinkUseTestCount(t, s, `SELECT COUNT(*) FROM drink_bonus_effect`, 1)
+	// 第二瓶独立计时，已近到期的第一瓶保留自身剩余时间。
+	drinkUseTestCount(t, s, `SELECT COUNT(*) FROM drink_bonus_effect`, 2)
+	drinkUseTestCount(t, s, `SELECT COUNT(*) FROM drink_bonus_effect WHERE category='spirit' AND remaining_millis=1`, 1)
+	drinkUseTestCount(t, s, `SELECT COUNT(*) FROM drink_bonus_effect WHERE category='spirit' AND remaining_millis=1350000 AND source_guid='`+row.GUID+`'`, 1)
 	drinkUseTestCount(t, s, `SELECT COUNT(*) FROM kv WHERE k LIKE 'drink-use:%'`, 2)
+}
+
+func TestDrinkUseEleventhBottleDropsOldest(t *testing.T) {
+	t.Parallel()
+	s := newDrinkUseTestServer(t)
+	row := drinkUseTestItem(t, s, "tungus_vodka", 1, 0)
+	for i := range 10 {
+		if _, err := s.DB.SQL.Exec(`INSERT INTO drink_bonus_effect(uid,category,peak,remaining_millis,duration_millis,source_guid)
+			VALUES(1000001,'wine',0.1,600000,600000,?)`, fmt.Sprintf("old-%02d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if body, handled := s.useAlcoholDrink(drinkUseTestCtx(t, s, 22, row.GUID, 0)); !handled || len(body) == 0 {
+		t.Fatal("eleventh bottle use failed")
+	}
+	// 已满 10 瓶：新瓶入账后顶掉最早生效的一瓶，其余不动。
+	drinkUseTestCount(t, s, `SELECT COUNT(*) FROM drink_bonus_effect`, 10)
+	drinkUseTestCount(t, s, `SELECT COUNT(*) FROM drink_bonus_effect WHERE source_guid='old-00'`, 0)
+	drinkUseTestCount(t, s, `SELECT COUNT(*) FROM drink_bonus_effect WHERE source_guid='old-09'`, 1)
+	drinkUseTestCount(t, s, `SELECT COUNT(*) FROM drink_bonus_effect WHERE category='spirit' AND source_guid='`+row.GUID+`'`, 1)
 }
 
 func TestDrinkUseClosedSessionCannotConsumeOrRestartClock(t *testing.T) {
