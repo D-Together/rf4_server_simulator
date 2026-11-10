@@ -193,6 +193,9 @@ func hFishTrophies323(ctx *Ctx) ([]byte, bool) {
 		ctx.Log.Error("3/17 鱼种奖杯查询失败", "err", err)
 		return encodeArgsCode(ctx, "132")
 	}
+	// 稀有鱼 / 超级稀有鱼的鱼种数里程碑在这里兜底：面板就是玩家看「我有多少种
+	// 稀有鱼」的地方，翻面板时顺手把该给的奖座补齐并推 4/22。
+	pushRarityMilestoneItems(ctx.Sess, ctx.Sess.Srv.ensureRarityMilestones(ctx.Sess.Srv.dbCtx(), ctx.Sess.Userid))
 	body, err := proto.EncodeValue(v, ctx.Sess.Table())
 	if err != nil {
 		ctx.Log.Error("3/17 鱼种奖杯编码失败", "err", err)

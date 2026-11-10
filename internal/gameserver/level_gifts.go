@@ -128,39 +128,75 @@ func (s *Server) notifyLevelUpGiftChat(uid, level, skillCat int64) {
 	}
 }
 
-// giftRows811Arg 把本次直发的礼物包装成 811(plhpmhpadcg) 礼物行数组，供
-// 807.f1（放流）与 801.f4（收鱼结算）携带：外层 args code 173（argcode_table
-// by_elem 811→173），单行 {f0=1(ehbdkjmbdee 新级别礼物), f1=最终等级,
-// f2=礼物物品树(args 61), f3=空物品数组}。客户端结算弹窗
-// kegidigbokk(source=1) 只从 811 数组取卡片渲染"新级别礼物"栈
-// （GameAssembly 0x180D4BD40 / 收集 0x180D48C90）；多级连升合并为一行，
-// 客户端对同 source 行取物品并集渲染单个礼物栈。无礼物时回 null
-// （官服未升级样本该槽位即为 null，见 monitor docs/LEVEL_UP_GIFT_CARDS.md）。
+// gift811Line 是一条 811 礼物行里的「礼物来源 + 物品」。
+//
+// source 决定客户端礼物卡片上那句说明，param 是该来源的占位参数（新级别礼物用等级），
+// items 是这条礼物包含的物品。
+type gift811Line struct {
+	source int
+	param  int64
+	items  []*store.Item
+}
+
+// giftSourceNewLevel 是 811.f0 的「新级别礼物」来源码（实机已验证）。
+const giftSourceNewLevel = 1
+
+// giftSourceTrophyCountReached 是「捕获了数条稀有鱼」的来源码（结算弹窗上下文）：
+// 稀有鱼 / 超级稀有鱼的**鱼种数**跨档时用它把奖座挂进结算礼物卡
+// （kDlg_Catched_GiftsTrophyCountReached）。
+// 目前服务端不再往 801.f4 塞该来源：稀有鱼奖座改为入护后静默到账
+// （见 rarity_milestones.go 的 pushRarityStatuettesOnKeep），保留常量仅供协议对齐。
+const giftSourceTrophyCountReached = 5
+
+// giftRows811 把若干条礼物打包成 811 礼物行数组。外层 args code 173（argcode_table
+// by_elem 811→173），单行 {f0=来源, f1=参数, f2=礼物物品树(args 61), f3=空物品数组}。
+// 客户端结算弹窗按来源取卡片（`kegidigbokk(source)`，GameAssembly 0x180D4BD40 /
+// 收集 0x180D48C90），同一数组里可以同时有升级礼物与「数条稀有鱼」礼物。无礼物回 null。
+func (s *Server) giftRows811(ctx context.Context, lines []gift811Line) (*proto.Value, error) {
+	rows := proto.Args(proto.S("173"))
+	for _, line := range lines {
+		if len(line.items) == 0 {
+			continue
+		}
+		items := proto.Args(proto.S("61"))
+		for _, row := range line.items {
+			if row == nil {
+				continue
+			}
+			tree, err := s.ItemToTree(ctx, row)
+			if err != nil {
+				return nil, err
+			}
+			items.Items = append(items.Items, tree)
+		}
+		if len(items.Items) == 0 {
+			continue
+		}
+		obj, err := wiregen.MakeObj("bkmnmjcfbic", map[int]*proto.Value{
+			0: proto.U32(uint32(line.source)), // ehbdkjmbdee=来源码
+			1: proto.U32(uint32(max64(0, line.param))),
+			2: items,
+			3: proto.Args(proto.S("61")), // 恒空数组（红线：数组不发 null）
+		})
+		if err != nil {
+			return nil, err
+		}
+		rows.Items = append(rows.Items, obj)
+	}
+	if len(rows.Items) == 0 {
+		return proto.Null(), nil
+	}
+	return rows, nil
+}
+
+// giftRows811Arg 把本次直发的升级礼物包装成 811 礼物行数组，供 807.f1（放流）与
+// 801.f4（收鱼结算）携带。多级连升合并为一行，客户端对同来源行取物品并集渲染
+// 单个礼物栈。无礼物时回 null（官服未升级样本该槽位即为 null）。
 func (s *Server) giftRows811Arg(ctx context.Context, newLevel int64, rows []*store.Item) (*proto.Value, error) {
 	if len(rows) == 0 {
 		return proto.Null(), nil
 	}
-	items := proto.Args(proto.S("61"))
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		tree, err := s.ItemToTree(ctx, row)
-		if err != nil {
-			return nil, err
-		}
-		items.Items = append(items.Items, tree)
-	}
-	line, err := wiregen.MakeObj("bkmnmjcfbic", map[int]*proto.Value{
-		0: proto.U32(1), // ehbdkjmbdee=1 新级别礼物：客户端 kegidigbokk 的匹配键
-		1: proto.U32(uint32(max64(0, newLevel))),
-		2: items,
-		3: proto.Args(proto.S("61")), // 恒空数组（红线：数组不发 null）
-	})
-	if err != nil {
-		return nil, err
-	}
-	return proto.Args(proto.S("173"), line), nil
+	return s.giftRows811(ctx, []gift811Line{{source: giftSourceNewLevel, param: newLevel, items: rows}})
 }
 
 // grantLevelUpGift 单级发放：幂等键与全部物品在同一事务内提交，先到先得。
