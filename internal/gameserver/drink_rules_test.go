@@ -13,18 +13,24 @@ func TestDrinkRulesClassifyAlcoholicDrinks(t *testing.T) {
 		items    string
 	}{
 		{"beer", `
-			kvas_bottle kvas_glass lb_bottle_ch_ale_ny lb_bottle_eks lb_bottle_eks_ny
+			ang_bottle ang_can_8 ang_cang
+			kvas_bottle kvas_glass kvarta_bot kvarta_bot_g
+			lb_bottle_ch_ale_ny lb_bottle_eks lb_bottle_eks_ny
 			lb_bottle_krep lb_bottle_krep_ny lb_bottle_trad lb_bottle_trad_ny
+			lr_dr_can lr_dr_g m_bottle_ny26 pl_class_bot pl_dark_bot
+			var_can var_hny25_can var_hny26_can var_hny_can var_s_can
 			wood_bottle_cask wood_bottle_dark wood_bottle_lager
 			wood_can_cask wood_can_dark wood_can_lager`},
 		{"wine", `
 			AV_shamp_1l AV_shamp_1l_8 AV_shamp_1lg AV_shamp_p_6l AV_shamp_tsr
-			apple_sidr g_vine_bottle rd_ice_vine rd_ice_vine25 rd_ice_vine26
+			apple_sidr christmas_cup g_vine_bottle rd_ice_vine rd_ice_vine25 rd_ice_vine26
 			rd_red_vine rd_red_vine_2017 rd_red_vine_8 rd_white_vine
 			rot_bottle_porto thermos_gwein vine_bottle_em`},
 		{"spirit", `
+			goldimp_bot goldimp_bot_g
 			XXIVA_bottle_vdka boyar_bottle_vdka gorilka hooch_corn hooch_potato
-			kala_vodka kr_pennik pervach tungus_vodka vodka_glass
+			kala_bot kala_vodka kr_pennik pervach spicy_pepper
+			tungus_bot tungus_vodka vodka_glass
 			zdn_bottle_cogn3 zdn_bottle_cogn5 zdn_bottle_vdka`},
 		{"mead", `
 			barrel_honey pm_medovuha pm_medovuha_g pm_medovuha_g_8 sbiten`},
@@ -44,8 +50,8 @@ func TestDrinkRulesClassifyAlcoholicDrinks(t *testing.T) {
 			})
 		}
 	}
-	if len(seen) != 50 {
-		t.Fatalf("classified %d drinks, want 50", len(seen))
+	if len(seen) != 71 {
+		t.Fatalf("classified %d drinks, want 71", len(seen))
 	}
 }
 
@@ -81,13 +87,13 @@ func TestDrinkRulesOfficialBonuses(t *testing.T) {
 }
 
 func TestDrinkRulesExcludeFoodAndNonAlcoholicDrinks(t *testing.T) {
+	// barrel_kvas / pil_bottle：attrs 全零（无容量、无状态位），疑似容器或
+	// 原料而非可饮成品，保持排除；确认可饮后再议类目。
 	for _, item := range strings.Fields(`
 		ff_honey ff_pack_kefir pm_honey_l apples baked_potato pill_pack
-		goldimp_bot goldimp_bot_g kala_bot tungus_bot spicy_pepper
 		AV_shamp_p_a0 AV_shamp_tsr_a0 pm_medovuha_alcfree pm_medovuha_alcfree_g
-		kvarta_bot kvarta_bot_g lb_bottle_ale_ny_a0 lr_dr_can lr_dr_g pl_class_bot pl_dark_bot
-		ang_bottle ang_can_8 big_coffee small_coffee thermos_cacao thermos_coffee thermos_tea
-		mc_bottle_cola mc_can_cola m_bottle_ny26 lb_bottle_lim lb_bottle_lim_ny
+		lb_bottle_ale_ny_a0 big_coffee small_coffee thermos_cacao thermos_coffee thermos_tea
+		mc_bottle_cola mc_can_cola lb_bottle_lim lb_bottle_lim_ny
 		barrel_kvas kisel_jug mors_bottle_hm pil_bottle brand_coffe
 		TUNGUS_VODKA tungus_vodka_unknown unknown
 	`) {
