@@ -47,7 +47,7 @@ Comfort Telescopic 5 浮钓套。
   天然隔离。多级连升按 from+1..to 逐级各发一份。
 - 呈现层（官方"新级别礼物"卡片）：结算弹窗客户端只从响应内嵌的 **811 礼物行数组**
   取卡片渲染（`kegidigbokk(source=1)`，GameAssembly 0x180D4BD40；依据见
-  monitor `docs/LEVEL_UP_GIFT_CARDS.md`）。礼物发放后按
+  monitor 目录的 `LEVEL_UP_GIFT_CARDS.md`，未随仓库发布）。礼物发放后按
   `args(173)[ obj(811){f0=1, f1=最终等级, f2=礼物物品(args 61), f3=空} ]`
   填 **807.f1（放流）** 与 **801.f4（收鱼结算）**；无礼物保持 null（官服未升级
   样本形态）。礼物本体同时推 4/22。客户端实测（2026-11-08）：卡片栈出现，

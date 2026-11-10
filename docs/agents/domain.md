@@ -15,8 +15,13 @@
 | 提交粒度、PR 要求 | `CONTRIBUTING.md` |
 | 具体怎么排查协议 bug | `docs/debugging-workflow.md` |
 | 模块划分、目录 | `docs/architecture.md` |
-| 玩法数值与机制 | `docs/gameplay.md` |
+| 某机制的代码入口（文件/函数/测试） | `docs/mechanism-map.md` |
+| 玩法数值与机制（总纲） | `docs/gameplay.md` |
+| 单个机制的实现边界与验收口径 | `docs/<mechanism>.md`，并在 `docs/README.md` 登记 |
 | 部署与端口 | `docs/deploy.md` |
+
+能力契约一域一份：单份**超过 80 行考虑拆分，超过 150 行必须拆分**
+（由 `internal/doccheck` 的 `cap-size` 规则判定，80 行只提示、150 行直接失败）。
 
 ## 三条禁止
 
@@ -47,8 +52,15 @@
 | 改了 | 同步到 |
 |---|---|
 | 命令响应形状/args code | `specs/capabilities/protocol-contract.md`（若引出新规则） |
-| 钓鱼、结算、奖励规则 | `specs/capabilities/fishing-and-settlement.md` |
+| 结算、奖励、终态（剪线/断竿/跑鱼/放生入护） | `specs/capabilities/settlement-and-idempotency.md` |
+| 咬钩、饵料、食性、派鱼与发鱼模式 | `specs/capabilities/bite-bait-and-spawn.md` |
+| 成就规则与解锁推送 | `specs/capabilities/achievements.md` |
+| 查鱼回复与口径 | `specs/capabilities/fish-query.md` |
+| 启动装配与初始化步骤 | `specs/capabilities/runtime-and-launch.md` |
 | 表结构、迁移、幂等 | `specs/capabilities/store-and-idempotency.md` |
 | 部署方式、端口 | `docs/deploy.md` |
 | 玩法数值 | `docs/gameplay.md` |
+| 新增/改动单个机制 | `docs/<mechanism>.md`；玩法总纲同步 `docs/gameplay.md` |
+| 机制入口改名或拆分 | `docs/mechanism-map.md` 对应行 |
+| 新增一份文档 | `docs/README.md` 索引（漏登记即漂移） |
 | 新的高频陷阱 | 对应能力契约的 ✅/❌ 清单 |

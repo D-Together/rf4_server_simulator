@@ -1,6 +1,8 @@
 # 修复多竿独立钓鱼状态
 
-Status: implemented; partial client validation
+Status: in-progress
+
+<!-- 验证：服务端实现已完成（2026-11-07）；客户端仅部分验证，待补齐后改 done。 -->
 
 ## Problem
 

@@ -42,9 +42,19 @@ func qWeightAtMost(g int64) qFilter {
 }
 
 // qRarityAtLeast 物种稀有度（loc_wiki_fish/species_rarity：0 普通 1 稀有 2 超稀有）。
-// 文案「稀有鱼」按物种稀有度 >=1 判，「超级稀有/罕见」按 >=2 判。
+// 仅用于文案明确说「鱼种」的任务（8603「罕见或极其罕见的鱼种」按 >=1）。
+// 注意：文案里的「稀有鱼/trophy」是个体档位而非物种稀有度，见 qGradeAtLeast。
 func qRarityAtLeast(n int64) qFilter {
 	return func(ev qualificationEvent) bool { return ev.Rarity >= n }
+}
+
+// qGradeAtLeast 个体鱼档位（1 未达标 2 合格 3 奖杯 4 蓝冠）。
+// 文案「trophy/稀有鱼（星）」按档位 >=3；「rare trophy/超稀有」按 >=4。
+// 依据：官服 3/2 统计页稀有计数=grade>=3（statsbuild.go 抓包实证）；
+// 英文任务文案为 "Catch a trophy Perch" 等——常见鱼种也有奖杯个体，
+// 若按物种稀有度判，perch/atl_cod/halibut_w 等任务永远无法完成。
+func qGradeAtLeast(n int64) qFilter {
+	return func(ev qualificationEvent) bool { return ev.Grade >= n }
 }
 
 func qSpeciesIn(keys ...string) qFilter {
@@ -118,6 +128,11 @@ func qDepthAtLeast(cm int64) qFilter {
 
 func qFromShore() qFilter {
 	return func(ev qualificationEvent) bool { return ev.IsShore }
+}
+
+// qFromBoat 船上钓（「在船上」）：与岸钓互斥，事件 IsShore 由 OnBoat 取反装配。
+func qFromBoat() qFilter {
+	return func(ev qualificationEvent) bool { return !ev.IsShore }
 }
 
 // rodPowerClass 取竿 item_id 尾缀的硬度档（UL/L/ML/M/MH/H/XH…）。
@@ -230,6 +245,53 @@ func qCastDistanceAtLeast(m float64) qFilter {
 	return func(ev qualificationEvent) bool { return ev.CastM >= m }
 }
 
+// qWeightBelow 体重严格小于 g 克（「重量小于 50 克」），与 qWeightAtMost 的含等号区分。
+func qWeightBelow(g int64) qFilter {
+	return func(ev qualificationEvent) bool { return ev.WeightG > 0 && ev.WeightG < g }
+}
+
+// qFloatRig 浮子钓具/浮钓：本杆钓组属浮钓族（rigmeta.go:floatRigTypes）。
+func qFloatRig() qFilter {
+	return func(ev qualificationEvent) bool { return floatRigTypes[ev.RigType] }
+}
+
+// qBottomRig 水底钓具/底钓渔具：本杆钓组属沉底族（rigmeta.go:bottomRigTypes）。
+func qBottomRig() qFilter {
+	return func(ev qualificationEvent) bool { return bottomRigTypes[ev.RigType] }
+}
+
+// qMediumLight 中轻型竿（硬度档尾缀 ML）。
+func qMediumLight() qFilter {
+	return func(ev qualificationEvent) bool { return ev.RodPower == "ML" }
+}
+
+// qMediumLightOrLight 中轻/轻/超轻竿（ML/L/UL/ULL，含手竿测试上限 <=5g 的超轻兜底）。
+func qMediumLightOrLight() qFilter {
+	light := qLight()
+	return func(ev qualificationEvent) bool { return ev.RodPower == "ML" || light(ev) }
+}
+
+// qLineStrengthAtMost 鱼线强度上限（公斤）；主线/前导线取已装配最小值。
+// 强度未知（0）时拒绝计数：与 qWeightAtMost/qBaitSizeAtMost 等上限过滤一致，
+// 无法核实「不超过 X 公斤」时不造假进度。
+func qLineStrengthAtMost(kg float64) qFilter {
+	return func(ev qualificationEvent) bool {
+		return ev.LineStrengthKG > 0 && ev.LineStrengthKG <= kg
+	}
+}
+
+// qBaitFlavorIn 天然饵味型命中（item_def acclagajcdn）。
+func qBaitFlavorIn(flavors ...int64) qFilter {
+	return func(ev qualificationEvent) bool {
+		for _, f := range flavors {
+			if ev.BaitFlavor == f {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 func qPassAll(ev qualificationEvent, filters []qFilter) bool {
 	for _, f := range filters {
 		if !f(ev) {
@@ -237,6 +299,23 @@ func qPassAll(ev qualificationEvent, filters []qFilter) bool {
 		}
 	}
 	return true
+}
+
+// qAllOf 把多个过滤组合成一个「与」过滤（用于嵌套 OR 条件）。
+func qAllOf(filters ...qFilter) qFilter {
+	return func(ev qualificationEvent) bool { return qPassAll(ev, filters) }
+}
+
+// qAnyOf 把多个过滤组合成一个「或」过滤（单尾二选一：A 或 B 命中即计）。
+func qAnyOf(filters ...qFilter) qFilter {
+	return func(ev qualificationEvent) bool {
+		for _, f := range filters {
+			if f(ev) {
+				return true
+			}
+		}
+		return false
+	}
 }
 
 // qCountSpecies 过滤通过则按鱼种去重计数（「钓获 N 种鱼」）。

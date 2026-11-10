@@ -16,6 +16,7 @@ Agent 入口只有这一个文件（`AGENTS.md` 只是指针，禁止复制本�
 | 客户端抛异常的栈 | `.\tools\clientlog.ps1` |
 | 已确认的协议事实（21/1、21/2 的 args code 等） | `docs/debugging-workflow.md` →「已确认的协议事实」 |
 | 模块划分与主链路 | `docs/architecture.md` |
+| 某机制的代码入口（文件/函数/测试） | `docs/mechanism-map.md` |
 | 钓鱼/鱼口/饵料机制 | `docs/gameplay.md` |
 | 存储、只读静态库隔离 | `docs/static_runtime_isolation.md` |
 | 部署、端口、启动 | `docs/deploy.md` |
@@ -96,7 +97,8 @@ Agent 入口只有这一个文件（`AGENTS.md` 只是指针，禁止复制本�
 | 情况 | 只读这一节 |
 |---|---|
 | 新增/修改命令响应 | `specs/capabilities/protocol-contract.md` + `docs/debugging-workflow.md`「改协议代码前的检查清单」 |
-| 改钓鱼、结算、奖励、剪线、断竿 | `specs/capabilities/fishing-and-settlement.md` |
+| 改结算、奖励、剪线、断竿、放生入护 | `specs/capabilities/settlement-and-idempotency.md` |
+| 改咬钩、饵料、食性、派鱼档位与发鱼模式 | `specs/capabilities/bite-bait-and-spawn.md` |
 | 改表结构、迁移、幂等 | `specs/capabilities/store-and-idempotency.md` |
 | 判断这算不算"小改" | `docs/agents/workflow.md` 第一张表 |
 | 判断某个结论能不能当依据 | `docs/agents/domain.md`「证据等级」 |

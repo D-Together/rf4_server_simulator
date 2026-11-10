@@ -1866,7 +1866,7 @@ var ClassMeta = map[string]ClassInfo{
 		{Idx: 1, Name: "oalocpjcokm", Label: "", Enum: "", Zh: "数量 oalocpjcokm（累加）"},
 		{Idx: 2, Name: "cahhdnicmbn", Label: "", Enum: "", Zh: "物品实例 guid（JSON id 主键）"},
 		{Idx: 3, Name: "fopbhlmkcpe", Label: "", Enum: "ajihbmifmal", Zh: "手持物类型 fopbhlmkcpe（==3 特殊）"},
-		{Idx: 4, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 56=快乐时光HappyHour（其余=通用兜底）"},
+		{Idx: 4, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 57=快乐时光HappyHour（其余=通用兜底）"},
 		{Idx: 5, Name: "jgjhipncckj", Label: "", Enum: "", Zh: "标志 jgjhipncckj"},
 	}},
 	"cnbplnihglf": {DTO: "jbjnoihpocf", Fields: []FieldInfo{
@@ -2121,7 +2121,7 @@ var ClassMeta = map[string]ClassInfo{
 		{Idx: 0, Name: "oiicogcccao", Label: "", Enum: "", Zh: "能量回复加成比例 0..1（物品描述行 kItemDesc_Bonus_EnergyRegeneration，显示 ×100% 取整）"},
 		{Idx: 1, Name: "oodjilnjeen", Label: "", Enum: "", Zh: "能量上限等级加成比例 0..1（物品描述行 kItemDesc_Bonus_EnergyMaxLevel，显示 ×100% 取整）"},
 		{Idx: 2, Name: "fopbhlmkcpe", Label: "", Enum: "ajihbmifmal", Zh: "物品品类枚举；2=鱼护，3=鱼竿，4=竿柄，5=导环，6=卷线器，7=卷线器轴承，8=卷线器线杯。"},
-		{Idx: 3, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 56=快乐时光HappyHour（其余=通用兜底）"},
+		{Idx: 3, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 57=快乐时光HappyHour（其余=通用兜底）"},
 		{Idx: 4, Name: "jgjhipncckj", Label: "", Enum: "", Zh: "标志 jgjhipncckj"},
 	}},
 	"dgbmlekfpbg": {DTO: "ifbfdldbana", Fields: []FieldInfo{
@@ -2525,7 +2525,7 @@ var ClassMeta = map[string]ClassInfo{
 		{Idx: 0, Name: "kdhkgjcjpel", Label: "", Enum: "", Zh: "数值 kdhkgjcjpel（x{0} 文本）"},
 		{Idx: 1, Name: "cahhdnicmbn", Label: "", Enum: "", Zh: "物品实例 guid（JSON id，主键）"},
 		{Idx: 2, Name: "fopbhlmkcpe", Label: "", Enum: "ajihbmifmal", Zh: "物品品类枚举；2=鱼护，3=鱼竿，4=竿柄，5=导环，6=卷线器，7=卷线器轴承，8=卷线器线杯。"},
-		{Idx: 3, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 56=快乐时光HappyHour（其余=通用兜底）"},
+		{Idx: 3, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 57=快乐时光HappyHour（其余=通用兜底）"},
 		{Idx: 4, Name: "jgjhipncckj", Label: "", Enum: "", Zh: "标志 jgjhipncckj"},
 	}},
 	"fcdgfdomnjm": {DTO: "eppehpkieno", Fields: []FieldInfo{
@@ -2591,7 +2591,7 @@ var ClassMeta = map[string]ClassInfo{
 		{Idx: 1, Name: "cahhdnicmbn", Label: "", Enum: "", Zh: "物品实例 guid（JSON id 主键）"},
 		{Idx: 2, Name: "eockhcinafl", Label: "", Enum: "", Zh: "数量 eockhcinafl（+ {0}，>0 才显示）"},
 		{Idx: 3, Name: "fopbhlmkcpe", Label: "", Enum: "ajihbmifmal", Zh: "物品品类枚举；2=鱼护，3=鱼竿，4=竿柄，5=导环，6=卷线器，7=卷线器轴承，8=卷线器线杯。"},
-		{Idx: 4, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 56=快乐时光HappyHour（其余=通用兜底）"},
+		{Idx: 4, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 57=快乐时光HappyHour（其余=通用兜底）"},
 		{Idx: 5, Name: "jgjhipncckj", Label: "", Enum: "", Zh: "标志 jgjhipncckj"},
 	}},
 	"ffoibocamkb": {DTO: "hoakpnkikjg", Fields: []FieldInfo{
@@ -3971,7 +3971,7 @@ var ClassMeta = map[string]ClassInfo{
 		{Idx: 0, Name: "kdhkgjcjpel", Label: "", Enum: "", Zh: "数值 kdhkgjcjpel（x{0} 文本）"},
 		{Idx: 1, Name: "cahhdnicmbn", Label: "", Enum: "", Zh: "物品实例 guid（JSON id，主键）"},
 		{Idx: 2, Name: "fopbhlmkcpe", Label: "", Enum: "ajihbmifmal", Zh: "物品品类枚举；2=鱼护，3=鱼竿，4=竿柄，5=导环，6=卷线器，7=卷线器轴承，8=卷线器线杯。"},
-		{Idx: 3, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 56=快乐时光HappyHour（其余=通用兜底）"},
+		{Idx: 3, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 57=快乐时光HappyHour（其余=通用兜底）"},
 		{Idx: 4, Name: "jgjhipncckj", Label: "", Enum: "", Zh: "标志 jgjhipncckj"},
 	}},
 	"kbifnfoidgm": {DTO: "elmpiaboohb", Fields: []FieldInfo{
@@ -4034,7 +4034,7 @@ var ClassMeta = map[string]ClassInfo{
 		{Idx: 0, Name: "kdhkgjcjpel", Label: "", Enum: "", Zh: "数值 kdhkgjcjpel（x{0} 文本）"},
 		{Idx: 1, Name: "cahhdnicmbn", Label: "", Enum: "", Zh: "物品实例 guid（JSON id，主键）"},
 		{Idx: 2, Name: "fopbhlmkcpe", Label: "", Enum: "ajihbmifmal", Zh: "物品品类枚举；2=鱼护，3=鱼竿，4=竿柄，5=导环，6=卷线器，7=卷线器轴承，8=卷线器线杯。"},
-		{Idx: 3, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 56=快乐时光HappyHour（其余=通用兜底）"},
+		{Idx: 3, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 57=快乐时光HappyHour（其余=通用兜底）"},
 		{Idx: 4, Name: "jgjhipncckj", Label: "", Enum: "", Zh: "标志 jgjhipncckj"},
 	}},
 	"kcokpcfelfa": {DTO: "mlphblhjebl", Fields: []FieldInfo{
@@ -4195,7 +4195,7 @@ var ClassMeta = map[string]ClassInfo{
 		{Idx: 0, Name: "oalocpjcokm", Label: "", Enum: "", Zh: "数量 oalocpjcokm（累加）"},
 		{Idx: 1, Name: "cahhdnicmbn", Label: "", Enum: "", Zh: "物品实例 guid（JSON id 主键）"},
 		{Idx: 2, Name: "fopbhlmkcpe", Label: "", Enum: "ajihbmifmal", Zh: "物品类型 fopbhlmkcpe（ajihbmifmal）"},
-		{Idx: 3, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 56=快乐时光HappyHour（其余=通用兜底）"},
+		{Idx: 3, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 57=快乐时光HappyHour（其余=通用兜底）"},
 		{Idx: 4, Name: "jgjhipncckj", Label: "", Enum: "", Zh: "标志 jgjhipncckj"},
 	}},
 	"lbdpkkeipid": {DTO: "hfblbgmohio", Fields: []FieldInfo{
@@ -4470,7 +4470,7 @@ var ClassMeta = map[string]ClassInfo{
 		{Idx: 0, Name: "kdhkgjcjpel", Label: "", Enum: "", Zh: "数值 kdhkgjcjpel（x{0} 文本）"},
 		{Idx: 1, Name: "cahhdnicmbn", Label: "", Enum: "", Zh: "物品实例 guid（JSON id，主键）"},
 		{Idx: 2, Name: "fopbhlmkcpe", Label: "", Enum: "ajihbmifmal", Zh: "物品品类枚举；2=鱼护，3=鱼竿，4=竿柄，5=导环，6=卷线器，7=卷线器轴承，8=卷线器线杯。"},
-		{Idx: 3, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 56=快乐时光HappyHour（其余=通用兜底）"},
+		{Idx: 3, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 57=快乐时光HappyHour（其余=通用兜底）"},
 		{Idx: 4, Name: "jgjhipncckj", Label: "", Enum: "", Zh: "标志 jgjhipncckj"},
 	}},
 	"lpmnemjkcfm": {DTO: "oilgcccdlgm", Fields: []FieldInfo{
@@ -4939,7 +4939,7 @@ var ClassMeta = map[string]ClassInfo{
 		{Idx: 1, Name: "oalocpjcokm", Label: "", Enum: "", Zh: "数量 oalocpjcokm（累加）"},
 		{Idx: 2, Name: "cahhdnicmbn", Label: "", Enum: "", Zh: "物品实例 guid（JSON id 主键）"},
 		{Idx: 3, Name: "fopbhlmkcpe", Label: "", Enum: "ajihbmifmal", Zh: "物品品类枚举；2=鱼护，3=鱼竿，4=竿柄，5=导环，6=卷线器，7=卷线器轴承，8=卷线器线杯。"},
-		{Idx: 4, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 56=快乐时光HappyHour（其余=通用兜底）"},
+		{Idx: 4, Name: "liampcgfchp", Label: "", Enum: "eodbnfbiome", Zh: "经验加成类型：1=超轻竿UL 2=轻竿L 3=中轻竿ML 4=会员Premium 55=酒精Alco 57=快乐时光HappyHour（其余=通用兜底）"},
 		{Idx: 5, Name: "jgjhipncckj", Label: "", Enum: "", Zh: "标志 jgjhipncckj"},
 	}},
 	"ofkingfcalo": {DTO: "incbcnbhohe", Fields: []FieldInfo{
