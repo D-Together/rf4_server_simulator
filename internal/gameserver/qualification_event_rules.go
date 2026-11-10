@@ -45,6 +45,19 @@ const (
 // 分母让面板正常显示 0/N。缺失信号见文件头与各任务注释，补齐后替换为真过滤。
 func qGapCounted(qualificationEvent) string { return "" }
 
+// eventGapRuleIDs 是 32 条缺口任务（Counted=qGapCounted）。这些任务当前没有任何
+// 能推进进度的事件，若下发到面板会表现为永久 0/N，故 eventTaskList 跳过它们、
+// 不作为可完成任务下发；规则表仍保留注册，待真实信号补齐后替换 qGapCounted
+// 并从本表移除即可开放。追踪见 issue #379。
+var eventGapRuleIDs = map[int64]bool{
+	12401: true, 12403: true, 12603: true, 13502: true, 13602: true, 13603: true,
+	14703: true, 14901: true, 15603: true, 16002: true, 16103: true, 16401: true,
+	17202: true, 17302: true, 17501: true, 17502: true, 17602: true, 17603: true,
+	18302: true, 18703: true, 18901: true, 19101: true, 19103: true, 19202: true,
+	19301: true, 19603: true, 20002: true, 20101: true, 20102: true, 20104: true,
+	20203: true, 20401: true,
+}
+
 // 活动任务竿型限制（celffbjpmma）；未收录=任意竿型。与 5007.Idx5 同源。
 var eventRodTypes = map[int64][]int64{
 	9203: {3}, 9302: {3}, 9402: {3}, 9501: {3},

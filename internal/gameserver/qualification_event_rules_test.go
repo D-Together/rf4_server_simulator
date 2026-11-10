@@ -168,6 +168,60 @@ func TestEventQualificationFilters(t *testing.T) {
 	}
 }
 
+// 缺口任务不下发到面板：32 条缺口被跳过，全分支实际下发 241 条可完成任务。
+func TestEventGapTasksNotEmitted(t *testing.T) {
+	if len(eventGapRuleIDs) != 32 {
+		t.Fatalf("缺口任务应为 32 条，实得 %d", len(eventGapRuleIDs))
+	}
+	byID := make(map[int64]bool)
+	for _, r := range eventQualificationRules {
+		byID[r.ID] = true
+	}
+	for id := range eventGapRuleIDs {
+		if !byID[id] {
+			t.Fatalf("缺口规则 %d 未在规则表注册", id)
+		}
+	}
+	emitted := 0
+	for branch, counts := range eventTaskCounts {
+		for si, count := range counts {
+			stage := uint64(si + 1)
+			list := eventTaskList(branch, stage, count)
+			if uint64(len(list.Items)) != eventEmittableCount(branch, stage, count) {
+				t.Fatalf("分支 %d 阶段 %d 下发数与辅助函数不符", branch, stage)
+			}
+			for _, task := range list.Items {
+				rule := task.Fields[1].Val.Items[0]
+				id := int64(*rule.Fields[0].Num)
+				if eventGapRuleIDs[id] {
+					t.Fatalf("缺口任务 %d 不应下发到面板", id)
+				}
+			}
+			emitted += len(list.Items)
+		}
+	}
+	if emitted != 241 {
+		t.Fatalf("实际下发应为 241 条可完成任务，实得 %d", emitted)
+	}
+}
+
+// 线强度上限过滤：未知（0）拒绝、含等号、超限拒绝。与注释口径一致。
+func TestLineStrengthAtMostBoundary(t *testing.T) {
+	f := qLineStrengthAtMost(5)
+	if f(qualificationEvent{LineStrengthKG: 0}) {
+		t.Fatal("线强度未知（0）不应计入上限任务")
+	}
+	if !f(qualificationEvent{LineStrengthKG: 5}) {
+		t.Fatal("线强度恰为上限应计入（含等号）")
+	}
+	if !f(qualificationEvent{LineStrengthKG: 4.9}) {
+		t.Fatal("低于上限应计入")
+	}
+	if f(qualificationEvent{LineStrengthKG: 5.1}) {
+		t.Fatal("超过上限不应计入")
+	}
+}
+
 // 活动任务 5007 条件字段：竿型/硬度/钓组大类应下发到客户端「鱼竿/条件」文案。
 func TestEventRule5007Conditions(t *testing.T) {
 	decode := func(ruleID uint64) *proto.Value {

@@ -271,7 +271,9 @@ func qMediumLightOrLight() qFilter {
 	return func(ev qualificationEvent) bool { return ev.RodPower == "ML" || light(ev) }
 }
 
-// qLineStrengthAtMost 鱼线强度上限（公斤）；主线/前导线取已装配最小值，0=未知不拦。
+// qLineStrengthAtMost 鱼线强度上限（公斤）；主线/前导线取已装配最小值。
+// 强度未知（0）时拒绝计数：与 qWeightAtMost/qBaitSizeAtMost 等上限过滤一致，
+// 无法核实「不超过 X 公斤」时不造假进度。
 func qLineStrengthAtMost(kg float64) qFilter {
 	return func(ev qualificationEvent) bool {
 		return ev.LineStrengthKG > 0 && ev.LineStrengthKG <= kg
