@@ -935,7 +935,7 @@ func (s *Server) rollFishFromDBWithRules(loc, bait string, gearCapKg float64, bo
 			grade = s.rollGradeForRoll(cctx, key, w, c)
 		}
 		lk, lp := s.cachedSpeciesLengthKP(cctx, c, key)
-		length := lk * math.Pow(float64(w), lp)
+		length := speciesLengthM(key, lk, lp, float64(w))
 		length = math.Round(length*100000) / 100000
 		f := &RolledFish{
 			FishGUID: newFishGUID(),
@@ -1372,7 +1372,7 @@ func (s *Server) rollFishPoolsWithRules(loc string, gearCapKg float64, bonus fis
 		lp = [2]float64{defaultSpeciesLengthK, defaultSpeciesLengthP}
 	}
 	lp[0], lp[1] = calibratedLengthKP(e.species, lp[0], lp[1])
-	length := lp[0] * math.Pow(float64(weightG), lp[1])
+	length := speciesLengthM(e.species, lp[0], lp[1], float64(weightG))
 	length = math.Round(length*100000) / 100000
 
 	return &RolledFish{

@@ -71,4 +71,5 @@ Status: done
 - 不改 5003/5004/5005 的 wire 形状或 args code；新增 00048 只给 `fishing_state` 补
   `cast_m` 列，不改资格进度表结构。
 - 不改资格任务文案、目标分母与规则表数值。
-- 不处理客户端本地化文案缺项；不引入活动分支（19/20）判定。
+- 不处理客户端本地化文案缺项。活动分支（9–20）判定不在本变更范围内，由独立变更
+  [`event-qualification-rules`](../event-qualification-rules/spec.md) 承接。
