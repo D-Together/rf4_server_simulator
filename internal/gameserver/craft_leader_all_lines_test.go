@@ -271,3 +271,64 @@ func TestCraftedLeaderFromUnmappedLineEquipsIntoRig(t *testing.T) {
 		t.Fatal("钓组没有把自制引线识别为前导")
 	}
 }
+
+// 简易底钓钓组（12）官方就有引线槽：Feeder 竿默认 12 装自制引线时不得触发
+// 自动兼容切换（历史上 12 没编 13 槽，装引线会跳到唯一有槽的 17 活鱼钓组），
+// 引线应落在规范索引 150 上，钓组类型保持不变。
+func TestCraftedLeaderStaysOnBottomSimple(t *testing.T) {
+	t.Parallel()
+	db := openStaticTestDB(t)
+	ctx := context.Background()
+	srv := newSkillsCraftServer(t, db)
+	const uid = int64(2000099)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+
+	crafted := craftLeaderOnce(t, srv, db, uid, "braid_15765")
+	rod, err := srv.CreateItem(ctx, uid, "feeder_10126_FD390", "backpack", 1)
+	if err != nil {
+		t.Fatalf("造 Feeder 失败: %v", err)
+	}
+	// 不显式选型（保持默认 12），走 17/2 无槽位路径：slot = 品类 13。
+	res := srv.rigSetComponent(ctx, uid, rod.GUID, 0, crafted.GUID, 0,
+		rigSetOpts{ParentType: familyRod, EnforceCategory: true})
+	if res == nil || res.Rejected {
+		t.Fatalf("引线装不上简易底钓: %+v", res)
+	}
+	if rt := srv.rigTypeForWrite(ctx, rod.GUID); rt != 12 {
+		t.Fatalf("装引线后钓组类型=%d，应保持 BottomSimple(12)", rt)
+	}
+	row, err := db.GetItemByGUID(ctx, rod.GUID)
+	if err != nil || row == nil {
+		t.Fatal(err)
+	}
+	fields, err := FieldsFromJSON(row.FieldsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := fieldIdxByCS(row.WireClass, csRigObject)
+	if idx < 0 || idx >= len(fields) {
+		t.Fatal("竿实例缺钓组字段")
+	}
+	comps := rigCompsOf(fields[idx].Val)
+	found := false
+	for key, c := range comps {
+		if rigCompCategory(key) != catLead {
+			continue
+		}
+		if c.GUID != crafted.GUID {
+			t.Fatalf("引线 GUID 不符: %s", shortGUID(c.GUID))
+		}
+		if c.Extra != 150 {
+			t.Fatalf("引线规范索引=%d，期望 150", c.Extra)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("f5 组件表里没有引线")
+	}
+	if gear := srv.rigGearIDs(ctx, uid, rod.GUID); gear.Leader != leaderSweepOutput {
+		t.Fatalf("钓组未把引线识别为前导: %s", gear.Leader)
+	}
+}
