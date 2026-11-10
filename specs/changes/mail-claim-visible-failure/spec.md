@@ -104,3 +104,29 @@ level=WARN msg="19/3 礼盒附件数量超过上限" userid=1000001 sid=1 cmd=19
 - 未验证：礼盒附件数量上限 10000 是否与官服一致（本缺陷不依赖该结论）。
 - 未验证：客户端是否存在某个能透出 message 的异常类型（枚举表与客户端取值对不上，
   且缺少反编译源码，无法系统性穷举）。
+
+## Review 修订（2026-11-10 21:10，PR #374 审查意见）
+
+审查给出 3 条真实缺陷，均已修复并用变异测试证明测试有效：
+
+- **P1 删除邮件 id 进制错配**：`handlePlayerMailDelete` 按十进制入队 `"10"`，
+  消费端却用 `mailGUIDToID`（十六进制）解析，把 10 读成 16 → 删错邮件，
+  后台仍回 `{"ok":true,"queued":true}`。修复：新增 `parseMailIDArg`，
+  32 位纯十六进制按 GUID 解析、其余按十进制；`delete_mail` 改用它。
+  变异测试：把消费端改回 `mailGUIDToID` 后
+  `TestDeleteMailDecimalIDNotParsedAsHex` 变红并准确报出"十进制 id=10 的邮件应被删除"。
+- **P2-a 发件校验只看形式**：旧 `bundleDefinitionProblem` 只检查内含物 ID 是否为空，
+  把内含物改成不存在的 item_id 仍能 200 入队，玩家领取必然失败。
+  修复：新增 `gameserver.ValidateMailAttachment`，按领取路径同源规则做只读 dry-run
+  （内含物定义存在、非嵌套组合包、类别可映射、数量/实例数不越界）；
+  admin 侧不再自己维护一套规则，直接调用它，避免两边漂移。
+  变异测试：复刻旧实现后 `TestMailSendRejectsMissingBundleInnerItem` 变红，
+  输出 `实得 200: {"ok":true,"queued":true}` —— 与审查复现完全一致。
+- **P2-b 数据库错误被当成"没有邮件"**：`acceptMails` 的 `MailGet` 把
+  `err != nil || m == nil` 一律 `continue`；`hMailAcceptAll` 的 `MailList` 失败
+  直接回 `null`。这与"失败必须可见"自相矛盾。
+  修复：`MailGet` 仅把 `sql.ErrNoRows`/`m == nil` 视为空操作，其余错误返回；
+  `MailList` 失败回 `-3` 错误信封；新增 `TestMailAcceptAllReportsErrorOnListFailure`。
+
+门禁：`go build` / `go vet` / `go test ./...` 全绿（gameserver 135.7s、admin 4.6s），
+`gofmt -l` 无差异，行尾统一 LF 与仓库 blob 一致。

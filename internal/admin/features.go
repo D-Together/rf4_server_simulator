@@ -289,6 +289,8 @@ func (s *Server) handlePlayerMailDelete(w http.ResponseWriter, r *http.Request) 
 	ids := make([]string, 0, len(req.IDs))
 	for _, id := range req.IDs {
 		if id > 0 {
+			// 必须以十进制入队：消费端 delete_mail 会先按十进制解析
+			// （见 gameserver 的 parseMailIDArg），不能用十六进制 GUID。
 			ids = append(ids, strconv.FormatInt(id, 10))
 		}
 	}

@@ -36,6 +36,26 @@ func mailGUIDToID(g string) int64 {
 	return v
 }
 
+// parseMailIDArg 解析管理指令里的邮件 id 参数，返回 0 表示非法。
+//
+// 必须区分两种形式：协议字段是 32 位十六进制 GUID（mailIDToGUID 的产物），
+// 而管理后台按十进制入队（handlePlayerMailDelete）。若一律按十六进制解析，
+// 十进制 "10" 会被读成 16，导致删错邮件、且后台仍显示"已排队"。
+func parseMailIDArg(raw string) int64 {
+	if raw == "" {
+		return 0
+	}
+	// 32 位纯十六进制 = GUID 形式；其余按十进制。
+	if len(raw) == 32 && isHex32(raw) {
+		return mailGUIDToID(raw)
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
 // hMailList 19/6：guidarr（分页 offset/limit）。
 func hMailList(ctx *Ctx) ([]byte, bool) {
 	if !ctx.Sess.Srv.requireDB(ctx) {
@@ -495,7 +515,16 @@ func (s *Server) acceptMails(ctx *Ctx, ids []int64) (int, []*store.Item, error) 
 			continue
 		}
 		m, err := s.DB.MailGet(cctx, uid, id)
-		if err != nil || m == nil || m.Read != 0 {
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && m == nil) {
+			// 邮件确实不存在（或已被并发删除）：正常空操作。
+			continue
+		}
+		if err != nil {
+			// 读库失败不能当作"没有邮件"吞掉——那会让本次领取悄悄变成空操作。
+			ctx.Log.Warn("19/3 读取邮件失败", "mail", id, "err", err)
+			return 0, nil, fmt.Errorf("读取邮件 %d 失败: %w", id, err)
+		}
+		if m.Read != 0 {
 			continue
 		}
 		plan := claimPlan{id: id, itemsJSON: m.ItemsJSON, snapshotVersion: m.AttachmentSnapshotVersion}
@@ -690,7 +719,7 @@ func (s *Server) notifyMailClaimFailed(ctx *Ctx, err error) {
 // hMailAccept 19/3：领取单封附件。
 //
 // 成功回 null。存在无法领取的附件（数量超限、定义缺失、快照损坏等）时
-// 邮件保持未读，并回业务错误码 + 一条系统聊天说明原因；不再静默回 null。
+// 邮件保持未读，并回失败信封说明原因；不再静默回 null。
 func hMailAccept(ctx *Ctx) ([]byte, bool) {
 	if !ctx.Sess.Srv.requireDB(ctx) {
 		return nil, false
@@ -716,7 +745,11 @@ func hMailAcceptAll(ctx *Ctx) ([]byte, bool) {
 	}
 	mails, err := ctx.Sess.Srv.DB.MailList(ctx.Sess.pushCtx(), ctx.Sess.Userid, true)
 	if err != nil {
-		return []byte{0x00}, true
+		// 读不到未读列表时不能回 null 成功：玩家会以为"已经全部领完"。
+		ctx.Log.Warn("19/4 读取未读邮件失败", "err", err)
+		ctx.ReplyFailure("System.InvalidOperationException",
+			"读取邮箱失败，请稍后重试。")
+		return nil, true
 	}
 	var ids []int64
 	for _, m := range mails {
@@ -934,8 +967,9 @@ func (s *Server) execAdminCmd(cmd *AdminCommand) {
 		// 但玩家自己删不掉，只能由服主处理）。
 		deleted := 0
 		for _, raw := range cmd.MailIDs {
-			id := mailGUIDToID(strings.TrimSpace(raw))
+			id := parseMailIDArg(strings.TrimSpace(raw))
 			if id <= 0 {
+				s.log.Warn("管理指令：删除邮件跳过非法 id", "uid", cmd.UID, "raw", raw)
 				continue
 			}
 			if err := s.DB.MailDelete(ctx, cmd.UID, id); err != nil {

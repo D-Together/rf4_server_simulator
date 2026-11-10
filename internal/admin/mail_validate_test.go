@@ -163,3 +163,45 @@ func queued(srv *Server) bool {
 	_, ok, _ := srv.db.QueuePop(context.Background())
 	return ok
 }
+
+// TestMailSendRejectsMissingBundleInnerItem 审查 P2 复现：
+// 组合包内含物指向不存在的 item_id 时，发件必须 400。
+// 曾经的实现只校验"内含物 ID 非空"，因此这种包能发出去、玩家领取必然失败。
+func TestMailSendRejectsMissingBundleInnerItem(t *testing.T) {
+	srv, _, call := mailTestAPI(t)
+	if _, err := srv.db.SQL.Exec(`UPDATE item_def SET attrs_json =
+		'{"ieopbeejfmc":false,"nbkhfhenbag":[{"cemjmlpafmc":"missing_inner","ljnnpokapig":1}]}'
+		WHERE item_id='AV_shamp1_pack_6'`); err != nil {
+		t.Fatal(err)
+	}
+	code, body := mailSend(t, call,
+		`{"uid":1000001,"text":"测试","items":[{"item_id":"AV_shamp1_pack_6","qty":1}]}`)
+	if code != 400 {
+		t.Fatalf("内含物不存在应 400, 实得 %d: %s", code, body)
+	}
+	if !strings.Contains(body, "内含物物品不存在") {
+		t.Fatalf("错误信息应指出内含物不存在，实得: %s", body)
+	}
+	if queued(srv) {
+		t.Fatal("被拒绝的邮件不应入队")
+	}
+}
+
+// TestMailSendRejectsNestedBundle 内含物仍是组合包时，领取路径会拒绝，
+// 发件侧也应提前拦下。
+func TestMailSendRejectsNestedBundle(t *testing.T) {
+	srv, _, call := mailTestAPI(t)
+	if _, err := srv.db.SQL.Exec(`UPDATE item_def SET attrs_json =
+		'{"ieopbeejfmc":false,"nbkhfhenbag":[{"cemjmlpafmc":"AV_shamp1_pack_6","ljnnpokapig":1}]}'
+		WHERE item_id='AV_shamp1_pack_6'`); err != nil {
+		t.Fatal(err)
+	}
+	code, body := mailSend(t, call,
+		`{"uid":1000001,"text":"测试","items":[{"item_id":"AV_shamp1_pack_6","qty":1}]}`)
+	if code != 400 || !strings.Contains(body, "嵌套") {
+		t.Fatalf("嵌套组合包应 400: %d %s", code, body)
+	}
+	if queued(srv) {
+		t.Fatal("被拒绝的邮件不应入队")
+	}
+}

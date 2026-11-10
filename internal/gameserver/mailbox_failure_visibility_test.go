@@ -163,3 +163,33 @@ func TestMailAcceptSucceedsWithoutFalseError(t *testing.T) {
 		t.Fatalf("领取成功后邮件状态不符: %+v", mail)
 	}
 }
+
+// TestMailAcceptAllReportsErrorOnListFailure 审查 P2：
+// 读未读列表失败时不能回 null 成功，否则玩家以为"已经全部领完"。
+func TestMailAcceptAllReportsErrorOnListFailure(t *testing.T) {
+	t.Parallel()
+	srv, db := newBundleTestServer(t)
+	ctx := context.Background()
+	const uid = int64(4401)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	// 用触发器让 mail 表的读取失败（SQLite 无 RAISE on SELECT，改用破坏表的方式）。
+	if _, err := db.SQL.Exec(`DROP TABLE mail`); err != nil {
+		t.Fatal(err)
+	}
+	c := giftBoxTestCtx(t, srv, uid, proto.Args524())
+	c.CallID = 99
+	c.replyCapture = &ctxReplyCapture{}
+
+	body, ok := hMailAcceptAll(c)
+	captured, present, _, failure := c.replyCapture.snapshot()
+	if !ok || body != nil || !present || !failure {
+		t.Fatalf("读取邮箱失败必须回业务错误: ok=%v body=%x present=%v failure=%v",
+			ok, body, present, failure)
+	}
+	env, parseOK := proto.ParseEnvelope(captured)
+	if !parseOK || env.Marker != -3 {
+		t.Fatalf("应为 -3 失败信封: %x", captured)
+	}
+}
