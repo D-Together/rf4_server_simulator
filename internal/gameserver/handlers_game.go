@@ -25,6 +25,9 @@ func hProfile(ctx *Ctx) ([]byte, bool) {
 	if !ctx.Sess.Srv.requireDB(ctx) {
 		return nil, false
 	}
+	// 历史塑封卡册的技能点补发：修复前塑封只发奖座、不加点。先补再建档，
+	// 保证本次登录的技能树（5/1）一开始就带着补出来的点。
+	ctx.Sess.Srv.ensureDeckLaminatePoints(ctx.Sess.pushCtx(), ctx.Sess.Userid)
 	// 稀有鱼 / 超级稀有鱼鱼种数里程碑：覆盖离线期间跨档与历史存档，幂等。
 	pushRarityMilestoneItems(ctx.Sess, ctx.Sess.Srv.ensureRarityMilestones(ctx.Sess.pushCtx(), ctx.Sess.Userid))
 	p, err := ctx.Sess.Srv.BuildProfile307W(ctx.Sess.pushCtx(), ctx.Sess.Userid,
