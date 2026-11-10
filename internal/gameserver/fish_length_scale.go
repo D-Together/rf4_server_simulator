@@ -7,9 +7,12 @@ import "math"
 // 静态库 species_weight 里 252 个鱼种的 length_k 绝大多数是同一个默认值 0.0355，
 // 导致同重量不同体型的鱼种模型尺寸几乎一致（狗鱼不够细长、鳊鱼不够短厚）。
 //
-// 换算：length_k = 现实最大体长(m) / 站点记录最大重量(g)^(1/3)，length_p 固定 1/3。
+// 换算（p=1/3 的默认口径）：length_k = 现实最大体长(m) / 站点记录最大重量(g)^(1/3)。
 // 重量锚点取 cn.rf4-stat.com 各鱼种「全部时间 最大重量」，体长锚点取现实生物学最大体长；
-// 缺少站点重量的鱼种用已锚定样本回归后夹在 [0.02, 0.09]，蟹/鱿/蚌/蛙等非鱼类不参与校准。
+// 缺少站点重量的鱼种用已锚定样本回归后夹在 [0.02, 0.09]，鱿/蚌/蛙等非鱼类不参与校准。
+// 鲟/鳇/海图大型鱼另有官服实测「体重-体长」成对点，k 与 p 都由回归得到（见下方两表）。
+// 2026-11 又补了三批官服成对实测点（红点鲑等 10 种、波罗的海/北极 23 种），其中帝王蟹
+// 按腿展口径接入：它是唯一进表的甲壳类，因为 12.9kg 个体实测腿展 1.6m，旧立方律只给 0.83m。
 // 静态库中已有非默认 k 或 p 的鱼种属于官方样本标定曲线，不使用本表覆盖。
 //
 // 以查表覆盖的方式生效：静态库不改，静态导入的内容哈希保持稳定。
@@ -19,18 +22,18 @@ import "math"
 var speciesLengthKOverride = map[string]float64{
 	"a.sleeper":           0.045613,
 	"a_catfish":           0.116961,
-	"a_char":              0.026979,
+	"a_char":              0.009986,
 	"a_grayling":          0.033930,
 	"a_omul":              0.034668,
 	"a_salmon":            0.048274,
 	"a_smelt":             0.046416,
 	"agar":                0.041978,
 	"alb_barbel":          0.043468,
-	"alfonsino":           0.043385,
-	"ambl_h":              0.050000,
-	"ambl_r":              0.044964,
+	"alfonsino":           0.042449,
+	"ambl_h":              0.046520,
+	"ambl_r":              0.052488,
 	"asp":                 0.050000,
-	"atl_cod":             0.040716,
+	"atl_cod":             0.046307,
 	"atl_herring":         0.043089,
 	"b_bream":             0.082548,
 	"b_carp":              0.042601,
@@ -40,7 +43,7 @@ var speciesLengthKOverride = map[string]float64{
 	"b_scabbardfish":      0.043955,
 	"barb_toni":           0.046965,
 	"barsch":              0.044703,
-	"beluga":              0.056696,
+	"beluga":              0.003876,
 	"bh_carp":             0.042554,
 	"bl_buffalo":          0.040548,
 	"black_crappie":       0.029925,
@@ -50,7 +53,7 @@ var speciesLengthKOverride = map[string]float64{
 	"bullhead_syb":        0.098400,
 	"burbot":              0.057690,
 	"c.carp":              0.045214,
-	"c_anguineus":         0.042205,
+	"c_anguineus":         0.060554,
 	"c_barbel":            0.045000,
 	"c_bleak":             0.041741,
 	"c_herring":           0.063496,
@@ -60,26 +63,26 @@ var speciesLengthKOverride = map[string]float64{
 	"carp_albino":         0.042832,
 	"carp_ghost":          0.042832,
 	"carp_red":            0.042832,
-	"centroloph_n":        0.042706,
-	"cetorhinus_m":        0.091626,
-	"ch_beluga":           0.040671,
+	"centroloph_n":        0.045006,
+	"cetorhinus_m":        0.004410,
+	"ch_beluga":           0.003821,
 	"ch_catfish":          0.074684,
 	"cha_herring":         0.046177,
 	"chan_m":              0.044288,
-	"chartus_kuoriius":    0.021413,
+	"chartus_kuoriius":    0.001630,
 	"chavycha":            0.029240,
 	"chimaera":            0.131037,
 	"chir":                0.036593,
 	"chukuchan":           0.044523,
 	"coalfish":            0.044971,
 	"common_carp":         0.041039,
-	"conger":              0.042082,
-	"d_zubatka":           0.025517,
+	"conger":              0.073938,
+	"d_zubatka":           0.051260,
 	"dace":                0.047622,
 	"din_l_carp":          0.042448,
 	"din_m_carp":          0.042448,
 	"din_n_carp":          0.042448,
-	"dr_char":             0.027850,
+	"dr_char":             0.005803,
 	"e.chub":              0.043955,
 	"e.pikeperch":         0.040000,
 	"e_bream":             0.043888,
@@ -93,25 +96,25 @@ var speciesLengthKOverride = map[string]float64{
 	"g_shad":              0.058124,
 	"g_tench":             0.044097,
 	"gc_smelt":            0.011604,
-	"golets_lev":          0.029925,
+	"golets_lev":          0.012925,
 	"golyan":              0.046641,
 	"gorbusha":            0.048535,
 	"gudgeon":             0.043089,
-	"halibut_b":           0.068399,
-	"halibut_w":           0.056462,
+	"halibut_b":           0.037800,
+	"halibut_w":           0.005335,
 	"hi_utsri":            0.030780,
 	"himant_g":            0.043561,
 	"hippoglos_p":         0.075595,
 	"hs_bass":             0.043468,
 	"k_herring":           0.044814,
 	"k_salmon":            0.032183,
-	"kaluga":              0.050397,
+	"kaluga":              0.003901,
 	"karasekarp":          0.041602,
 	"katran":              0.104552,
 	"keta":                0.050000,
-	"kijuch":              0.050986,
+	"kijuch":              0.042865,
 	"kohaku":              0.030780,
-	"kunja":               0.032491,
+	"kunja":               0.00009113,
 	"kutum":               0.043797,
 	"kw_tench":            0.044097,
 	"l_carp":              0.042678,
@@ -119,14 +122,14 @@ var speciesLengthKOverride = map[string]float64{
 	"l_carp_ghost":        0.042678,
 	"l_minnow":            0.025853,
 	"l_salmon":            0.053939,
-	"l_sturgeon":          0.042082,
-	"lamna_n":             0.057776,
-	"lampris_g":           0.038517,
+	"l_sturgeon":          0.006161,
+	"lamna_n":             0.005660,
+	"lampris_g":           0.002795,
 	"lenok_o":             0.050986,
-	"lenok_t":             0.045979,
+	"lenok_t":             0.043336,
 	"lh_kambala":          0.048535,
 	"lm_b_bass":           0.049529,
-	"lophius_p":           0.042448,
+	"lophius_p":           0.050937,
 	"lycodes_e":           0.044288,
 	"lycodes_s":           0.044814,
 	"m_carp":              0.042678,
@@ -134,55 +137,76 @@ var speciesLengthKOverride = map[string]float64{
 	"m_carp_ghost":        0.042678,
 	"m_carp_red":          0.042678,
 	"m_goshiki":           0.030780,
-	"m_molva":             0.042554,
+	"m_molva":             0.061958,
 	"m_scorpius":          0.020801,
-	"m_zubatka":           0.023335,
+	"m_zubatka":           0.053436,
 	"macrourus_b":         0.069336,
 	"makrel":              0.047622,
-	"malma":               0.040870,
-	"meagre":              0.049742,
+	"malma":               0.012226,
+	"meagre":              0.049336,
 	"menek":               0.042904,
 	"merlang":             0.048535,
 	"merluza":             0.072112,
 	"midori_g":            0.017100,
-	"mikija":              0.035000,
-	"molva":               0.042678,
+	"mikija":              0.041885,
+	"molva":               0.056831,
 	"muksun":              0.038522,
 	"n.pike":              0.065519,
 	"n_asagi":             0.030780,
 	"n_carp":              0.042554,
 	"n_carp_albino":       0.042554,
 	"n_carp_ghost":        0.042554,
-	"neiva":               0.053634,
+	"neiva":               0.040604,
 	"nelma":               0.044459,
 	"nerka":               0.048457,
-	"palia_kr":            0.048535,
-	"palia_lud":           0.040936,
+	"onkor_m":             0.045437,
+	"onkor_mg":            0.040510,
+	"osetr_balt":          0.006285,
+	"osetr_ship":          0.005853,
+	"p_sturgeon":          0.006227,
+	"p_zubatka":           0.049343,
+	"palia_kr":            0.014075,
+	"palia_lud":           0.015791,
 	"piksha":              0.053957,
 	"pinagor":             0.027516,
 	"pollachius":          0.044964,
+	"polyprion":           0.051060,
 	"poutassou":           0.051787,
 	"pumps_sunfish":       0.045526,
-	"r_sturgeon":          0.042205,
-	"red_fish":            0.069336,
+	"r_carp":              0.044208,
+	"r_carp_albino":       0.044208,
+	"r_carp_ghost":        0.044208,
+	"r_sturgeon":          0.006622,
+	"red_fish":            0.038384,
 	"resfish":             0.041894,
+	"rk_crab":             0.068525,
 	"rudd":                0.043679,
 	"s.orfe":              0.050397,
 	"s_bass":              0.028965,
 	"s_carp":              0.042678,
 	"s_freaks":            0.025746,
-	"sebastes_m":          0.056652,
+	"salvel_l":            0.004837,
+	"sebastes_m":          0.040735,
+	"sebastes_n":          0.043228,
 	"sig":                 0.037798,
 	"sig_ludoga":          0.041602,
 	"sig_vouksa":          0.034668,
+	"somniosus_m":         0.003999,
+	"st_sturgeon":         0.006206,
+	"sterlet":             0.006867,
 	"stickleback_threesp": 0.046909,
 	"syb_elets":           0.047622,
+	"syb_sterlet":         0.048000,
 	"syb_vendace":         0.026930,
-	"taimen":              0.040716,
+	"taimen":              0.005594,
 	"taran":               0.044756,
 	"tench":               0.044097,
-	"thynnus_t":           0.047622,
+	"thynnus_t":           0.003585,
+	"w_catfish":           0.012744,
+	"w_catfish_a":         0.012744,
+	"x_gladius":           0.004545,
 	"zoarces_v":           0.051787,
+	"zs_sturgeon":         0.001097,
 }
 
 const (
@@ -190,12 +214,194 @@ const (
 	defaultSpeciesLengthP = 1.0 / 3.0
 )
 
+// speciesLengthPOverride 覆盖 length_p（体重指数）。
+//
+// 立方律（p=1/3）假设鱼体等比放大，但官服实测数据显示体重增长快于体长：
+// 大鱼更显修长，K=体重/体长^3 随体重明显下降。
+//
+// 早期只用单鱼种少量点拟合（欧洲六须鲇 p=0.4769、东西伯利亚鲟 p=0.6872）。
+// 2026-11 拿到 18 个鲟/鳇/海图大型鱼种的成对实测点后，发现各鱼种的斜率高度一致，
+// 于是改用「每鱼种独立截距 + 共同斜率」的固定效应对数回归，得共同指数
+// p = 0.5371（幂律口径的残差多在 ±5cm 内，最大 ±9cm；线性表口径见
+// speciesLengthLinear 的注释）。共同指数比单鱼种回归稳得多：
+// 单鱼种点少且体长带随机散布（拉多加鲟 56.7kg=2.31m 反而长于 64.6kg=2.19m），
+// 逐鱼种拟合会把噪声当斜率，把 0.5kg 的鱼算成 6cm。
+//
+// 只有同时登记在 speciesLengthKOverride 的鱼种才会用到本表。
+var speciesLengthPOverride = map[string]float64{
+	// 官服实测点固定效应回归的共同斜率
+	"beluga":       0.537100,
+	"kaluga":       0.537100,
+	"ch_beluga":    0.537100,
+	"osetr_balt":   0.537100,
+	"osetr_ship":   0.537100,
+	"r_sturgeon":   0.537100,
+	"p_sturgeon":   0.537100,
+	"st_sturgeon":  0.537100,
+	"sterlet":      0.537100,
+	"l_sturgeon":   0.537100,
+	"x_gladius":    0.537100,
+	"thynnus_t":    0.537100,
+	"somniosus_m":  0.537100,
+	"lampris_g":    0.537100,
+	"lamna_n":      0.537100,
+	"cetorhinus_m": 0.537100,
+	"halibut_w":    0.537100,
+	"taimen":       0.537100,
+	// 廓里湖红点鲑：官服 22.7~35.1kg = 1.13~1.50m，幂律拟合 p=0.6525。
+	// 立方律下 22.2kg 只有 0.60m（旧 k=0.021413），肉眼可见地小一半。
+	"chartus_kuoriius": 0.652510,
+	// 三种红点鲑：官服实测点的幂律拟合（线性表优先，这里只作回退）
+	"a_char":  0.489400,
+	"dr_char": 0.546200,
+	"malma":   0.478700,
+	// 莱文氏 / 白斑（库恩扎）/ 美洲红点鲑：同样是线性表优先的回退幂律。
+	// 白斑红点鲑的实测点集中在 10.6~12.9kg，对数回归斜率接近 1（p=0.9927），
+	// 说明这一段几乎是直线；低体重端回退值偏短，但线性表的立方根延拓会接管。
+	"golets_lev": 0.481044,
+	"kunja":      0.992672,
+	"salvel_l":   0.575668,
+	// 内维 / 黑口 / 粗壮红点鲑：同样线性表优先。
+	"neiva":     0.329462,
+	"palia_kr":  0.454245,
+	"palia_lud": 0.442256,
+	// 早期单鱼种拟合，点少、权重区间窄，暂维持原值
+	"w_catfish":   0.476900,
+	"w_catfish_a": 0.476900,
+	"zs_sturgeon": 0.687200,
+}
+
+// lengthCurve 是官服实测点回归出的线性体长曲线：L(m) = a + b·W(kg)，
+// 只在实测体重区间 [wMin, wMax] 内插值，区间外按立方根延拓（避免两端爆炸）。
+type lengthCurve struct {
+	a, b       float64
+	wMin, wMax float64 // kg
+}
+
+// speciesLengthLinear 官服实测点的线性体长曲线。
+//
+// 官服每条鱼的体重和体长由同一个「个体大小」参数线性映射（Lmin..Lmax ↔ Wmin..Wmax），
+// 所以 L 对 W 是**线性**的，不是幂律。51 个鱼种 136 个实测锚点的线性残差：
+// 38 个鱼种 ≤1cm，13 个 1~3.6cm，唯一超过 5cm 的是拉多加鲟 12.4cm——官服
+// 56.733kg=2.31m 与 64.593kg=2.19m 两点本身反向（更重的反而更短），任何单调曲线
+// 都无法同时命中，这里取最小二乘折中。逐鱼种残差见 docs/gameplay.md 的表，
+// 测试容差按同一口径设定。
+//
+// 同一点集换成幂律残差到 ±8cm（金枪 ±8cm、姥鲨 ±3.6cm），
+// 而且幂律在低体重端会崩（0.5kg 哲罗鱼只剩 16cm）。
+//
+// 区间外按立方根延拓：本服档位线（蓝冠×1.25）常超出实测上限，直接线性外推会把
+// 黑海欧洲鰉 1.25t 算成 8.9m；立方根延拓给 6.1m，接近官服 521kg=4.58m 的走势。
+// 下限同理：3kg 欧洲鳇给 0.9m 而不是线性截距 2.58m。
+//
+// 想换回幂律，删掉对应条目即可（k/p 表仍保留为回退）。
+var speciesLengthLinear = map[string]lengthCurve{
+	// {a, b, wMin(kg), wMax(kg)}
+	"beluga":           {2.584719, 0.0038468, 545.912, 1127.14},
+	"kaluga":           {1.687280, 0.0055975, 489.987, 511.425},
+	"ch_beluga":        {1.497106, 0.0059222, 371.828, 521.104},
+	"osetr_balt":       {2.832980, 0.0083512, 211.588, 245.116},
+	"osetr_ship":       {1.569752, 0.0104615, 57.377, 74.583},
+	"r_sturgeon":       {1.205538, 0.0199380, 51.882, 122.603},
+	"p_sturgeon":       {0.793963, 0.0219433, 103.734, 106.463},
+	"st_sturgeon":      {1.326438, 0.0153979, 50.028, 60.587},
+	"sterlet":          {0.371965, 0.0589840, 9.479, 11.841},
+	"l_sturgeon":       {1.662398, 0.0092368, 46.785, 64.593},
+	"x_gladius":        {2.303599, 0.0058185, 347.799, 507.495},
+	"thynnus_t":        {1.494293, 0.0053565, 288.013, 537.409},
+	"somniosus_m":      {2.039637, 0.0049472, 695.412, 725.732},
+	"lampris_g":        {0.751133, 0.0061124, 148.693, 212.498},
+	"lamna_n":          {1.921687, 0.0098591, 141.952, 155.023},
+	"cetorhinus_m":     {4.786054, 0.0028571, 1301.2, 2865.59},
+	"halibut_w":        {1.275245, 0.0128593, 150.392, 164.42},
+	"taimen":           {1.121893, 0.0156403, 51.611, 92.622},
+	"chartus_kuoriius": {0.461070, 0.0297685, 22.705, 35.137},
+	"a_char":           {0.550436, 0.0367671, 11.799, 16.893},
+	"dr_char":          {0.463413, 0.0428626, 10.634, 15.784},
+	"malma":            {0.496284, 0.0507680, 7.609, 10.502},
+	// 莱文氏红点鲑：1.613~1.691kg = 0.45~0.46m，三点几乎水平，线性残差 ≤0.3cm。
+	// 旧 k=0.029925 立方律在 2.1kg 只给 0.39m。
+	"golets_lev": {0.238220, 0.1321249, 1.613, 1.691},
+	// 白斑红点鲑（库恩扎）：10.647kg=0.89m / 11.596kg=1.02m / 12.892kg=1.08m。
+	// 旧 k=0.032491 立方律在 14kg 只给 0.78m，肉眼可见偏小。
+	"kunja": {0.031976, 0.0823701, 10.647, 12.892},
+	// 美洲红点鲑：5.048kg=0.65m / 5.353kg=0.68m / 8.939kg=0.91m / 5.07kg=0.66m，
+	// 四点线性残差 ≤0.6cm；旧默认立方律 7.6kg 只有 0.70m。
+	"salvel_l": {0.326288, 0.0653358, 5.048, 8.939},
+	// 内维红点鲑：244g=0.25m / 1.323kg=0.41m / 1.652kg=0.49m，残差 ≤1.5cm。
+	// 旧 k=0.053634 立方律在 1.7kg 只给 0.64m。
+	"neiva": {0.206350, 0.1649428, 0.244, 1.652},
+	// 黑口红点鲑：3.185kg=0.55m / 4.051kg=0.61m / 4.587kg=0.65m，三点几乎完全共线，
+	// 残差 ≤0.1cm。旧 k=0.048535 立方律在 4.5kg 只给 0.80m。
+	"palia_kr": {0.323001, 0.0711323, 3.185, 4.587},
+	// 粗壮红点鲑：1.455kg=0.40m / 5.428kg=0.68m / 8.958kg=0.91m，残差 ≤0.7cm。
+	// 旧 k=0.040936 立方律在 7.6kg 只给 0.80m。
+	"palia_lud": {0.304139, 0.0680249, 1.455, 8.958},
+
+	// 2026-11 第四批：波罗的海、北极与北太平洋水域 23 个鱼种的官服成对实测点。
+	// 同一批点做幂律拟合残差可到 ±5%（大西洋狼鳚甚至拟合出负斜率），说明这些鱼种
+	// 在官服里同样由「个体大小」线性映射，所以和前面 28 个鱼种一样走线性曲线。
+	// 旧参数（多为 0.042~0.043 的立方律）把它们普遍算短 15~50cm：
+	// 23.083kg 花狼鱼只给 0.67m，3.716kg 海平鲉反而给 1.07m（实测 0.58m）。
+	// 单点样本（图们江细鳞鲑 7.546kg=0.85m）不进本表，只更新 k 回退值。
+
+	// 帝王蟹：线性残差 ≤3.6cm，按腿展计
+	"rk_crab":      {0.963261, 0.0498970, 7.854, 12.921},
+	"conger":       {0.981372, 0.0272820, 60.320, 81.559},
+	"atl_cod":      {1.062383, 0.0119182, 50.464, 73.936},
+	"ambl_h":       {0.412070, 0.0576632, 9.177, 10.545},
+	"lophius_p":    {0.921107, 0.0192161, 33.621, 49.191},
+	"molva":        {1.086474, 0.0209509, 25.656, 43.651},
+	"centroloph_n": {1.079400, 0.0112581, 25.113, 35.464},
+	"c_anguineus":  {0.808600, 0.0240805, 34.457, 70.111},
+	// 石斑鱼：剔除 72.271kg=2.70m（与同批趋势相反）
+	"polyprion": {0.973226, 0.0155039, 63.694, 77.854},
+	"ambl_r":    {0.349036, 0.0637029, 11.509, 14.709},
+	"m_molva":   {1.020970, 0.0259307, 30.453, 46.626},
+	"alfonsino": {0.434392, 0.0467382, 9.515, 10.751},
+	"meagre":    {1.198046, 0.0112198, 58.854, 91.014},
+	"m_zubatka": {0.519957, 0.0433872, 17.394, 23.083},
+	"d_zubatka": {0.671514, 0.0367433, 13.086, 18.856},
+	// 大西洋狼鳚：剔除 20.966kg=1.14m（同上）
+	"p_zubatka":  {0.626355, 0.0381263, 14.507, 16.558},
+	"red_fish":   {0.303989, 0.0734105, 3.108, 4.476},
+	"sebastes_n": {0.359929, 0.0513823, 9.544, 12.542},
+	"sebastes_m": {0.319628, 0.0644588, 5.571, 7.301},
+	"mikija":     {0.303356, 0.0619902, 8.013, 9.331},
+	"onkor_m":    {0.183312, 0.0880851, 6.594, 8.408},
+	"onkor_mg":   {0.283012, 0.0780685, 5.081, 5.577},
+	"kijuch":     {0.217100, 0.0880734, 5.580, 6.719},
+}
+
+// speciesLengthM 返回体长（米）。
+// 线性表优先（官服成对实测点回归），其余鱼种仍然用 length_k·w_g^length_p。
+func speciesLengthM(key string, k, p, wG float64) float64 {
+	if c, ok := speciesLengthLinear[key]; ok {
+		if ko, ok2 := speciesLengthKOverride[key]; ok2 && ko == k {
+			w := wG / 1000 // kg
+			switch {
+			case w < c.wMin:
+				v := (c.a + c.b*c.wMin) * math.Pow(w/c.wMin, 1.0/3.0)
+				return math.Max(v, 0.05)
+			case w > c.wMax:
+				return (c.a + c.b*c.wMax) * math.Pow(w/c.wMax, 1.0/3.0)
+			default:
+				return c.a + c.b*w
+			}
+		}
+	}
+	return k * math.Pow(wG, p)
+}
+
 // calibratedLengthKP 返回校准后的体长参数。
 // 只覆盖静态库仍使用默认 k/p 的鱼种；已有非默认参数代表官方样本标定曲线，必须原样保留。
 func calibratedLengthKP(key string, k, p float64) (float64, float64) {
 	v, ok := speciesLengthKOverride[key]
 	if !ok || math.Abs(k-defaultSpeciesLengthK) > 1e-9 || math.Abs(p-defaultSpeciesLengthP) > 1e-9 {
 		return k, p
+	}
+	if pv, ok := speciesLengthPOverride[key]; ok {
+		return v, pv
 	}
 	return v, defaultSpeciesLengthP
 }

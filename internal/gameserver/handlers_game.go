@@ -28,6 +28,8 @@ func hProfile(ctx *Ctx) ([]byte, bool) {
 	// 历史塑封卡册的技能点补发：修复前塑封只发奖座、不加点。先补再建档，
 	// 保证本次登录的技能树（5/1）一开始就带着补出来的点。
 	ctx.Sess.Srv.ensureDeckLaminatePoints(ctx.Sess.pushCtx(), ctx.Sess.Userid)
+	// 稀有鱼 / 超级稀有鱼鱼种数里程碑：覆盖离线期间跨档与历史存档，幂等。
+	pushRarityMilestoneItems(ctx.Sess, ctx.Sess.Srv.ensureRarityMilestones(ctx.Sess.pushCtx(), ctx.Sess.Userid))
 	p, err := ctx.Sess.Srv.BuildProfile307W(ctx.Sess.pushCtx(), ctx.Sess.Userid,
 		worldTotalGameMin(time.Now()))
 	if err != nil {
@@ -61,6 +63,9 @@ func hItemCount(ctx *Ctx) ([]byte, bool) {
 	cctx := ctx.Sess.pushCtx()
 	switch container {
 	case containerBackpack:
+		// 背包列表兜底补发：3/1 的巡检只推 4/22，客户端没消费推送时玩家会以为
+		// 「没补发」；这里在列表请求前再巡检一次（每会话一次），奖座直接进列表。
+		ctx.Sess.ensureRarityMilestonesOnce()
 		used, _ = srv.DB.CountItemsByContainers(cctx, ctx.Sess.Userid, []string{"backpack", "rig"})
 	case containerKeepnet:
 		srv.retryCompletedCatchRecovery(ctx.Sess)
@@ -104,6 +109,7 @@ func hItemGUIDs(ctx *Ctx) ([]byte, bool) {
 	var guids []string
 	switch container {
 	case containerBackpack:
+		ctx.Sess.ensureRarityMilestonesOnce()
 		guids, _ = srv.DB.ItemGUIDsByContainers(cctx, ctx.Sess.Userid, []string{"backpack", "rig"})
 	case containerKeepnet:
 		srv.retryCompletedCatchRecovery(ctx.Sess)
@@ -1595,7 +1601,10 @@ func hFishStats(ctx *Ctx) ([]byte, bool) {
 		return nil, false
 	}
 	f0, f1, f4 := tree.Field(0), tree.Field(1), tree.Field(4)
-	ctx.Log.Info("3/2 统计快照", "total", f0.U32(), "rare", f1.U32(), "daily_count", f4.U32())
+	// 同时输出 f11/f13，便于与客户端面板逐项对照这两个语义未定的槽位。
+	f11, f13 := tree.Field(11), tree.Field(13)
+	ctx.Log.Info("3/2 统计快照", "total", f0.U32(), "rare", f1.U32(), "daily_count", f4.U32(),
+		"slot_f11", f11.U64(), "slot_f13", f13.U64())
 	body, err := proto.EncodeValue(tree, ctx.Sess.Table())
 	if err != nil {
 		return nil, false

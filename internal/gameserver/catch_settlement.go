@@ -296,12 +296,14 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 	// 官方升级礼物：真实升级（非重放）后逐级直发背包，内部按等级幂等；
 	// 钓法大类取本尾鱼（11 级分套依据）。礼物行随结果返回，由 14/4 处理器
 	// 挂结算奖励列表（801 f8）并在响应后推 4/22；聊天播报在发放函数内完成。
+	res := r.result(false)
 	if r.LevelsGained > 0 {
-		res := r.result(false)
 		for _, g := range s.grantLevelUpGifts(ctx, uid, oldLevel, level, r.SkillID) {
 			res.giftItems = append(res.giftItems, g.Items...)
 		}
-		return res, nil
 	}
-	return r.result(false), nil
+	// 稀有鱼 / 超级稀有鱼的鱼种数奖座**不在这里发**：图鉴口径是 catch_log，
+	// 而 catch_log 要到 14/5 入护才写。结算阶段发会让「拿到奖座后放生」的玩家
+	// 出现「背包有奖座、面板不计数」的不一致，改由 fishingKeep 入护后判定。
+	return res, nil
 }

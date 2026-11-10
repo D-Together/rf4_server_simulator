@@ -429,14 +429,21 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 			grants.Items = append(grants.Items, tree)
 		}
 	}
-	// 升级礼物行：801.f4 = 811 数组（f0=1 新级别），客户端 GameResult 弹窗
-	// 从该数组渲染"新级别礼物"卡片栈；无礼物保持 null（官服未升级样本形态）。
+	// 礼物行：801.f4 = 811 数组。结算阶段只有升级礼物一种来源（f0=1）；同数组
+	// 并存多来源的渲染能力保留给水域奖杯等后续玩法。无礼物保持 null（官服未升级
+	// 样本形态）。
 	giftRows := proto.Null()
-	if hasFish && res != nil && len(res.giftItems) > 0 {
-		if rows, rerr := s.giftRows811Arg(cctx, res.newLevel, res.giftItems); rerr != nil {
-			ctx.Log.Warn("升级礼物行构造失败（801.f4 置空）", "err", rerr)
-		} else {
-			giftRows = rows
+	if hasFish && res != nil {
+		lines := make([]gift811Line, 0, 2)
+		if len(res.giftItems) > 0 {
+			lines = append(lines, gift811Line{source: giftSourceNewLevel, param: res.newLevel, items: res.giftItems})
+		}
+		if len(lines) > 0 {
+			if rows, rerr := s.giftRows811(cctx, lines); rerr != nil {
+				ctx.Log.Warn("礼物行构造失败（801.f4 置空）", "err", rerr)
+			} else {
+				giftRows = rows
+			}
 		}
 	}
 	obj801, err := wiregen.MakeObj("caagocpofin", map[int]*proto.Value{
