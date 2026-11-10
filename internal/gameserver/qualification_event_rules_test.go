@@ -168,6 +168,57 @@ func TestEventQualificationFilters(t *testing.T) {
 	}
 }
 
+// 活动「稀有鱼（星）」按个体档位、「罕见鱼类」按物种稀有度：常见鱼种的奖杯
+// 个体必须计入个体任务；稀有鱼种未达奖杯档不计；鱼种任务反之。
+func TestEventRarityUsesIndividualGrade(t *testing.T) {
+	srv, db := newDetachTestServer(t)
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	sess := newProbeSess(srv)
+	ctx := &Ctx{Sess: sess, Log: logging.Discard()}
+	uid := sess.Userid
+	seq := 0
+	catch := func(ev qualificationEvent) {
+		t.Helper()
+		seq++
+		ev.Kind = qevFishLanded
+		ev.CatchGUID = qualificationCountedGUID("evr-" + string(rune('a'+seq)))
+		srv.evaluateQualifications(ctx, ev)
+	}
+	state := func(id int64) (int, float64) {
+		t.Helper()
+		states, err := db.QualificationStates(context.Background(), uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st := states[id]
+		return len(st.Counted), st.CompletedTS
+	}
+
+	// 12203「三水域稀有鱼（星）」：perch 物种稀有度 0；合格档不计，奖杯档计。
+	catch(qualificationEvent{Species: "perch", LocLevel: evLocKomarino, Grade: 2, Rarity: 1})
+	if n, _ := state(12203); n != 0 {
+		t.Fatalf("合格档不应计入 12203，实得 %d", n)
+	}
+	catch(qualificationEvent{Species: "perch", LocLevel: evLocKomarino, Grade: 3, Rarity: 0})
+	if n, ts := state(12203); n != 1 || ts == 0 {
+		t.Fatalf("常见鱼种奖杯个体应达标 12203，实得 %d/%g", n, ts)
+	}
+
+	// 16603「铜湖/琥珀湖 3 种罕见鱼类」：物种稀有度 >=1；常见鱼种奖杯个体不计。
+	catch(qualificationEvent{Species: "s0", LocLevel: evLocCopper, Grade: 4, Rarity: 0})
+	if n, _ := state(16603); n != 0 {
+		t.Fatalf("常见鱼种不应计入 16603，实得 %d", n)
+	}
+	for i, rar := range []int64{1, 2, 1} {
+		catch(qualificationEvent{Species: "s" + string(rune('a'+i)), LocLevel: evLocCopper, Rarity: rar})
+	}
+	if n, ts := state(16603); n != 3 || ts == 0 {
+		t.Fatalf("3 种稀有鱼种应达标 16603，实得 %d/%g", n, ts)
+	}
+}
+
 // 缺口任务不下发到面板：32 条缺口被跳过，全分支实际下发 241 条可完成任务。
 func TestEventGapTasksNotEmitted(t *testing.T) {
 	if len(eventGapRuleIDs) != 32 {
