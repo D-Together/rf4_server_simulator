@@ -198,7 +198,7 @@ var qualificationRules = []qualificationRuleDef{
 	{ID: 1102, Event: qevFishLanded, Counted: qCountSpecies(qLureFamilyIn("spoon", "spinner"))},
 	{ID: 1103, Event: qevFishLanded, Counted: qCountSpecies(qLureFamilyIn("wobbler"))},
 	// 阶段 3
-	{ID: 1201, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qLocLevelIn("level_010_belaya"), qWeightAtLeast(5000), qSpeciesIn("taimen"), qGradeAtLeast(3))},
+	{ID: 1201, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qLocLevelIn("level_010_belaya"), qWeightAtLeast(5000), qSpeciesIn("taimen"))},
 	{ID: 1202, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qWeightAtLeast(7000), qSpeciesIn("sevan_trout"))},
 	{ID: 1203, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qSpeciesIn("gc_smelt"), qGradeAtLeast(3))},
 	// 阶段 4

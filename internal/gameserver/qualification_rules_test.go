@@ -253,25 +253,21 @@ func TestQualificationBranch1Filters(t *testing.T) {
 		t.Fatalf("4 个拟饵族应达标，实得 %d/%g", n, ts)
 	}
 
-	// 1201「白河、人造拟饵、至少 5kg 的稀有哲罗鱼」：地点与稀有度都必须匹配。
+	// 1201「白河、人造拟饵、至少 5kg 的哲罗鱼」：地点、钓组、重量匹配，档位不限。
 	taimen := qualificationEvent{
-		Species: "taimen", WeightG: 6000, RigType: 5, Grade: 3,
+		Species: "taimen", WeightG: 6000, RigType: 5, Grade: 2,
 		LocLevel: "level_010_belaya",
 	}
 	catch(qualificationEvent{
 		Species: "taimen", WeightG: 6000, RigType: 5, Grade: 3,
 		LocLevel: "level_011_ladoga_02",
 	})
-	catch(qualificationEvent{
-		Species: "taimen", WeightG: 6000, RigType: 5, Grade: 2,
-		LocLevel: "level_010_belaya",
-	})
 	if n, ts := state(1201); n != 0 || ts != 0 {
-		t.Fatalf("地点/稀有度不符不应计入 1201，实得 %d/%g", n, ts)
+		t.Fatalf("地点不符不应计入 1201，实得 %d/%g", n, ts)
 	}
 	catch(taimen)
 	if n, ts := state(1201); n != 1 || ts == 0 {
-		t.Fatalf("白河稀有哲罗应达标 1201，实得 %d/%g", n, ts)
+		t.Fatalf("白河 5kg 普通档哲罗应达标 1201，实得 %d/%g", n, ts)
 	}
 
 	// 1601「岸边、人造拟饵、稀有白北鲑或白鲑鱼」：船上不计。
