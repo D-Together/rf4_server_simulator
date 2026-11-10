@@ -20,6 +20,14 @@ const (
 	RuleSpecStatus = "spec-status"
 	RuleLink       = "link"
 	RuleRef        = "ref"
+	RuleCapSize    = "cap-size"
+)
+
+// 能力契约的体量阈值：超过软上限只提示，超过硬上限判失败。
+// 依据见 specs/changes/capability-split/spec.md（102 行跨四域导致"改一处要读全文"）。
+const (
+	capSoftLines = 80
+	capHardLines = 150
 )
 
 // statusValues 是 specs/changes 允许的状态值，定义见 docs/agents/issue-tracker.md。
@@ -60,26 +68,35 @@ type Stats struct {
 	Links  int
 	Refs   int
 	Issues int
+	Notes  int
 }
 
-// Run 扫描 root 下的文档契约，返回违规列表与统计。
-func Run(root string) ([]Issue, Stats, error) {
+// Report 是一次扫描的结果。Issues 让门禁失败，Notes 只是提示。
+type Report struct {
+	Issues []Issue
+	Notes  []Issue
+	Stats  Stats
+}
+
+// Run 扫描 root 下的文档契约并返回报告。
+func Run(root string) (Report, error) {
+	var report Report
 	var st Stats
 	files, err := collectFiles(root)
 	if err != nil {
-		return nil, st, err
+		return report, err
 	}
 
 	var issues []Issue
 	indexIssues, err := checkDocIndex(root)
 	if err != nil {
-		return nil, st, err
+		return report, err
 	}
 	issues = append(issues, indexIssues...)
 
 	specIssues, specs, err := checkSpecStatus(root)
 	if err != nil {
-		return nil, st, err
+		return report, err
 	}
 	issues = append(issues, specIssues...)
 	st.Specs = specs
@@ -88,7 +105,7 @@ func Run(root string) ([]Issue, Stats, error) {
 		path := filepath.Join(root, filepath.FromSlash(rel))
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil, st, fmt.Errorf("读取 %s: %w", rel, err)
+			return report, fmt.Errorf("读取 %s: %w", rel, err)
 		}
 		if strings.HasPrefix(rel, "docs/") {
 			st.Docs++
@@ -101,14 +118,30 @@ func Run(root string) ([]Issue, Stats, error) {
 		st.Refs += refs
 	}
 
+	sizeIssues, sizeNotes, err := checkCapSize(root)
+	if err != nil {
+		return report, err
+	}
+	issues = append(issues, sizeIssues...)
+
+	sortIssues(issues)
+	sortIssues(sizeNotes)
+	st.Issues = len(issues)
+	st.Notes = len(sizeNotes)
+
+	report.Issues = issues
+	report.Notes = sizeNotes
+	report.Stats = st
+	return report, nil
+}
+
+func sortIssues(issues []Issue) {
 	sort.SliceStable(issues, func(i, j int) bool {
 		if issues[i].Path != issues[j].Path {
 			return issues[i].Path < issues[j].Path
 		}
 		return issues[i].Line < issues[j].Line
 	})
-	st.Issues = len(issues)
-	return issues, st, nil
 }
 
 // collectFiles 返回参与校验的 Markdown 相对路径（斜杠分隔）。
@@ -236,6 +269,54 @@ func firstStatusLine(content string) (int, string, bool) {
 		return i + 1, value, true
 	}
 	return 0, "", false
+}
+
+// checkCapSize 限制能力契约体量：超过软上限给提示，超过硬上限判失败。
+func checkCapSize(root string) ([]Issue, []Issue, error) {
+	paths, err := filepath.Glob(filepath.Join(root, "specs", "capabilities", "*.md"))
+	if err != nil {
+		return nil, nil, err
+	}
+	var issues, notes []Issue
+	for _, path := range paths {
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil, nil, err
+		}
+		rel = filepath.ToSlash(rel)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, nil, fmt.Errorf("读取 %s: %w", rel, err)
+		}
+		lines := countLines(string(data))
+		switch {
+		case lines > capHardLines:
+			issues = append(issues, Issue{
+				Rule:    RuleCapSize,
+				Path:    rel,
+				Message: fmt.Sprintf("%d 行，超过 %d 行硬上限，必须拆分", lines, capHardLines),
+			})
+		case lines > capSoftLines:
+			notes = append(notes, Issue{
+				Rule:    RuleCapSize,
+				Path:    rel,
+				Message: fmt.Sprintf("%d 行，超过 %d 行软上限，考虑拆分", lines, capSoftLines),
+			})
+		}
+	}
+	return issues, notes, nil
+}
+
+// countLines 按行尾换行统计行数，末尾无换行也计一行。
+func countLines(content string) int {
+	if content == "" {
+		return 0
+	}
+	n := strings.Count(content, "\n")
+	if !strings.HasSuffix(content, "\n") {
+		n++
+	}
+	return n
 }
 
 // checkLinks 校验 Markdown 相对链接目标是否存在；返回违规数与链接总数。
