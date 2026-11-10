@@ -301,7 +301,7 @@ func TestGiftBoxMailAttachmentStaysBoxed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count, items := srv.acceptMails(giftBoxTestCtx(t, srv, uid, proto.Args524()), []int64{id, baitID}); count != 3 || len(items) != 3 {
+	if count, items, err := srv.acceptMails(giftBoxTestCtx(t, srv, uid, proto.Args524()), []int64{id, baitID}); err != nil || count != 3 || len(items) != 3 {
 		t.Fatalf("领取发放数不符（2 礼盒 + 1 饵料堆）: count=%d items=%d", count, len(items))
 	}
 	if rows := giftBoxRows(t, srv, uid, giftBoxID); len(rows) != 2 {
@@ -341,7 +341,7 @@ func TestGiftBoxMailAttachmentWithBuyPriceStaysBoxed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count, items := srv.acceptMails(giftBoxTestCtx(t, srv, uid, proto.Args524()), []int64{id}); count != 1 || len(items) != 1 {
+	if count, items, err := srv.acceptMails(giftBoxTestCtx(t, srv, uid, proto.Args524()), []int64{id}); err != nil || count != 1 || len(items) != 1 {
 		t.Fatalf("购买价值礼盒应可领取本体: count=%d items=%d", count, len(items))
 	}
 	if rows := giftBoxRows(t, srv, uid, giftBoxID); len(rows) != 1 {
@@ -367,7 +367,7 @@ func TestGiftBoxMailAttachmentQtyCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count, items := srv.acceptMails(giftBoxTestCtx(t, srv, uid, proto.Args524()), []int64{id}); count != 0 || len(items) != 0 {
+	if count, items, err := srv.acceptMails(giftBoxTestCtx(t, srv, uid, proto.Args524()), []int64{id}); err == nil || count != 0 || len(items) != 0 {
 		t.Fatalf("超限礼盒附件不应领取: count=%d items=%d", count, len(items))
 	}
 	assertBundleMailUnclaimed(t, db, uid, id)

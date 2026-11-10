@@ -257,6 +257,43 @@ func (d *DB) SetSkillBonus(ctx context.Context, uid, bonus int64) error {
 	return d.KVSet(ctx, skillBonusKey(uid), strconv.FormatInt(bonus, 10))
 }
 
+// AddSkillBonusTx 在事务内给「未分配技能点」加减偏移量（kv skill_bonus:<uid>），
+// 返回加减后的新偏移。卡册塑封的「+1 免费技能点」必须和奖座、密封时间戳同事务
+// 提交，否则会出现「弹窗说给了、技能树没加」的半截状态。
+func (d *DB) AddSkillBonusTx(ctx context.Context, tx *sql.Tx, uid, delta int64) (int64, error) {
+	if delta == 0 {
+		return d.skillBonusTx(ctx, tx, uid)
+	}
+	cur, err := d.skillBonusTx(ctx, tx, uid)
+	if err != nil {
+		return 0, err
+	}
+	next := cur + delta
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`,
+		skillBonusKey(uid), strconv.FormatInt(next, 10)); err != nil {
+		return 0, err
+	}
+	return next, nil
+}
+
+// skillBonusTx 事务内读当前偏移（无记录视为 0）。
+func (d *DB) skillBonusTx(ctx context.Context, tx *sql.Tx, uid int64) (int64, error) {
+	var raw string
+	err := tx.QueryRowContext(ctx, `SELECT v FROM kv WHERE k=?`, skillBonusKey(uid)).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	n, perr := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if perr != nil {
+		return 0, nil
+	}
+	return n, nil
+}
+
 func (d *DB) ListAdminStores(ctx context.Context) ([]*AdminStoreView, error) {
 	catalog, err := embeddedShopKindCatalog()
 	if err != nil {

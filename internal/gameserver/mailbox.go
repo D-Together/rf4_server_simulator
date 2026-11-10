@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -20,11 +21,35 @@ import (
 //
 // 协议字段 f5 恒为 0（Message）；数据库中的 kind 仅用于内部区分文本和附件，
 // 不能作为协议 type 下发。邮件 GUID 是数字 id 的 32 位十六进制形式。
+//
+// 领取失败反馈不用 kOperationResult_* 枚举：该枚举没有"邮件附件发不出来"
+// 这一语义，实机验证码 65 会显示成"没有足够的技能点来升级能力"（误导玩家）。
+// 改用普通异常 + 中文 message，见 notifyMailClaimFailed。
 
 func mailIDToGUID(id int64) string { return fmt.Sprintf("%032x", uint64(id)) }
 
 func mailGUIDToID(g string) int64 {
 	v, err := strconv.ParseInt(g, 16, 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// parseMailIDArg 解析管理指令里的邮件 id 参数，返回 0 表示非法。
+//
+// 必须区分两种形式：协议字段是 32 位十六进制 GUID（mailIDToGUID 的产物），
+// 而管理后台按十进制入队（handlePlayerMailDelete）。若一律按十六进制解析，
+// 十进制 "10" 会被读成 16，导致删错邮件、且后台仍显示"已排队"。
+func parseMailIDArg(raw string) int64 {
+	if raw == "" {
+		return 0
+	}
+	// 32 位纯十六进制 = GUID 形式；其余按十进制。
+	if len(raw) == 32 && isHex32(raw) {
+		return mailGUIDToID(raw)
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
 		return 0
 	}
@@ -460,7 +485,18 @@ func isHex32(v string) bool {
 // acceptMails 领取附件：先在事务外构造全部物品，再在事务内发放并标记已读。
 // 任一件物品失败都会回滚并保持邮件未读。可堆叠物品合并到已有堆，
 // 领取成功后通过 4/22 推送更新客户端背包缓存。
-func (s *Server) acceptMails(ctx *Ctx, ids []int64) (int, []*store.Item) {
+//
+// 返回的 error 非 nil 表示本次领取存在玩家可见的失败：调用方必须回成业务错误，
+// 不能回 null 成功——否则玩家点了没反应、物品也不进包，只能靠服主查日志才能发现
+// （见 specs/changes/mail-claim-visible-failure）。
+//
+// 失败分两类，处理方式不同：
+//   - 单封邮件自身的校验失败（附件定义缺失、快照损坏、数量超限等）：只跳过这封，
+//     其余邮件照常发放。否则一封坏邮件会让"一键领取"永久卡死，玩家连好邮件都领不出来。
+//   - 事务/数据库级失败：整体回滚，保证不出现"扣了一半"的中间态。
+//
+// (0, nil, nil) 表示没有可领取的未读邮件，属于正常空操作。
+func (s *Server) acceptMails(ctx *Ctx, ids []int64) (int, []*store.Item, error) {
 	cctx := ctx.Sess.pushCtx()
 	uid := ctx.Sess.Userid
 	type claimPlan struct {
@@ -468,14 +504,27 @@ func (s *Server) acceptMails(ctx *Ctx, ids []int64) (int, []*store.Item) {
 		itemsJSON       string
 		snapshotVersion int64
 		prepared        []*store.Item
+		// invalid 表示这封邮件自身校验不通过，准备阶段已跳过，不参与发放。
+		invalid bool
 	}
 	var plans []claimPlan
+	// skipped 记录"这封邮件本身领不出来"的原因，逐封隔离，不拖累其它邮件。
+	var skipped []error
 	for _, id := range ids {
 		if id <= 0 {
 			continue
 		}
 		m, err := s.DB.MailGet(cctx, uid, id)
-		if err != nil || m == nil || m.Read != 0 {
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && m == nil) {
+			// 邮件确实不存在（或已被并发删除）：正常空操作。
+			continue
+		}
+		if err != nil {
+			// 读库失败不能当作"没有邮件"吞掉——那会让本次领取悄悄变成空操作。
+			ctx.Log.Warn("19/3 读取邮件失败", "mail", id, "err", err)
+			return 0, nil, fmt.Errorf("读取邮件 %d 失败: %w", id, err)
+		}
+		if m.Read != 0 {
 			continue
 		}
 		plan := claimPlan{id: id, itemsJSON: m.ItemsJSON, snapshotVersion: m.AttachmentSnapshotVersion}
@@ -483,23 +532,31 @@ func (s *Server) acceptMails(ctx *Ctx, ids []int64) (int, []*store.Item) {
 			var attachments []store.MailItem
 			if err := json.Unmarshal([]byte(m.ItemsJSON), &attachments); err != nil {
 				ctx.Log.Warn("19/3 附件 JSON 损坏", "mail", id, "err", err)
-				return 0, nil
+				skipped = append(skipped, fmt.Errorf("邮件 %d 附件数据损坏: %w", id, err))
+				plan.invalid = true
+				break
 			}
 			for _, att := range attachments {
 				if m.AttachmentSnapshotVersion > 0 && !att.HasItemSnapshot() {
 					ctx.Log.Warn("19/3 附件快照不完整", "mail", id, "item", att.ItemID)
-					return 0, nil
+					skipped = append(skipped, fmt.Errorf("邮件 %d 附件快照不完整: %s", id, att.ItemID))
+					plan.invalid = true
+					break
 				}
 				def, derr := s.DB.GetItemDefByItemID(cctx, att.ItemID)
 				if derr != nil || def == nil {
 					ctx.Log.Warn("19/3 附件定义不存在", "mail", id, "item", att.ItemID, "err", derr)
-					return 0, nil
+					skipped = append(skipped, fmt.Errorf("邮件 %d 附件物品不存在: %s", id, att.ItemID))
+					plan.invalid = true
+					break
 				}
 				if def.Category == bundleCategory {
 					openable := bundleOpenable(def)
 					if att.BuyPrice != 0 && !openable {
 						ctx.Log.Warn("19/3 组合包有购买价值，需人工处理", "mail", id, "item", att.ItemID)
-						return 0, nil
+						skipped = append(skipped, fmt.Errorf("邮件 %d 组合包需人工处理: %s", id, att.ItemID))
+						plan.invalid = true
+						break
 					}
 					if openable {
 						// 礼盒附件以本体发放，一包一件（非计件）；玩家 4/8
@@ -511,13 +568,18 @@ func (s *Server) acceptMails(ctx *Ctx, ids []int64) (int, []*store.Item) {
 						if packs > maxBundlePreparedItems {
 							ctx.Log.Warn("19/3 礼盒附件数量超过上限", "mail", id,
 								"item", att.ItemID, "qty", packs, "limit", maxBundlePreparedItems)
-							return 0, nil
+							skipped = append(skipped, fmt.Errorf("礼盒附件数量 %d 超过上限 %d: %s",
+								packs, maxBundlePreparedItems, att.ItemID))
+							plan.invalid = true
+							break
 						}
 						for i := int64(0); i < packs; i++ {
 							it, berr := s.prepareNewItem(cctx, uid, att.ItemID, "backpack", 1, "")
 							if berr != nil {
 								ctx.Log.Warn("19/3 礼盒附件构造失败", "mail", id, "item", att.ItemID, "err", berr)
-								return 0, nil
+								skipped = append(skipped, fmt.Errorf("邮件 %d 礼盒附件构造失败: %s: %w", id, att.ItemID, berr))
+								plan.invalid = true
+								break
 							}
 							plan.prepared = append(plan.prepared, it)
 						}
@@ -526,7 +588,9 @@ func (s *Server) acceptMails(ctx *Ctx, ids []int64) (int, []*store.Item) {
 					items, berr := s.prepareBundleItems(cctx, uid, att.ItemID, "backpack", att.Qty)
 					if berr != nil {
 						ctx.Log.Warn("19/3 组合包展开失败", "mail", id, "item", att.ItemID, "err", berr)
-						return 0, nil
+						skipped = append(skipped, fmt.Errorf("邮件 %d 组合包展开失败: %s: %w", id, att.ItemID, berr))
+						plan.invalid = true
+						break
 					}
 					plan.prepared = append(plan.prepared, items...)
 					continue
@@ -536,7 +600,9 @@ func (s *Server) acceptMails(ctx *Ctx, ids []int64) (int, []*store.Item) {
 					it, err = s.prepareMailSnapshotItem(cctx, uid, att)
 					if err != nil {
 						ctx.Log.Warn("19/3 附件快照重建失败", "mail", id, "item", att.ItemID, "err", err)
-						return 0, nil
+						skipped = append(skipped, fmt.Errorf("邮件 %d 附件快照重建失败: %s: %w", id, att.ItemID, err))
+						plan.invalid = true
+						break
 					}
 				} else {
 					// 没有实例快照时，按 GUID、item_id 和 qty 从定义重建。
@@ -551,7 +617,9 @@ func (s *Server) acceptMails(ctx *Ctx, ids []int64) (int, []*store.Item) {
 					it, err = s.prepareNewItem(cctx, uid, att.ItemID, "backpack", 1, guid)
 					if err != nil {
 						ctx.Log.Warn("19/3 附件构造失败", "mail", id, "item", att.ItemID, "err", err)
-						return 0, nil
+						skipped = append(skipped, fmt.Errorf("邮件 %d 附件构造失败: %s: %w", id, att.ItemID, err))
+						plan.invalid = true
+						break
 					}
 					if countableCategories[def.Category] {
 						it.Qty = qty
@@ -565,16 +633,20 @@ func (s *Server) acceptMails(ctx *Ctx, ids []int64) (int, []*store.Item) {
 				plan.prepared = append(plan.prepared, it)
 			}
 		}
+		if plan.invalid {
+			continue
+		}
 		plans = append(plans, plan)
 	}
 	if len(plans) == 0 {
-		return 0, nil
+		// 没有可发放的邮件：若原因是坏邮件，仍要报错让玩家看到，而不是假装成功。
+		return 0, nil, errors.Join(skipped...)
 	}
 
 	tx, err := beginEconomyTx(cctx, s.DB)
 	if err != nil {
 		ctx.Log.Warn("19/3 开启事务失败", "err", err)
-		return 0, nil
+		return 0, nil, fmt.Errorf("领取附件开启事务失败: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	var granted []*store.Item
@@ -591,25 +663,25 @@ func (s *Server) acceptMails(ctx *Ctx, ids []int64) (int, []*store.Item) {
 		}
 		if err != nil || currentJSON != plan.itemsJSON || currentSnapshotVersion != plan.snapshotVersion {
 			ctx.Log.Warn("19/3 邮件在领取期间发生变化", "mail", plan.id, "err", err)
-			return 0, nil
+			return 0, nil, fmt.Errorf("邮件 %d 在领取期间发生变化，请重试", plan.id)
 		}
 		for _, prepared := range plan.prepared {
 			row, _, gerr := grantPreparedItemTx(cctx, tx, prepared, true)
 			if gerr != nil {
 				ctx.Log.Warn("19/3 附件入包失败", "mail", plan.id, "item", prepared.ItemID, "err", gerr)
-				return 0, nil
+				return 0, nil, fmt.Errorf("邮件 %d 附件入包失败: %s: %w", plan.id, prepared.ItemID, gerr)
 			}
 			granted = append(granted, row)
 		}
 		if _, err := tx.ExecContext(cctx, `UPDATE mail SET items_json=NULL, attachment_snapshot_version=0, read=1 WHERE uid=? AND id=? AND read=0`,
 			uid, plan.id); err != nil {
 			ctx.Log.Warn("19/3 标记邮件已读失败", "mail", plan.id, "err", err)
-			return 0, nil
+			return 0, nil, fmt.Errorf("邮件 %d 标记已读失败: %w", plan.id, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		ctx.Log.Warn("19/3 提交失败", "err", err)
-		return 0, nil
+		return 0, nil, fmt.Errorf("领取附件提交失败: %w", err)
 	}
 	if len(granted) > 0 {
 		trees := make([]*proto.Value, 0, len(granted))
@@ -622,11 +694,32 @@ func (s *Server) acceptMails(ctx *Ctx, ids []int64) (int, []*store.Item) {
 			ctx.Sess.Push(4, 22, proto.Args(proto.S("61"), trees...))
 		}
 	}
-	ctx.Log.Info("领取附件", "count", len(granted))
-	return len(granted), granted
+	ctx.Log.Info("领取附件", "count", len(granted), "skipped", len(skipped))
+	// 好邮件已入包并置读；坏邮件的原因仍要回给玩家，让他知道还有东西没领出来。
+	return len(granted), granted, errors.Join(skipped...)
 }
 
-// hMailAccept 19/3：领取单封附件，回 null。
+// notifyMailClaimFailed 在领取失败时给出一条玩家可读的原因。
+//
+// 为什么不走 kOperationResult_* 枚举：abadjfbfdjb 的每个码都是为别的场景
+// 设计的（"生产失败""技能点不足"等），没有一个是"这封邮件的附件发不出来"。
+// 2026-11-10 实机验证：码 65 在客户端显示成"没有足够的技能点来升级能力"，
+// 把玩家引向完全错误的方向（去点技能），比原来的静默失败更糟。
+//
+// 因此改用普通异常 + 中文 message（与 campfire/econ/fish_query 等既有路径一致，
+// 客户端会把 message 直接显示出来）：既不依赖枚举取值，也不必改动客户端。
+func (s *Server) notifyMailClaimFailed(ctx *Ctx, err error) {
+	if ctx == nil || ctx.Sess == nil || err == nil {
+		return
+	}
+	ctx.ReplyFailure("System.InvalidOperationException",
+		"邮件附件领取失败："+err.Error()+"。邮件已保留，请联系服主处理。")
+}
+
+// hMailAccept 19/3：领取单封附件。
+//
+// 成功回 null。存在无法领取的附件（数量超限、定义缺失、快照损坏等）时
+// 邮件保持未读，并回失败信封说明原因；不再静默回 null。
 func hMailAccept(ctx *Ctx) ([]byte, bool) {
 	if !ctx.Sess.Srv.requireDB(ctx) {
 		return nil, false
@@ -635,24 +728,38 @@ func hMailAccept(ctx *Ctx) ([]byte, bool) {
 	for _, g := range deepGUIDs(ctx.Tree) {
 		ids = append(ids, mailGUIDToID(g))
 	}
-	ctx.Sess.Srv.acceptMails(ctx, ids)
+	if _, _, err := ctx.Sess.Srv.acceptMails(ctx, ids); err != nil {
+		ctx.Log.Warn("19/3 领取附件失败", "err", err)
+		ctx.Sess.Srv.notifyMailClaimFailed(ctx, err)
+		return nil, true
+	}
 	return []byte{0x00}, true
 }
 
 // hMailAcceptAll 19/4：一键领取全部未读附件。
+//
+// 与 19/3 一致：任何一封领不出来都回可读错误，可领的部分已入包并置读。
 func hMailAcceptAll(ctx *Ctx) ([]byte, bool) {
 	if !ctx.Sess.Srv.requireDB(ctx) {
 		return nil, false
 	}
 	mails, err := ctx.Sess.Srv.DB.MailList(ctx.Sess.pushCtx(), ctx.Sess.Userid, true)
 	if err != nil {
-		return []byte{0x00}, true
+		// 读不到未读列表时不能回 null 成功：玩家会以为"已经全部领完"。
+		ctx.Log.Warn("19/4 读取未读邮件失败", "err", err)
+		ctx.ReplyFailure("System.InvalidOperationException",
+			"读取邮箱失败，请稍后重试。")
+		return nil, true
 	}
 	var ids []int64
 	for _, m := range mails {
 		ids = append(ids, m.ID)
 	}
-	ctx.Sess.Srv.acceptMails(ctx, ids)
+	if _, _, err := ctx.Sess.Srv.acceptMails(ctx, ids); err != nil {
+		ctx.Log.Warn("19/4 一键领取附件失败", "err", err)
+		ctx.Sess.Srv.notifyMailClaimFailed(ctx, err)
+		return nil, true
+	}
 	return []byte{0x00}, true
 }
 
@@ -727,6 +834,7 @@ type AdminCommand struct {
 	GUIDs        []string            `json:"guids,omitempty"`
 	Keepnet      *store.KeepnetEntry `json:"keepnet,omitempty"`
 	KeepnetGUIDs []string            `json:"keepnet_guids,omitempty"`
+	MailIDs      []string            `json:"mail_ids,omitempty"`    // delete_mail：要删除的邮件 id（十进制字符串或 GUID）
 	Species      string              `json:"species,omitempty"`     // arm_fish：鱼种（空=默认池随机）
 	WeightG      int64               `json:"weight_g,omitempty"`    // arm_fish：克重（空=默认池范围内）
 	Grade        int64               `json:"grade,omitempty"`       // 兼容旧指令；实际档位按结算尺和重量计算。
@@ -854,6 +962,23 @@ func (s *Server) execAdminCmd(cmd *AdminCommand) {
 		} else {
 			s.notifyMail(ctx, cmd.UID, id)
 		}
+	case "delete_mail":
+		// 服主清理由后台发件校验漏洞留下的坏邮件（领取侧会回业务错误，
+		// 但玩家自己删不掉，只能由服主处理）。
+		deleted := 0
+		for _, raw := range cmd.MailIDs {
+			id := parseMailIDArg(strings.TrimSpace(raw))
+			if id <= 0 {
+				s.log.Warn("管理指令：删除邮件跳过非法 id", "uid", cmd.UID, "raw", raw)
+				continue
+			}
+			if err := s.DB.MailDelete(ctx, cmd.UID, id); err != nil {
+				s.log.Warn("管理指令：删除邮件失败", "uid", cmd.UID, "mail", id, "err", err)
+				continue
+			}
+			deleted++
+		}
+		s.log.Info("管理指令：删除邮件", "uid", cmd.UID, "count", deleted)
 	case "arm_fish":
 		st := s.stateFor(cmd.UID)
 		f := &RolledFish{FishGUID: newFishGUID(), Species: cmd.Species, WeightG: cmd.WeightG, Grade: cmd.Grade, LocLevel: s.currentLevel(cmd.UID)}

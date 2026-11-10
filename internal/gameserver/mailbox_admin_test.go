@@ -3,6 +3,7 @@ package gameserver
 import (
 	"context"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -323,5 +324,108 @@ func TestPlayerMailInsertFailureDoesNotNotify(t *testing.T) {
 			}
 			assertNoMailTestPush(t, session)
 		})
+	}
+}
+
+// TestAdminDeleteMailRemovesOnlyTargetedMail 服主清理坏邮件：
+// 只删指定 id，其它邮件与其它玩家的邮件不受影响。
+func TestAdminDeleteMailRemovesOnlyTargetedMail(t *testing.T) {
+	t.Parallel()
+	srv, db := newEconomyTxTestServer(t)
+	ctx := context.Background()
+	const uid, other = int64(2701), int64(2702)
+	for _, u := range []int64{uid, other} {
+		if _, err := db.EnsureProfile(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	badID, err := db.MailInsert(ctx, uid, 0, 0, "坏奖励", []store.MailItem{{
+		ItemID: "AV_shamp1_pack_6", Qty: 99999,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keepID, err := db.MailInsert(ctx, uid, 0, 0, "保留", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherID, err := db.MailInsert(ctx, other, 0, 0, "别人的", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 后台队列传的是十进制字符串 id（见 handlePlayerMailDelete）。
+	srv.execAdminCmd(&AdminCommand{
+		Op: "delete_mail", UID: uid, MailIDs: []string{strconv.FormatInt(badID, 10)},
+	})
+
+	if m, err := db.MailGet(ctx, uid, badID); err == nil && m != nil {
+		t.Fatalf("目标邮件应已删除: %+v", m)
+	}
+	if m, err := db.MailGet(ctx, uid, keepID); err != nil || m == nil {
+		t.Fatalf("同玩家的其它邮件不应被删: %+v err=%v", m, err)
+	}
+	if m, err := db.MailGet(ctx, other, otherID); err != nil || m == nil {
+		t.Fatalf("其它玩家的邮件不应被删: %+v err=%v", m, err)
+	}
+}
+
+// TestDeleteMailDecimalIDNotParsedAsHex 审查 P1：后台按十进制入队 id，
+// 消费端不能用十六进制解析，否则 id=10 会被读成 16、删错别人的邮件。
+func TestDeleteMailDecimalIDNotParsedAsHex(t *testing.T) {
+	t.Parallel()
+	srv, db := newEconomyTxTestServer(t)
+	ctx := context.Background()
+	const uid = int64(2801)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	// 造出 id 恰好为 10 与 16 的两封邮件（十六进制 "10" == 十进制 16）。
+	id10, id16 := int64(0), int64(0)
+	for i := 0; i < 40 && (id10 == 0 || id16 == 0); i++ {
+		id, err := db.MailInsert(ctx, uid, 0, 0, "filler", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch id {
+		case 10:
+			id10 = id
+		case 16:
+			id16 = id
+		}
+	}
+	if id10 == 0 || id16 == 0 {
+		t.Skipf("测试库 mail 自增未到达 10/16（id10=%d id16=%d），跳过", id10, id16)
+	}
+
+	// 后台传十进制 "10"，必须只删 10，不能误删 16。
+	srv.execAdminCmd(&AdminCommand{Op: "delete_mail", UID: uid, MailIDs: []string{"10"}})
+
+	if m, err := db.MailGet(ctx, uid, id10); err == nil && m != nil {
+		t.Fatalf("十进制 id=10 的邮件应被删除: %+v", m)
+	}
+	if m, err := db.MailGet(ctx, uid, id16); err != nil || m == nil {
+		t.Fatal("十进制 10 不能删掉 id=16 的邮件（十六进制误解析）")
+	}
+}
+
+// TestParseMailIDArgDistinguishesGUIDAndDecimal 直接锁住解析函数的分支。
+func TestParseMailIDArgDistinguishesGUIDAndDecimal(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   string
+		want int64
+	}{
+		{"10", 10},                               // 十进制
+		{"16", 16},                               // 十进制
+		{"0000000000000000000000000000000a", 10}, // 32 位十六进制 GUID
+		{"00000000000000000000000000000010", 16}, // 同上
+		{"", 0},                                  // 空
+		{"abc", 0},                               // 非法十进制
+	}
+	for _, c := range cases {
+		if got := parseMailIDArg(c.in); got != c.want {
+			t.Errorf("parseMailIDArg(%q)=%d，期望 %d", c.in, got, c.want)
+		}
 	}
 }

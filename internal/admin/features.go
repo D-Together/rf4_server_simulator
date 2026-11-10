@@ -273,6 +273,39 @@ func (s *Server) handlePlayerItemDelete(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, map[string]any{"ok": true, "queued": true})
 }
 
+// handlePlayerMailDelete 删除指定玩家的若干封邮件。
+//
+// 用于清理"领不出来"的历史邮件（例如附件数量超限的坏包）：
+// 领取侧现在会回业务错误，但玩家自己没法处理，需要服主删掉或重发。
+func (s *Server) handlePlayerMailDelete(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		UID int64   `json:"uid"`
+		IDs []int64 `json:"ids"`
+	}
+	if err := readJSON(r, &req); err != nil || req.UID == 0 || len(req.IDs) == 0 {
+		httpError(w, 400, "参数错误")
+		return
+	}
+	ids := make([]string, 0, len(req.IDs))
+	for _, id := range req.IDs {
+		if id > 0 {
+			// 必须以十进制入队：消费端 delete_mail 会先按十进制解析
+			// （见 gameserver 的 parseMailIDArg），不能用十六进制 GUID。
+			ids = append(ids, strconv.FormatInt(id, 10))
+		}
+	}
+	if len(ids) == 0 {
+		httpError(w, 400, "参数错误")
+		return
+	}
+	_ = s.db.QueuePush(r.Context(), mustJSON(map[string]any{
+		"op": "delete_mail", "uid": req.UID, "mail_ids": ids,
+	}))
+	_ = s.db.AuditLogWrite(r.Context(), adminOf(r), "mail_delete",
+		strconv.FormatInt(req.UID, 10), strings.Join(ids, ","))
+	writeJSON(w, map[string]any{"ok": true, "queued": true})
+}
+
 func (s *Server) handlePlayerKeepnetAdd(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		UID       int64   `json:"uid"`
@@ -337,9 +370,21 @@ func (s *Server) handleMailSend(w http.ResponseWriter, r *http.Request) {
 			req.Items[i].Qty = 1
 		}
 	}
-	_ = s.db.QueuePush(r.Context(), mustJSON(map[string]any{
+	// 发不出来的邮件不要发出去：附件按领取路径同口径先干跑一遍。
+	// 否则玩家会收到一封永远领不出来的信，而后台当场显示"已下发"。
+	vctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	err := s.validateMailAttachments(vctx, req.Items)
+	cancel()
+	if err != nil {
+		httpError(w, 400, err.Error())
+		return
+	}
+	if err := s.db.QueuePush(r.Context(), mustJSON(map[string]any{
 		"op": "send_mail", "uid": req.UID, "text": req.Text, "items": req.Items,
-	}))
+	})); err != nil {
+		httpError(w, 500, "写入发送队列失败: "+err.Error())
+		return
+	}
 	detail, _ := json.Marshal(req)
 	_ = s.db.AuditLogWrite(r.Context(), adminOf(r), "mail_send", strconv.FormatInt(req.UID, 10), string(detail))
 	writeJSON(w, map[string]any{"ok": true, "queued": true})

@@ -35,7 +35,6 @@ const (
 
 // catch_log.grade 的档位：1 未达标 / 2 合格 / 3 奖杯（星）/ 4 蓝冠（超稀有）。
 // 本功能按「鱼种数」发放：rare 取 grade>=recordTrophyGrade，super 取 grade>=superTrophyGrade。
-const recordTrophyGrade = 3
 
 // rarityMilestone 是一档奖励：鱼种数达标值 + 对应奖座 item_id。
 type rarityMilestone struct {
