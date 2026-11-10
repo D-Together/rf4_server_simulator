@@ -184,8 +184,9 @@ var (
 )
 
 // 每增加一条任务，只加一行：绑定事件 + 一个去重键函数。
-// 「稀有」按物种稀有度 >=1；「鱼形硬饵」按拟饵族 wobbler；「人造拟饵钓组」按
-// 收索拟饵族；「汲钩钓钓组」按铅头钩/软饵族。水域与钓组中文名均取自客户端本地化表。
+// 「奖杯/稀有鱼（星）」按个体档位 >=3（trophy），「rare trophy」按 >=4（蓝冠）；
+// 仅 8603 文案明确说「鱼种」，按物种稀有度 >=1。「鱼形硬饵」按拟饵族 wobbler；
+// 「人造拟饵钓组」按收索拟饵族；「汲钩钓钓组」按铅头钩/软饵族。水域与钓组中文名均取自客户端本地化表。
 var qualificationRules = []qualificationRuleDef{
 	// ---- 分支 1 传统纺车竿（阶段 1-7）----
 	// 阶段 1
@@ -197,25 +198,25 @@ var qualificationRules = []qualificationRuleDef{
 	{ID: 1102, Event: qevFishLanded, Counted: qCountSpecies(qLureFamilyIn("spoon", "spinner"))},
 	{ID: 1103, Event: qevFishLanded, Counted: qCountSpecies(qLureFamilyIn("wobbler"))},
 	// 阶段 3
-	{ID: 1201, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qLocLevelIn("level_010_belaya"), qWeightAtLeast(5000), qSpeciesIn("taimen"), qRarityAtLeast(1))},
+	{ID: 1201, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qLocLevelIn("level_010_belaya"), qWeightAtLeast(5000), qSpeciesIn("taimen"))},
 	{ID: 1202, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qWeightAtLeast(7000), qSpeciesIn("sevan_trout"))},
-	{ID: 1203, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qSpeciesIn("gc_smelt"), qRarityAtLeast(1))},
+	{ID: 1203, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qSpeciesIn("gc_smelt"), qGradeAtLeast(3))},
 	// 阶段 4
-	{ID: 1301, Event: qevFishLanded, Counted: qCountSingle(qLureFamilyIn("wobbler"), qDepthAtLeast(300), qRarityAtLeast(1))},
-	{ID: 1302, Event: qevFishLanded, Counted: qCountLureFamily(qLureFamilyIn("spoon", "spinner", "wobbler", "topwater"), qRarityAtLeast(1))},
-	{ID: 1303, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("a_char"), qRarityAtLeast(1))},
+	{ID: 1301, Event: qevFishLanded, Counted: qCountSingle(qLureFamilyIn("wobbler"), qDepthAtLeast(300), qGradeAtLeast(3))},
+	{ID: 1302, Event: qevFishLanded, Counted: qCountLureFamily(qLureFamilyIn("spoon", "spinner", "wobbler", "topwater"), qGradeAtLeast(3))},
+	{ID: 1303, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("a_char"), qGradeAtLeast(3))},
 	// 阶段 5
 	{ID: 1401, Event: qevFishLanded, Counted: qCountSpecies(qArtificialLure())},
-	{ID: 1402, Event: qevFishLanded, Counted: qCountSingle(qLureFamilyIn("jerkbait"), qSpeciesIn("n.pike"), qRarityAtLeast(1))},
-	{ID: 1403, Event: qevFishLanded, Counted: qCountSingle(qFromShore(), qLureFamilyIn("spoon"), qSpeciesIn("asp"), qRarityAtLeast(1))},
+	{ID: 1402, Event: qevFishLanded, Counted: qCountSingle(qLureFamilyIn("jerkbait"), qSpeciesIn("n.pike"), qGradeAtLeast(3))},
+	{ID: 1403, Event: qevFishLanded, Counted: qCountSingle(qFromShore(), qLureFamilyIn("spoon"), qSpeciesIn("asp"), qGradeAtLeast(3))},
 	// 阶段 6
-	{ID: 1501, Event: qevFishLanded, Counted: qCountSingle(qLureFamilyIn("topwater"), qSpeciesIn("lenok_o"), qRarityAtLeast(1))},
-	{ID: 1502, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("chartus_kuoriius"), qRarityAtLeast(1))},
-	{ID: 1503, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qSpeciesIn("a_salmon"), qRarityAtLeast(1))},
+	{ID: 1501, Event: qevFishLanded, Counted: qCountSingle(qLureFamilyIn("topwater"), qSpeciesIn("lenok_o"), qGradeAtLeast(3))},
+	{ID: 1502, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("chartus_kuoriius"), qGradeAtLeast(3))},
+	{ID: 1503, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qSpeciesIn("a_salmon"), qGradeAtLeast(3))},
 	// 阶段 7
-	{ID: 1601, Event: qevFishLanded, Counted: qCountSingle(qFromShore(), qArtificialLure(), qSpeciesIn("nelma", "wfish"), qRarityAtLeast(1))},
-	{ID: 1602, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qSpeciesIn("k_salmon"), qRarityAtLeast(1))},
-	{ID: 1603, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qSpeciesIn("taimen"), qRarityAtLeast(1))},
+	{ID: 1601, Event: qevFishLanded, Counted: qCountSingle(qFromShore(), qArtificialLure(), qSpeciesIn("nelma", "wfish"), qGradeAtLeast(3))},
+	{ID: 1602, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qSpeciesIn("k_salmon"), qGradeAtLeast(3))},
+	{ID: 1603, Event: qevFishLanded, Counted: qCountSingle(qArtificialLure(), qSpeciesIn("taimen"), qGradeAtLeast(3))},
 
 	// ---- 分支 2 汲钩钓(jigging)（阶段 1-7）----
 	// 阶段 1
@@ -225,30 +226,30 @@ var qualificationRules = []qualificationRuleDef{
 	// 阶段 2
 	{ID: 2101, Event: qevFishLanded, Counted: qCountSpecies(qJigRig())},
 	{ID: 2102, Event: qevFishLanded, Counted: qCountSingle(qJigRig(), qWeightAtLeast(5000))},
-	{ID: 2103, Event: qevFishLanded, Counted: qCountSingle(qRigIn(10), qSpeciesIn("perch"), qRarityAtLeast(1))},
+	{ID: 2103, Event: qevFishLanded, Counted: qCountSingle(qRigIn(10), qSpeciesIn("perch"), qGradeAtLeast(3))},
 	// 阶段 3
 	{ID: 2201, Event: qevFishLanded, Counted: qCountSpecies(qJigRig())},
 	{ID: 2202, Event: qevFishLanded, Counted: qCountSingle(qJigRig(), qSpeciesIn("n.pike"), qWeightAtLeast(7000))},
-	{ID: 2203, Event: qevFishLanded, Counted: qCountSingle(qJigRig(), qSpeciesIn("barsch"), qRarityAtLeast(1))},
+	{ID: 2203, Event: qevFishLanded, Counted: qCountSingle(qJigRig(), qSpeciesIn("barsch"), qGradeAtLeast(3))},
 	// 阶段 4
 	{ID: 2301, Event: qevFishLanded, Counted: qCountSingle(qJigRig(), qLocLevelIn("level_004_torfyanoe_ozero"), qSpeciesIn("w_catfish"), qWeightAtLeast(10000))},
-	{ID: 2302, Event: qevFishLanded, Counted: qCountSingle(qJigRig(), qSpeciesIn("burbot"), qRarityAtLeast(1))},
-	{ID: 2303, Event: qevFishLanded, Counted: qCountSingle(qRigIn(8), qSpeciesIn("e.pikeperch"), qRarityAtLeast(1))},
+	{ID: 2302, Event: qevFishLanded, Counted: qCountSingle(qJigRig(), qSpeciesIn("burbot"), qGradeAtLeast(3))},
+	{ID: 2303, Event: qevFishLanded, Counted: qCountSingle(qRigIn(8), qSpeciesIn("e.pikeperch"), qGradeAtLeast(3))},
 	// 阶段 5
 	{ID: 2401, Event: qevFishLanded, Counted: qCountSpecies(qJigRig())},
-	{ID: 2402, Event: qevFishLanded, Counted: qCountSingle(qRigIn(9, 7), qSpeciesIn("salvel_l"), qRarityAtLeast(1))},
-	{ID: 2403, Event: qevFishLanded, Counted: qCountSingle(qRigIn(11), qSpeciesIn("palia_kr"), qRarityAtLeast(1))},
+	{ID: 2402, Event: qevFishLanded, Counted: qCountSingle(qRigIn(9, 7), qSpeciesIn("salvel_l"), qGradeAtLeast(3))},
+	{ID: 2403, Event: qevFishLanded, Counted: qCountSingle(qRigIn(11), qSpeciesIn("palia_kr"), qGradeAtLeast(3))},
 	// 阶段 6
 	{ID: 2501, Event: qevFishLanded, Counted: qCountSpecies(qRigIn(11), qWeightAtLeast(5000))},
-	{ID: 2502, Event: qevFishLanded, Counted: qCountSingle(qJigRig(), qSpeciesIn("a_catfish"), qRarityAtLeast(1))},
-	{ID: 2503, Event: qevFishLanded, Counted: qCountSingle(qJigRig(), qSpeciesIn("w_catfish"), qRarityAtLeast(1))},
+	{ID: 2502, Event: qevFishLanded, Counted: qCountSingle(qJigRig(), qSpeciesIn("a_catfish"), qGradeAtLeast(3))},
+	{ID: 2503, Event: qevFishLanded, Counted: qCountSingle(qJigRig(), qSpeciesIn("w_catfish"), qGradeAtLeast(3))},
 	// 阶段 7（2601「除了维基钩组」→ 汲钩族排除 rig_Wacky(11)）
-	{ID: 2601, Event: qevFishLanded, Counted: qCountSpecies(qRigIn(6, 7, 8, 9, 10, 35), qRarityAtLeast(1))},
-	{ID: 2602, Event: qevFishLanded, Counted: qCountSingle(qJigRig(), qSpeciesIn("eel"), qRarityAtLeast(1))},
+	{ID: 2601, Event: qevFishLanded, Counted: qCountSpecies(qRigIn(6, 7, 8, 9, 10, 35), qGradeAtLeast(3))},
+	{ID: 2602, Event: qevFishLanded, Counted: qCountSingle(qJigRig(), qSpeciesIn("eel"), qGradeAtLeast(3))},
 	{ID: 2603, Event: qevFishLanded, Counted: qCountSingle(qRigIn(11), qSpeciesIn(
 		"l_sturgeon", "osetr_balt", "osetr_ship", "p_sturgeon", "r_sturgeon",
 		"st_sturgeon", "sterlet", "syb_sterlet", "zs_sturgeon",
-	), qRarityAtLeast(1))},
+	), qGradeAtLeast(3))},
 
 	// ---- 分支 3 轻型、超轻渔具（阶段 1-7）----
 	// 轻型=UL/ULL/L，超轻=UL/ULL（竿 item_id 尾缀）；纺车竿=竿型 1。
@@ -256,31 +257,31 @@ var qualificationRules = []qualificationRuleDef{
 	// 阶段 1
 	{ID: 3001, Event: qevFishLanded, Counted: qCountSpecies(qLight())},
 	{ID: 3002, Event: qevFishLanded, Counted: qCountSingle(qLight(), qWeightAtLeast(1500))},
-	{ID: 3003, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qLureFamilyIn("spinner"), qRarityAtLeast(1))},
+	{ID: 3003, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qLureFamilyIn("spinner"), qGradeAtLeast(3))},
 	// 阶段 2
 	{ID: 3101, Event: qevFishLanded, Counted: qCountSingle(qLight(), qWeightAtLeast(3000))},
 	{ID: 3102, Event: qevFishLanded, Counted: qCountSingle(qLight(), qLureLenAtMost(4), qSpeciesIn("c.roach", "ruffe", "s.bream", "wa_bream"))},
-	{ID: 3103, Event: qevFishLanded, Counted: qCountSingle(qLight(), qJigRig(), qSpeciesIn("a.sleeper"), qRarityAtLeast(1))},
+	{ID: 3103, Event: qevFishLanded, Counted: qCountSingle(qLight(), qJigRig(), qSpeciesIn("a.sleeper"), qGradeAtLeast(3))},
 	// 阶段 3
 	{ID: 3201, Event: qevFishLanded, Counted: qCountSingle(qLight(), qWeightAtLeast(5000))},
-	{ID: 3202, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("cha_herring"), qRarityAtLeast(1))},
-	{ID: 3203, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("pumps_sunfish"), qRarityAtLeast(1))},
+	{ID: 3202, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("cha_herring"), qGradeAtLeast(3))},
+	{ID: 3203, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("pumps_sunfish"), qGradeAtLeast(3))},
 	// 阶段 4
-	{ID: 3301, Event: qevFishLanded, Counted: qCountSingle(qFromShore(), qUltralight(), qLureFamilyIn("wobbler"), qLureLenAtMost(4), qRarityAtLeast(1))},
-	{ID: 3302, Event: qevFishLanded, Counted: qCountSingle(qLightSpinning(), qWeightAtLeast(10000), qRarityAtLeast(1))},
-	{ID: 3303, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("a_grayling"), qRarityAtLeast(1))},
+	{ID: 3301, Event: qevFishLanded, Counted: qCountSingle(qFromShore(), qUltralight(), qLureFamilyIn("wobbler"), qLureLenAtMost(4), qGradeAtLeast(3))},
+	{ID: 3302, Event: qevFishLanded, Counted: qCountSingle(qLightSpinning(), qWeightAtLeast(10000), qGradeAtLeast(3))},
+	{ID: 3303, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("a_grayling"), qGradeAtLeast(3))},
 	// 阶段 5
-	{ID: 3401, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qWeightAtLeast(2500), qRarityAtLeast(1))},
-	{ID: 3402, Event: qevFishLanded, Counted: qCountSingle(qFromShore(), qUltralight(), qLureFamilyIn("topwater"), qLureLenAtMost(4), qRarityAtLeast(1))},
-	{ID: 3403, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("b_herring"), qRarityAtLeast(1))},
+	{ID: 3401, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qWeightAtLeast(2500), qGradeAtLeast(3))},
+	{ID: 3402, Event: qevFishLanded, Counted: qCountSingle(qFromShore(), qUltralight(), qLureFamilyIn("topwater"), qLureLenAtMost(4), qGradeAtLeast(3))},
+	{ID: 3403, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("b_herring"), qGradeAtLeast(3))},
 	// 阶段 6
-	{ID: 3501, Event: qevFishLanded, Counted: qCountSpecies(qLightSpinning(), qRarityAtLeast(1))},
-	{ID: 3502, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("zs_grayling", "os_grayling"), qRarityAtLeast(1))},
-	{ID: 3503, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("a_omul"), qRarityAtLeast(1))},
+	{ID: 3501, Event: qevFishLanded, Counted: qCountSpecies(qLightSpinning(), qGradeAtLeast(3))},
+	{ID: 3502, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("zs_grayling", "os_grayling"), qGradeAtLeast(3))},
+	{ID: 3503, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("a_omul"), qGradeAtLeast(3))},
 	// 阶段 7
 	{ID: 3601, Event: qevFishLanded, Counted: qCountSpecies(qULSpinning())},
-	{ID: 3602, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("nelma", "wfish"), qRarityAtLeast(1))},
-	{ID: 3603, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("riv_brown_trout"), qRarityAtLeast(1))},
+	{ID: 3602, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("nelma", "wfish"), qGradeAtLeast(3))},
+	{ID: 3603, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("riv_brown_trout"), qGradeAtLeast(3))},
 
 	// ---- 分支 4 手竿(伸缩竿)捕钓（阶段 1-7）----
 	// 文案本身未限定手竿（4303/4502 反而要求超轻钓具），因此按文案条件判定，
@@ -292,31 +293,31 @@ var qualificationRules = []qualificationRuleDef{
 	// 阶段 2
 	{ID: 4101, Event: qevFishLanded, Counted: qCountSpecies()},
 	{ID: 4102, Event: qevFishLanded, Counted: qCountSingle(qWeightAtLeast(3000))},
-	{ID: 4103, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("c.carp", "crucian"), qRarityAtLeast(1))},
+	{ID: 4103, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("c.carp", "crucian"), qGradeAtLeast(3))},
 	// 阶段 3
 	{ID: 4201, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("a_grayling", "riv_brown_trout"), qWeightAtLeast(1000))},
 	{ID: 4202, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("bream"), qWeightAtLeast(2000))},
-	{ID: 4203, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("c.roach", "s.bream"), qRarityAtLeast(1))},
+	{ID: 4203, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("c.roach", "s.bream"), qGradeAtLeast(3))},
 	// 阶段 4
 	{ID: 4301, Event: qevFishLanded, Counted: qCountSpecies()},
 	{ID: 4302, Event: qevFishLanded, Counted: qCountSingle(qIsNight(), qWeightAtLeast(6000))},
-	{ID: 4303, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("dace"), qRarityAtLeast(1))},
+	{ID: 4303, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qSpeciesIn("dace"), qGradeAtLeast(3))},
 	// 阶段 5
-	{ID: 4401, Event: qevFishLanded, Counted: qCountSingle(qWeightAtMost(150), qRarityAtLeast(1))},
+	{ID: 4401, Event: qevFishLanded, Counted: qCountSingle(qWeightAtMost(150), qGradeAtLeast(3))},
 	{ID: 4402, Event: qevFishLanded, Counted: qCountSingle(qXPAtLeast(7000))},
-	{ID: 4403, Event: qevFishLanded, Counted: qCountSingle(qDrifting(), qSpeciesIn("sabrefish", "rudd"), qRarityAtLeast(1))},
+	{ID: 4403, Event: qevFishLanded, Counted: qCountSingle(qDrifting(), qSpeciesIn("sabrefish", "rudd"), qGradeAtLeast(3))},
 	// 阶段 6
 	{ID: 4501, Event: qevFishLanded, Counted: qCountSpecies(qBaitClassIn(2, 7))},
-	{ID: 4502, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qLineMaterialIn(1, 2), qWeightAtLeast(500), qRarityAtLeast(1))},
-	{ID: 4503, Event: qevFishLanded, Counted: qCountSingle(qWeightAtLeast(5000), qRarityAtLeast(1))},
+	{ID: 4502, Event: qevFishLanded, Counted: qCountSingle(qUltralight(), qLineMaterialIn(1, 2), qWeightAtLeast(500), qGradeAtLeast(3))},
+	{ID: 4503, Event: qevFishLanded, Counted: qCountSingle(qWeightAtLeast(5000), qGradeAtLeast(3))},
 	// 阶段 7
-	{ID: 4601, Event: qevFishLanded, Counted: qCountSpecies(qRarityAtLeast(1))},
+	{ID: 4601, Event: qevFishLanded, Counted: qCountSpecies(qGradeAtLeast(3))},
 	{ID: 4602, Event: qevFishLanded, Counted: qCountSpecies()},
 	{ID: 4603, Event: qevFishLanded, Counted: qCountSingle(qDepthAtLeast(400), qSpeciesIn(
 		"a_omul", "b_omul", "chir", "muksun", "peled", "ripus", "sig", "sig_black",
 		"sig_kuor", "sig_ludoga", "sig_o_l", "sig_ostr", "sig_p", "sig_valaam",
 		"sig_vouksa", "sv_sig", "syb_vendace", "tugun", "vendace", "wfish",
-	), qRarityAtLeast(1))},
+	), qGradeAtLeast(3))},
 
 	// ---- 分支 5 博洛尼亚和赛竿（阶段 1-7）----
 	// 博洛尼亚竿=竿型 4，竞赛竿=竿型 5；博洛尼亚钓组=rig 2，竞赛钓组=rig 21。
@@ -329,25 +330,25 @@ var qualificationRules = []qualificationRuleDef{
 	// 阶段 2
 	{ID: 5101, Event: qevFishLanded, Counted: qCountSingle(qBaitPrefix("worm"), qDrifting(), qWeightAtLeast(3000))},
 	{ID: 5102, Event: qevFishLanded, Counted: qCountSpecies(qRigIn(2), qBaitPrefix("fly"), qDrifting())},
-	{ID: 5103, Event: qevFishLanded, Counted: qCountSingle(qDrifting(), qSpeciesIn("c_bleak"), qRarityAtLeast(1))},
+	{ID: 5103, Event: qevFishLanded, Counted: qCountSingle(qDrifting(), qSpeciesIn("c_bleak"), qGradeAtLeast(3))},
 	// 阶段 3
 	{ID: 5201, Event: qevFishLanded, Counted: qCountSingle(qDrifting(), qSpeciesIn("wa_bream"), qWeightAtLeast(500))},
 	{ID: 5202, Event: qevFishLanded, Counted: qCountSingle(qBaitClassIn(2, 7), qWeightAtLeast(3000))},
-	{ID: 5203, Event: qevFishLanded, Counted: qCountSpecies(qRarityAtLeast(1))},
+	{ID: 5203, Event: qevFishLanded, Counted: qCountSpecies(qGradeAtLeast(3))},
 	// 阶段 4
 	{ID: 5301, Event: qevFishLanded, Counted: qCountSpecies(qDrifting())},
 	{ID: 5302, Event: qevFishLanded, Counted: qCountSingle(qWeightAtLeast(10000))},
-	{ID: 5303, Event: qevFishLanded, Counted: qCountSingle(qDrifting(), qSpeciesIn("bream"), qRarityAtLeast(1))},
+	{ID: 5303, Event: qevFishLanded, Counted: qCountSingle(qDrifting(), qSpeciesIn("bream"), qGradeAtLeast(3))},
 	// 阶段 5
-	{ID: 5401, Event: qevFishLanded, Counted: qCountSingle(qIsNight(), qDrifting(), qRarityAtLeast(1))},
+	{ID: 5401, Event: qevFishLanded, Counted: qCountSingle(qIsNight(), qDrifting(), qGradeAtLeast(3))},
 	{ID: 5402, Event: qevFishLanded, Counted: qCountSingle(qCastDistanceAtLeast(30), qXPAtLeast(10000))},
-	{ID: 5403, Event: qevFishLanded, Counted: qCountSpecies(qRarityAtLeast(1))},
+	{ID: 5403, Event: qevFishLanded, Counted: qCountSpecies(qGradeAtLeast(3))},
 	// 阶段 6
-	{ID: 5501, Event: qevFishLanded, Counted: qCountSingle(qRodIn(5), qRigIn(30, 31), qRarityAtLeast(1))},
+	{ID: 5501, Event: qevFishLanded, Counted: qCountSingle(qRodIn(5), qRigIn(30, 31), qGradeAtLeast(3))},
 	{ID: 5502, Event: qevFishLanded, Counted: qCountSingle(qRigIn(21), qSpeciesIn("b_carp"), qWeightAtLeast(20000))},
-	{ID: 5503, Event: qevFishLanded, Counted: qCountSpecies(qRodIn(5), qRarityAtLeast(1))},
+	{ID: 5503, Event: qevFishLanded, Counted: qCountSpecies(qRodIn(5), qGradeAtLeast(3))},
 	// 阶段 7
-	{ID: 5601, Event: qevFishLanded, Counted: qCountSpecies(qRodIn(4, 5), qRarityAtLeast(1))},
+	{ID: 5601, Event: qevFishLanded, Counted: qCountSpecies(qRodIn(4, 5), qGradeAtLeast(3))},
 	{ID: 5602, Event: qevFishLanded, Counted: qCountSpecies(qRodIn(4, 5))},
 	{ID: 5603, Event: qevFishLanded, Counted: qCountSingle(qRigIn(21), qSpeciesIn("carp"), qWeightAtLeast(32000))},
 
@@ -361,27 +362,27 @@ var qualificationRules = []qualificationRuleDef{
 	// 阶段 2
 	{ID: 6101, Event: qevFishLanded, Counted: qCountSingle(qRodIn(10), qWeightAtLeast(3000))},
 	{ID: 6102, Event: qevFishLanded, Counted: qCountSpecies(qRodIn(9, 10))},
-	{ID: 6103, Event: qevFishLanded, Counted: qCountSingle(qRodIn(10), qRarityAtLeast(1))},
+	{ID: 6103, Event: qevFishLanded, Counted: qCountSingle(qRodIn(10), qGradeAtLeast(3))},
 	// 阶段 3
 	{ID: 6201, Event: qevFishLanded, Counted: qCountSpecies(qRodIn(9, 10), qBaitClassIn(13))},
 	{ID: 6202, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9), qBaitPrefix("bloodworm"), qWeightAtLeast(2000))},
-	{ID: 6203, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9, 10), qSpeciesIn("wa_bream"), qRarityAtLeast(1))},
+	{ID: 6203, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9, 10), qSpeciesIn("wa_bream"), qGradeAtLeast(3))},
 	// 阶段 4
 	{ID: 6301, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9, 10), qSpeciesIn("eel"), qWeightAtLeast(2000))},
-	{ID: 6302, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9, 10), qSpeciesIn("ruffe"), qRarityAtLeast(1))},
-	{ID: 6303, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9), qSpeciesIn("ruffe_n"), qRarityAtLeast(1))},
+	{ID: 6302, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9, 10), qSpeciesIn("ruffe"), qGradeAtLeast(3))},
+	{ID: 6303, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9), qSpeciesIn("ruffe_n"), qGradeAtLeast(3))},
 	// 阶段 5
 	{ID: 6401, Event: qevFishLanded, Counted: qCountSpecies(qRodIn(9, 10))},
 	{ID: 6402, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9), qXPAtLeast(15000))},
-	{ID: 6403, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9, 10), qSpeciesIn("b_bream"), qRarityAtLeast(1))},
+	{ID: 6403, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9, 10), qSpeciesIn("b_bream"), qGradeAtLeast(3))},
 	// 阶段 6
 	{ID: 6501, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9), qWeightAtLeast(30000))},
-	{ID: 6502, Event: qevFishLanded, Counted: qCountRig(qRigIn(12, 13, 14, 15, 16), qRarityAtLeast(1))},
-	{ID: 6503, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9, 10), qSpeciesIn("sterlet"), qRarityAtLeast(1))},
+	{ID: 6502, Event: qevFishLanded, Counted: qCountRig(qRigIn(12, 13, 14, 15, 16), qGradeAtLeast(3))},
+	{ID: 6503, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9, 10), qSpeciesIn("sterlet"), qGradeAtLeast(3))},
 	// 阶段 7
-	{ID: 6601, Event: qevFishLanded, Counted: qCountSpecies(qRodIn(9, 10), qRarityAtLeast(1))},
+	{ID: 6601, Event: qevFishLanded, Counted: qCountSpecies(qRodIn(9, 10), qGradeAtLeast(3))},
 	{ID: 6602, Event: qevFishLanded, Counted: qCountSpecies(qRodIn(9, 10))},
-	{ID: 6603, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9, 10), qSpeciesIn("kutum", "vyrezub"), qRarityAtLeast(1))},
+	{ID: 6603, Event: qevFishLanded, Counted: qCountSingle(qRodIn(9, 10), qSpeciesIn("kutum", "vyrezub"), qGradeAtLeast(3))},
 
 	// ---- 分支 7 鲤鱼捕钓（阶段 1-7）----
 	// 发丝钓组取底部发丝族 {24,25,26,27,28,29,32,34} 与浮钓发丝 {30,31}。
@@ -393,32 +394,33 @@ var qualificationRules = []qualificationRuleDef{
 	// 阶段 2
 	{ID: 7101, Event: qevFishLanded, Counted: qCountSpecies(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34))},
 	{ID: 7102, Event: qevFishLanded, Counted: qCountSingle(qBaitClassIn(9, 17), qBaitSizeAtLeast(25), qWeightAtLeast(20000))},
-	{ID: 7103, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qSpeciesIn("c_barbel"), qRarityAtLeast(1))},
+	{ID: 7103, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qSpeciesIn("c_barbel"), qGradeAtLeast(3))},
 	// 阶段 3
-	{ID: 7201, Event: qevFishLanded, Counted: qCountSingle(qBaitClassIn(9, 17), qBaitSizeAtMost(10), qRarityAtLeast(1))},
+	{ID: 7201, Event: qevFishLanded, Counted: qCountSingle(qBaitClassIn(9, 17), qBaitSizeAtMost(10), qGradeAtLeast(3))},
 	// 7202 人造玉米=zbs 前缀（待实机核对）。
 	{ID: 7202, Event: qevFishLanded, Counted: qCountSingle(qBaitPrefix("zbs"), qWeightAtLeast(20000))},
-	{ID: 7203, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qSpeciesIn("carp", "m_carp"), qRarityAtLeast(1))},
+	{ID: 7203, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qSpeciesIn("carp", "m_carp"), qGradeAtLeast(3))},
 	// 阶段 4
-	{ID: 7301, Event: qevFishLanded, Counted: qCountSingle(qRigIn(29), qRarityAtLeast(1))},
+	{ID: 7301, Event: qevFishLanded, Counted: qCountSingle(qRigIn(29), qGradeAtLeast(3))},
 	{ID: 7302, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qXPAtLeast(40000))},
-	{ID: 7303, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qSpeciesIn("g_carp", "b_carp"), qRarityAtLeast(1))},
+	{ID: 7303, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qSpeciesIn("g_carp", "b_carp"), qGradeAtLeast(3))},
 	// 阶段 5
 	{ID: 7401, Event: qevFishLanded, Counted: qCountSpecies(qSpeciesIn(ghostCarpKeys...))},
 	{ID: 7402, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qSpeciesIn(albinoCarpKeys...), qWeightAtLeast(15000))},
-	{ID: 7403, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qSpeciesIn("s_carp"), qRarityAtLeast(1))},
+	{ID: 7403, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qSpeciesIn("s_carp"), qGradeAtLeast(3))},
 	// 阶段 6
-	{ID: 7501, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn(ghostCarpKeys...), qRarityAtLeast(1))},
-	{ID: 7502, Event: qevFishLanded, Counted: qCountRig(qRigIn(24, 25, 26, 27, 28, 29, 32, 34), qRarityAtLeast(1))},
-	{ID: 7503, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qSpeciesIn("common_carp"), qRarityAtLeast(1))},
+	{ID: 7501, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn(ghostCarpKeys...), qGradeAtLeast(3))},
+	{ID: 7502, Event: qevFishLanded, Counted: qCountRig(qRigIn(24, 25, 26, 27, 28, 29, 32, 34), qGradeAtLeast(3))},
+	{ID: 7503, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qSpeciesIn("common_carp"), qGradeAtLeast(3))},
 	// 阶段 7
-	{ID: 7601, Event: qevFishLanded, Counted: qCountSpecies(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qRarityAtLeast(1))},
-	{ID: 7602, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qSpeciesIn("common_carp"), qRarityAtLeast(2))},
+	{ID: 7601, Event: qevFishLanded, Counted: qCountSpecies(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qGradeAtLeast(3))},
+	{ID: 7602, Event: qevFishLanded, Counted: qCountSingle(qRigIn(24, 25, 26, 27, 28, 29, 30, 31, 32, 34), qSpeciesIn("common_carp"), qGradeAtLeast(4))},
 	{ID: 7603, Event: qevFishLanded, Counted: qCountSpecies(qSpeciesIn("n_carp", "r_carp", "l_carp", "m_carp_red", "carp_red"))},
 
 	// ---- 分支 8 海洋钓鱼（阶段 1-7）----
 	// 柳叶亮片=rig 50，海洋汲钩=51，海洋底部=55，带响珠=56，链斗式=57，
-	// 天平=58，底部死鱼=59。「罕见或极其罕见」按稀有度 >=2。
+	// 天平=58，底部死鱼=59。文案「稀有鱼」= 奖杯个体（档位 >=3）；
+	// 8603「罕见或极其罕见的鱼种」明确指鱼种，按物种稀有度 >=1。
 	// 海钓深度取 17/12 设置的钓深（咬钩快照），未设置时深度任务不计数。
 	// 阶段 1
 	{ID: 8001, Event: qevFishLanded, Counted: qCountSpecies()},
@@ -427,27 +429,27 @@ var qualificationRules = []qualificationRuleDef{
 	// 阶段 2
 	{ID: 8101, Event: qevFishLanded, Counted: qCountSingle(qRigIn(50), qWeightAtLeast(15000))},
 	{ID: 8102, Event: qevFishLanded, Counted: qCountSpecies(qRigIn(50))},
-	{ID: 8103, Event: qevFishLanded, Counted: qCountSingle(qRarityAtLeast(1))},
+	{ID: 8103, Event: qevFishLanded, Counted: qCountSingle(qGradeAtLeast(3))},
 	// 阶段 3
 	{ID: 8201, Event: qevFishLanded, Counted: qCountSingle(qWeightAtLeast(35000))},
 	{ID: 8202, Event: qevFishLanded, Counted: qCountSpecies(qRigIn(51))},
-	{ID: 8203, Event: qevFishLanded, Counted: qCountSingle(qWeightAtMost(5000), qRarityAtLeast(1))},
+	{ID: 8203, Event: qevFishLanded, Counted: qCountSingle(qWeightAtMost(5000), qGradeAtLeast(3))},
 	// 阶段 4
 	{ID: 8301, Event: qevFishLanded, Counted: qCountSingle(qWeightAtLeast(50000))},
-	{ID: 8302, Event: qevFishLanded, Counted: qCountSingle(qRigIn(58), qRarityAtLeast(1))},
+	{ID: 8302, Event: qevFishLanded, Counted: qCountSingle(qRigIn(58), qGradeAtLeast(3))},
 	{ID: 8303, Event: qevFishLanded, Counted: qCountSpecies(qRigIn(55, 56))},
 	// 阶段 5
 	{ID: 8401, Event: qevFishLanded, Counted: qCountSpecies(qDepthAtLeast(12000))},
-	{ID: 8402, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("m_zubatka", "d_zubatka"), qRarityAtLeast(1))},
-	{ID: 8403, Event: qevFishLanded, Counted: qCountSingle(qRigIn(57), qSpeciesIn("red_fish"), qRarityAtLeast(1))},
+	{ID: 8402, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("m_zubatka", "d_zubatka"), qGradeAtLeast(3))},
+	{ID: 8403, Event: qevFishLanded, Counted: qCountSingle(qRigIn(57), qSpeciesIn("red_fish"), qGradeAtLeast(3))},
 	// 阶段 6
-	{ID: 8501, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("atl_cod"), qRarityAtLeast(1))},
-	{ID: 8502, Event: qevFishLanded, Counted: qCountSpecies(qRigIn(59), qRarityAtLeast(1))},
-	{ID: 8503, Event: qevFishLanded, Counted: qCountSingle(qDepthAtLeast(12000), qRarityAtLeast(1))},
+	{ID: 8501, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("atl_cod"), qGradeAtLeast(3))},
+	{ID: 8502, Event: qevFishLanded, Counted: qCountSpecies(qRigIn(59), qGradeAtLeast(3))},
+	{ID: 8503, Event: qevFishLanded, Counted: qCountSingle(qDepthAtLeast(12000), qGradeAtLeast(3))},
 	// 阶段 7
-	{ID: 8601, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("halibut_w"), qRarityAtLeast(1))},
-	{ID: 8602, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("m_molva", "molva"), qRarityAtLeast(1))},
-	{ID: 8603, Event: qevFishLanded, Counted: qCountSingle(qRarityAtLeast(2))},
+	{ID: 8601, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("halibut_w"), qGradeAtLeast(3))},
+	{ID: 8602, Event: qevFishLanded, Counted: qCountSingle(qSpeciesIn("m_molva", "molva"), qGradeAtLeast(3))},
+	{ID: 8603, Event: qevFishLanded, Counted: qCountSingle(qRarityAtLeast(1))},
 }
 
 // ---- 未实装：限时活动分支 9..20（273 条，留给后续实现）----

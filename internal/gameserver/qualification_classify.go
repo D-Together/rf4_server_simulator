@@ -42,9 +42,19 @@ func qWeightAtMost(g int64) qFilter {
 }
 
 // qRarityAtLeast 物种稀有度（loc_wiki_fish/species_rarity：0 普通 1 稀有 2 超稀有）。
-// 文案「稀有鱼」按物种稀有度 >=1 判，「超级稀有/罕见」按 >=2 判。
+// 仅用于文案明确说「鱼种」的任务（8603「罕见或极其罕见的鱼种」按 >=1）。
+// 注意：文案里的「稀有鱼/trophy」是个体档位而非物种稀有度，见 qGradeAtLeast。
 func qRarityAtLeast(n int64) qFilter {
 	return func(ev qualificationEvent) bool { return ev.Rarity >= n }
+}
+
+// qGradeAtLeast 个体鱼档位（1 未达标 2 合格 3 奖杯 4 蓝冠）。
+// 文案「trophy/稀有鱼（星）」按档位 >=3；「rare trophy/超稀有」按 >=4。
+// 依据：官服 3/2 统计页稀有计数=grade>=3（statsbuild.go 抓包实证）；
+// 英文任务文案为 "Catch a trophy Perch" 等——常见鱼种也有奖杯个体，
+// 若按物种稀有度判，perch/atl_cod/halibut_w 等任务永远无法完成。
+func qGradeAtLeast(n int64) qFilter {
+	return func(ev qualificationEvent) bool { return ev.Grade >= n }
 }
 
 func qSpeciesIn(keys ...string) qFilter {
