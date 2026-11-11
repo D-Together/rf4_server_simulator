@@ -683,9 +683,10 @@ func TestCraftFlow(t *testing.T) {
 		t.Fatalf("501.f3 数量应 3，实得 %d", u64Of(v.Fields[3].Num))
 	}
 
-	// 9/6 模板：GUID 必须确定；输入为 17 对象和 loaf_01×4。
+	// 9/6 保存模板：请求体就是一整个 171（实抓 2026-11-11 14:29:20），
+	// 服务端补稳定 GUID 后原样回包，f3/f4 元素必须是 hbokamnohjb(170)、容器 96。
 	box.main, box.sub = 9, 6
-	box.tree = proto.Args524(proto.StrVal("craft_bait_bread"))
+	box.tree = proto.Args524(craftTemplateRequest("bread", "craft_bait_bread", nil))
 	body, ok = box.invoke(t)
 	if !ok {
 		t.Fatal("9/6 未处理")
@@ -694,33 +695,14 @@ func TestCraftFlow(t *testing.T) {
 	if !v.IsKind(proto.KindObj) || v.TypeID != 171 {
 		t.Fatalf("9/6 响应应为 171，实得 %v/%d", v.Kind, v.TypeID)
 	}
-	// 9/6 的 f0 由配方名按 UUIDv5 生成。
-	if g := v.Fields[0].GuidHex(); g != "506cdc49a763535fa8106a703773990c" {
-		t.Fatalf("9/6 guid 不符: %s", g)
+	if s := v.Fields[2].StrOr(); s != "craft_bait_bread" {
+		t.Fatalf("9/6.f2 应回配方键 craft_bait_bread，实得 %q", s)
 	}
-	if s := v.Fields[1].StrOr(); s != "craft_bait_bread" {
-		t.Fatalf("9/6 名称不符: %q", s)
+	if f3 := v.Fields[3].Val; f3 == nil || f3.Kind != proto.KindArgs || f3.ArgCodeStr() != "96" {
+		t.Fatalf("9/6.f3 应 args(96)，实得 %+v", f3)
 	}
-	f3 := v.Fields[3].Val
-	// 需求对象 tid=17 无 by_elem，走 by_type_id 兜底 18——与主网既有行为
-	// 一致，不做全局策略变更（见 listCodeForObjs 注释）。
-	if f3 == nil || f3.Kind != proto.KindArgs || f3.ArgCodeStr() != "18" || len(f3.Items) != 1 {
-		t.Fatalf("9/6.f3 应 args(18)[1]，实得 %+v", f3)
-	}
-	demand := f3.Items[0]
-	if s := demand.Fields[0].StrOr(); s != "craft_bait_bread_req" {
-		t.Fatalf("需求 key 不符: %q", s)
-	}
-	acc := demand.Fields[4].Val
-	if acc == nil || acc.Kind != proto.KindArray || len(acc.Items) != 1 ||
-		acc.Items[0].Hex != hexOfStr("loaf_01") {
-		t.Fatalf("需求 f4 应 array[loaf_01]，实得 %+v", acc)
-	}
-	if u64Of(demand.Fields[5].Num) != 4 {
-		t.Fatalf("需求数量应 4，实得 %d", u64Of(demand.Fields[5].Num))
-	}
-	if f4 := v.Fields[4].Val; f4 == nil || f4.Kind != proto.KindArgs || f4.ArgCodeStr() != "61" || len(f4.Items) != 0 {
-		t.Fatalf("9/6.f4 应 args(61)[]，实得 %+v", f4)
+	if f4 := v.Fields[4].Val; f4 == nil || f4.Kind != proto.KindArgs || f4.ArgCodeStr() != "96" {
+		t.Fatalf("9/6.f4 应 args(96)，实得 %+v", f4)
 	}
 
 	// 客户端材料槽路径：craft_feed_universal 只约束类别 18/20 与标签。
@@ -935,6 +917,348 @@ func TestCraftSkillCatForRecipe(t *testing.T) {
 			t.Fatalf("craftSkillCatForRecipe(%s)=%d, want %d", c.recipe, got, c.want)
 		}
 	}
+}
+
+// TestCraftTemplatePersistence 锁住模板的保存/列出/删除闭环：
+// 9/6 保存后 9/5 能读出来、重登后仍在、9/7 删掉后列表变空。
+// 历史缺陷：9/5 恒返回空 args(97)，保存只活在客户端内存里。
+func TestCraftTemplatePersistence(t *testing.T) {
+	t.Parallel()
+	db := openRecipeTestDB(t)
+	srv := newSkillsCraftServer(t, db)
+	ctx := context.Background()
+	uid := int64(2000101)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	sess := &Session{ID: 1, Userid: uid, Srv: srv, log: logging.Discard()}
+	box := &handlerBox{srv: srv, sess: sess}
+
+	// 用真实请求形状保存：171{f0 全零, f1 名称, f2 配方键, f3 工具, f4 材料}。
+	box.main, box.sub = 9, 6
+	box.tree = proto.Args524(craftTemplateRequest("奶油1", "craft_feed_dry", []craftTemplateSlot{
+		{Desc: "craft_feed_generic_mix_1", Idx: 0, ItemID: "mix_cornflour"},
+		{Desc: "craft_feed_generic_add_1", Idx: 1, ItemID: "fplt_op_ccp5"},
+	}))
+	body, ok := box.invoke(t)
+	if !ok {
+		t.Fatal("9/6 未处理")
+	}
+	saved := decodeTreeValue(t, srv, body)
+	if !saved.IsKind(proto.KindObj) || saved.TypeID != 171 {
+		t.Fatalf("9/6 应回 171，实得 %v/%d", saved.Kind, saved.TypeID)
+	}
+	guid := saved.Fields[0].GuidHex()
+	if len(guid) != 32 || guid == zeroGUIDHex {
+		t.Fatalf("9/6 应补出稳定 GUID，实得 %q", guid)
+	}
+
+	// 9/5 必须列出这条模板，容器 code 是 97。
+	listTemplates := func() []*proto.Value {
+		t.Helper()
+		box.main, box.sub = 9, 5
+		box.tree = nil
+		b, ok := box.invoke(t)
+		if !ok {
+			t.Fatal("9/5 未处理")
+		}
+		v := decodeTreeValue(t, srv, b)
+		if v.Kind != proto.KindArgs || v.ArgCodeStr() != "97" {
+			t.Fatalf("9/5 应为 args(97)，实得 %+v", v)
+		}
+		return v.Items
+	}
+	items := listTemplates()
+	if len(items) != 1 {
+		t.Fatalf("9/5 应列出 1 条模板，实得 %d", len(items))
+	}
+	if items[0].TypeID != 171 {
+		t.Fatalf("9/5 元素应为 171，实得 %d", items[0].TypeID)
+	}
+	if items[0].Fields[0].GuidHex() != guid || items[0].Fields[1].StrOr() != "奶油1" {
+		t.Fatalf("9/5 内容不符: guid=%s name=%q", items[0].Fields[0].GuidHex(), items[0].Fields[1].StrOr())
+	}
+	// 材料必须原样带回来（真实物品 id，不是需求类别）。
+	mats := items[0].Fields[4].Val
+	if mats == nil || mats.Kind != proto.KindArgs || len(mats.Items) != 2 {
+		t.Fatalf("9/5 材料应 2 条，实得 %+v", mats)
+	}
+	if got := mats.Items[0].Fields[2].StrOr(); got != "mix_cornflour" {
+		t.Fatalf("材料 itemID 应 mix_cornflour，实得 %q", got)
+	}
+
+	// 重登：新 Session、同 uid，模板仍在。
+	sess2 := &Session{ID: 2, Userid: uid, Srv: srv, log: logging.Discard()}
+	box.sess = sess2
+	if n := len(listTemplates()); n != 1 {
+		t.Fatalf("重登后应仍有 1 条模板，实得 %d", n)
+	}
+
+	// 同名再保存一次：覆盖，不新增。
+	box.main, box.sub = 9, 6
+	box.tree = proto.Args524(craftTemplateRequest("奶油1", "craft_feed_dry", []craftTemplateSlot{
+		{Desc: "craft_feed_generic_mix_1", Idx: 0, ItemID: "mix_groundpeas"},
+	}))
+	if _, ok := box.invoke(t); !ok {
+		t.Fatal("9/6 覆盖未处理")
+	}
+	items = listTemplates()
+	if len(items) != 1 {
+		t.Fatalf("同名保存应覆盖，仍应 1 条，实得 %d", len(items))
+	}
+	if got := items[0].Fields[4].Val.Items[0].Fields[2].StrOr(); got != "mix_groundpeas" {
+		t.Fatalf("同名保存应更新材料，实得 %q", got)
+	}
+
+	// 9/7 删除：列表变空。
+	box.main, box.sub = 9, 7
+	box.tree = proto.Args524(proto.Guid(guid))
+	if _, ok := box.invoke(t); !ok {
+		t.Fatal("9/7 未处理")
+	}
+	if n := len(listTemplates()); n != 0 {
+		t.Fatalf("9/7 后列表应为空，实得 %d", n)
+	}
+
+	// 别人的模板不会出现在我的列表里。
+	other := int64(2000102)
+	if _, err := db.EnsureProfile(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	box.sess = &Session{ID: 3, Userid: other, Srv: srv, log: logging.Discard()}
+	box.main, box.sub = 9, 6
+	box.tree = proto.Args524(craftTemplateRequest("别人的", "craft_feed_dry", nil))
+	if _, ok := box.invoke(t); !ok {
+		t.Fatal("9/6 未处理")
+	}
+	box.sess = sess
+	if n := len(listTemplates()); n != 0 {
+		t.Fatalf("跨玩家隔离失效：我的列表出现 %d 条", n)
+	}
+}
+
+// TestCraftTemplateMalformedRequest 锁住 9/6 对畸形请求的防御：
+// f3/f4 为 null、非 args、元素类不对时，既不能 panic（handler 层没有 recover，
+// panic 会打死整个进程），也不能先落库再崩（留下空模板脏数据）。
+// 审查意见 2026-11-11：原实现直接解引用 Fields[3].Val.Items。
+func TestCraftTemplateMalformedRequest(t *testing.T) {
+	t.Parallel()
+	db := openRecipeTestDB(t)
+	srv := newSkillsCraftServer(t, db)
+	ctx := context.Background()
+	uid := int64(2000202)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	sess := &Session{ID: 1, Userid: uid, Srv: srv, log: logging.Discard()}
+	box := &handlerBox{srv: srv, sess: sess, main: 9, sub: 6}
+
+	count := func() int {
+		t.Helper()
+		var n int
+		if err := db.SQL.QueryRow(`SELECT COUNT(*) FROM craft_template WHERE uid=?`, uid).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	cases := []struct {
+		name string
+		f3   *proto.Value
+		f4   *proto.Value
+	}{
+		{"f3/f4 为 null", proto.Null(), proto.Null()},
+		{"f3/f4 为字符串标量", proto.StrVal("x"), proto.StrVal("y")},
+		{"f3/f4 为 u32", proto.U32(1), proto.U32(2)},
+		{"f4 元素类不对", proto.Args(proto.S("96")), proto.Args(proto.S("96"),
+			proto.Obj("kdpbhdffjaf", 17,
+				proto.FStr("STR", proto.S("a")),
+				proto.FStr("STR", proto.S("b")),
+				proto.FStr("STR", proto.S("c"))))},
+	}
+	for _, c := range cases {
+		box.tree = proto.Args524(proto.Obj("dmolhiobcbb", 171,
+			proto.FGuid("00000000000000000000000000000000"),
+			proto.FStr("U16STR", proto.S("坏模板")),
+			proto.FStr("STR", proto.S("craft_feed_dry")),
+			proto.FVal("VAL", c.f3),
+			proto.FVal("VAL", c.f4)))
+		body, ok := box.invoke(t) // 不 panic 是这里的核心断言
+		if !ok {
+			t.Fatalf("%s: 应返回响应而不是未处理", c.name)
+		}
+		v := decodeTreeValue(t, srv, body)
+		if !v.IsKind(proto.KindNull) {
+			t.Fatalf("%s: 应回 null 拒绝，实得 %v/%d", c.name, v.Kind, v.TypeID)
+		}
+		if n := count(); n != 0 {
+			t.Fatalf("%s: 畸形请求不应落库，实得 %d 行", c.name, n)
+		}
+	}
+
+	// 正常请求仍要能落库，别把防御做成功能退化。
+	box.tree = proto.Args524(craftTemplateRequest("正常", "craft_feed_dry", []craftTemplateSlot{
+		{Desc: "craft_feed_generic_mix_1", Idx: 0, ItemID: "mix_cornflour"},
+	}))
+	if _, ok := box.invoke(t); !ok {
+		t.Fatal("9/6 正常请求未处理")
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("正常请求应落库 1 行，实得 %d", n)
+	}
+}
+
+// TestCraftTemplatesSkipMissingRecipe 锁住 spec User Story 6：
+// 配方从静态库移除后，9/5 跳过该条而不是下发给客户端。
+func TestCraftTemplatesSkipMissingRecipe(t *testing.T) {
+	t.Parallel()
+	db := openRecipeTestDB(t)
+	srv := newSkillsCraftServer(t, db)
+	ctx := context.Background()
+	uid := int64(2000203)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	sess := &Session{ID: 1, Userid: uid, Srv: srv, log: logging.Discard()}
+	box := &handlerBox{srv: srv, sess: sess}
+
+	// 一条好模板 + 一条指向不存在配方的模板。
+	box.main, box.sub = 9, 6
+	box.tree = proto.Args524(craftTemplateRequest("好的", "craft_feed_dry", nil))
+	if _, ok := box.invoke(t); !ok {
+		t.Fatal("9/6 未处理")
+	}
+	tx, err := db.SQL.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO craft_template
+		(uid,guid,recipe_id,name,kind,tools_json,materials_json,created_ts,updated_ts)
+		VALUES(?,?,?,?,?,?,?,?,?)`,
+		uid, "aa11bb22cc33dd44ee55ff6677889900", "recipe_that_no_longer_exists",
+		"失效配方模板", "misc", "[]", "[]", 1.0, 1.0); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	box.main, box.sub, box.tree = 9, 5, nil
+	body, ok := box.invoke(t)
+	if !ok {
+		t.Fatal("9/5 未处理")
+	}
+	v := decodeTreeValue(t, srv, body)
+	if v.Kind != proto.KindArgs || v.ArgCodeStr() != "97" {
+		t.Fatalf("9/5 应为 args(97)，实得 %+v", v)
+	}
+	if len(v.Items) != 1 {
+		t.Fatalf("应只下发 1 条有效模板（跳过失效配方），实得 %d", len(v.Items))
+	}
+	if name := v.Items[0].Fields[1].StrOr(); name != "好的" {
+		t.Fatalf("下发的应是有效模板，实得 %q", name)
+	}
+}
+
+// TestCraftDeleteTemplateShapeContract 锁住 9/7 的形状契约：
+// 只认实抓形状 args(524)[0] 直接是 GUID（2026-11-11 15:52:57，len=24）。
+// 其他形状一律失败关闭，不执行删除——避免"整树找第一个 GUID"在请求里
+// 混入容器/玩家 GUID 时删错模板。
+func TestCraftDeleteTemplateShapeContract(t *testing.T) {
+	t.Parallel()
+	db := openRecipeTestDB(t)
+	srv := newSkillsCraftServer(t, db)
+	ctx := context.Background()
+	uid := int64(2000204)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	sess := &Session{ID: 1, Userid: uid, Srv: srv, log: logging.Discard()}
+	box := &handlerBox{srv: srv, sess: sess, main: 9, sub: 6}
+
+	box.tree = proto.Args524(craftTemplateRequest("待删", "craft_feed_dry", nil))
+	body, ok := box.invoke(t)
+	if !ok {
+		t.Fatal("9/6 未处理")
+	}
+	guid := decodeTreeValue(t, srv, body).Fields[0].GuidHex()
+
+	remain := func() int {
+		t.Helper()
+		var n int
+		if err := db.SQL.QueryRow(`SELECT COUNT(*) FROM craft_template WHERE uid=? AND guid=?`, uid, guid).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	badShapes := []struct {
+		name string
+		tree *proto.Value
+	}{
+		{"GUID 包在对象里", proto.Args524(proto.Obj("dmolhiobcbb", 171,
+			proto.FGuid(guid),
+			proto.FStr("U16STR", proto.S("x")),
+			proto.FStr("STR", proto.S("craft_feed_dry")),
+			proto.FVal("VAL", proto.Args(proto.S("96"))),
+			proto.FVal("VAL", proto.Args(proto.S("96")))))},
+		{"顶层是对象而非 args", proto.Obj("dmolhiobcbb", 171,
+			proto.FGuid(guid),
+			proto.FStr("U16STR", proto.S("x")),
+			proto.FStr("STR", proto.S("craft_feed_dry")),
+			proto.FVal("VAL", proto.Args(proto.S("96"))),
+			proto.FVal("VAL", proto.Args(proto.S("96"))))},
+		{"args 为空", proto.Args524()},
+		{"args[0] 不是 GUID", proto.Args524(proto.StrVal(guid))},
+		{"全零 GUID", proto.Args524(proto.Guid(zeroGUIDHex))},
+	}
+	box.main, box.sub = 9, 7
+	for _, c := range badShapes {
+		box.tree = c.tree
+		if _, ok := box.invoke(t); !ok {
+			t.Fatalf("%s: 9/7 未处理", c.name)
+		}
+		if n := remain(); n != 1 {
+			t.Fatalf("%s: 形状不合契约应失败关闭，模板不应被删，实得剩余 %d", c.name, n)
+		}
+	}
+
+	// 实抓形状必须真删。
+	box.tree = proto.Args524(proto.Guid(guid))
+	if _, ok := box.invoke(t); !ok {
+		t.Fatal("9/7 未处理")
+	}
+	if n := remain(); n != 0 {
+		t.Fatalf("实抓形状应删除成功，实得剩余 %d", n)
+	}
+}
+
+// craftTemplateSlot 是 170 条目的测试投影。
+type craftTemplateSlot struct {
+	Desc   string
+	Idx    uint32
+	ItemID string
+}
+
+// craftTemplateRequest 按实抓形状构造 9/6 请求体：一个 171 对象。
+func craftTemplateRequest(name, recipeKey string, mats []craftTemplateSlot) *proto.Value {
+	entries := func(slots []craftTemplateSlot) *proto.Value {
+		arg := proto.Args(proto.S("96"))
+		for _, s := range slots {
+			arg.Items = append(arg.Items, proto.Obj("hbokamnohjb", 170,
+				proto.FStr("STR", proto.S(s.Desc)),
+				proto.FNum("U32", uint64(s.Idx)),
+				proto.FStr("STR", proto.S(s.ItemID))))
+		}
+		return arg
+	}
+	return proto.Obj("dmolhiobcbb", 171,
+		proto.FGuid("00000000000000000000000000000000"),
+		proto.FStr("U16STR", proto.S(name)),
+		proto.FStr("STR", proto.S(recipeKey)),
+		proto.FVal("VAL", entries(nil)),
+		proto.FVal("VAL", entries(mats)))
 }
 
 // TestListCodeForObjsMatrix 对象列表容器 code 审计矩阵（覆盖 9/1 产出列表与
