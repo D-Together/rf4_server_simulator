@@ -54,7 +54,8 @@ c.roach 2.51 / g_carp 2.44 / crucian 2.29 / carp 2.10 / b_carp 2.09。
 ### 3. f6 量化表（fishF6Table + fishF6Step）
 
 实测 14 种基值 + 两个已钉死的体重台阶（perch ≥500g→0.80、crucian ≥450g→0.60）。
-未实测种回退 0.5628（`fish_initial_stamina_ratio` tunable 语义不变）。
+未实测种回退 0.5628（`fish_initial_stamina_ratio` tunable 语义不变，仅对未实测
+鱼种生效——管理端「游戏参数」已收录该条目并注明此边界，避免运维对实测种误调）。
 
 ## Non-Goals
 
