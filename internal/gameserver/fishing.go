@@ -1722,13 +1722,85 @@ func (s *Server) fishStaminaForProfile(f *RolledFish, profile fishFightProfile) 
 	}
 	stamina := f.Stamina
 	if stamina <= 0 {
-		stamina = verifiedStaminaPerGram * float64(f.WeightG)
+		// 实测种走官方每克均值（A 级样本，specs/changes/fish-official-data-tables/spec.md），
+		// 官方 f8/f5 都没有 archetype 形状，直接 rate×体重，不再乘 StaminaScale；
+		// 官方种内散布 ±13%~57%（g_carp 最大），均值表把个体误差压回散布带。
+		// 未实测种维持旧口径（2.388/g × archetype 耐力倍率）。
+		if rate, ok := fishStaminaRatePerGram[f.Species]; ok {
+			stamina = rate * float64(f.WeightG)
+		} else {
+			stamina = verifiedStaminaPerGram * float64(f.WeightG) * profile.StaminaScale
+		}
 	}
 	scale := s.tunableF("fish_stamina_scale", defaultFishStaminaScale)
 	if scale > 0 {
 		stamina *= scale
 	}
-	return stamina * profile.StaminaScale
+	return stamina
+}
+
+// fishStaminaRatePerGram 是官方 14/14 抓包实测鱼种的 f5 每克均值（2026-11-11，
+// 31 样本；见 specs/changes/fish-official-data-tables/spec.md）。海钓两科的
+// 官方值远高于旧版常数 2.388（merlang 10.5 / piksha 6.4）。
+var fishStaminaRatePerGram = map[string]float64{
+	"merlang":    10.50,
+	"piksha":     6.39,
+	"s.bream":    5.87,
+	"b_gill":     4.07,
+	"taran":      3.55,
+	"din_l_carp": 2.77,
+	"n.pike":     2.76,
+	"perch":      2.75,
+	"c.carp":     2.52,
+	"c.roach":    2.51,
+	"g_carp":     2.44,
+	"crucian":    2.29,
+	"carp":       2.10,
+	"b_carp":     2.09,
+}
+
+// fishF6Table 是官方实测鱼种的 f6 抗疲劳系数（0.05 步进量化值）。语义：
+// 疲劳速率 ∝ (1−f6)，f6=1 永不疲劳。官方种内还有随体重的 0.05 台阶
+// （fishF6Step），v1 只对已钉死的两种建模，其余取基值。
+var fishF6Table = map[string]float64{
+	"n.pike":     0.80,
+	"perch":      0.70,
+	"g_carp":     0.70,
+	"b_carp":     0.70,
+	"carp":       0.65,
+	"din_l_carp": 0.65,
+	"c.roach":    0.50,
+	"taran":      0.50,
+	"b_gill":     0.50,
+	"merlang":    0.50,
+	"piksha":     0.50,
+	"crucian":    0.55,
+	"c.carp":     0.40,
+	"s.bream":    0.30,
+}
+
+var fishF6Step = map[string]struct {
+	AboveG int64
+	F6     float64
+}{
+	// 官方样本：perch 93-342g→0.70 / 642-1070g→0.80；crucian 193-293g→0.55 /
+	// 611-743g→0.60。台阶边界取两档中点。
+	"perch":   {AboveG: 500, F6: 0.80},
+	"crucian": {AboveG: 450, F6: 0.60},
+}
+
+// fishF6For 返回本鱼 f6：实测种量化表（含体重台阶）→ 旧版校准常数 fallback。
+func (s *Server) fishF6For(f *RolledFish) float64 {
+	if f == nil {
+		return s.fishInitialStaminaRatio()
+	}
+	if v, ok := fishF6Table[f.Species]; ok {
+		if step, ok := fishF6Step[f.Species]; ok && f.WeightG >= step.AboveG {
+			return step.F6
+		}
+		return v
+	}
+	return s.fishInitialStaminaRatio()
 }
 
 func (s *Server) fishInitialStaminaRatio() float64 {
@@ -1776,7 +1848,7 @@ func (s *Server) buildFish27(f *RolledFish, hookGUID, gearGuid string, rigType i
 	}
 	profile := s.fishFightProfileFor(f)
 	stamina := s.fishStaminaForProfile(f, profile)
-	initialStamina := s.fishInitialStaminaRatio()
+	initialStamina := s.fishF6For(f)
 	pull := s.fishFightPullFor(f)
 
 	var named *string
@@ -1909,7 +1981,7 @@ func (s *Session) Push14_14(f *RolledFish, hookGUID, gearGuid string, rigType in
 		ratio := energyRatioForCap(s.Srv.currentPlayerCondition(s.pushCtx(), s.Userid).Primary, params.EnergyMax)
 		stamina = scaleFishStaminaForEnergy(stamina, ratio, penalty)
 	}
-	initialStamina := s.Srv.fishInitialStaminaRatio()
+	initialStamina := s.Srv.fishF6For(f)
 	force := s.Srv.fishFightPullFor(f)
 	s.log.Info("14/14 发鱼",
 		"rod", shortGUID(gearGuid), "fish", shortGUID(f.FishGUID), "hook", shortGUID(hookGUID),
