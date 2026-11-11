@@ -151,7 +151,7 @@ func (s *Server) buildStats321(ctx context.Context, uid int64) (*proto.Value, er
 	// 历史渔获无落库变值，用基准力确定性重算——纪录卡只比排序维度。
 	pullOf := func(r catchStatRow) float64 {
 		f := &RolledFish{Species: r.FishKey, WeightG: r.WeightG, Grade: r.Grade}
-		return s.fishFightPullFor(f, s.fishFightProfileFor(f))
+		return s.fishFightPullFor(f)
 	}
 	cards := buildRecordCards(rows, pullOf, familyOf)
 	card := func(key string) *proto.Value {
