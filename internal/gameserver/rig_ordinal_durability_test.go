@@ -34,7 +34,7 @@ func TestRigMultiSlotSameCategoryAndExactDetach(t *testing.T) {
 	ctx := context.Background()
 	const uid = int64(1000001)
 
-	rod, err := srv.CreateItem(ctx, uid, "feeder_10126_FD390", "backpack", 1)
+	rod, err := srv.CreateItem(ctx, uid, "boatr_10222_SBH80_100", "backpack", 1)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -337,6 +337,99 @@ func TestRigSetTypeStaleCorrection(t *testing.T) {
 	}
 }
 
+// TestRigSetTypeRejectsUnsupportedRodType 确保 17/1 不能把不属于本竿型的
+// 钓组写进实例或 rig 派生表。
+func TestRigSetTypeRejectsUnsupportedRodType(t *testing.T) {
+	srv, db := newRigTestServer(t)
+	ctx := context.Background()
+	const uid = int64(1000001)
+
+	rod, err := srv.CreateItem(ctx, uid, "feeder_10125_FD360", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !srv.rigSetType(ctx, uid, rod.GUID, 12) {
+		t.Fatal("设置 Feeder 合法钓组失败")
+	}
+	if srv.rigSetType(ctx, uid, rod.GUID, 50) { // MarinePilker，不属于 Feeder 竿型 10
+		t.Fatal("不兼容的海钓钓组不应被 Feeder 竿接受")
+	}
+
+	rigType, found, err := db.GetRigType(ctx, rod.GUID)
+	if err != nil || !found || rigType != 12 {
+		t.Fatalf("拒绝后 rig 行应保持 12，实得 type=%d found=%v err=%v", rigType, found, err)
+	}
+	row, err := db.GetItemByGUID(ctx, rod.GUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f5 := rigStoredF5(t, row)
+	if got := int64(u64Of(f5.Field(1).Num)); got != 12 {
+		t.Fatalf("拒绝后实例 f5.f1 应保持 12，实得 %d", got)
+	}
+}
+
+// TestRigTypeSwitchReturnsIncompatibleComponents 确保切换钓组时，不能把旧钓组
+// 专用的食笼和前导带进新钓组；两种钓组都支持的铃铛和鱼钩要继续保留。
+func TestRigTypeSwitchReturnsIncompatibleComponents(t *testing.T) {
+	srv, db := newRigTestServer(t)
+	ctx := context.Background()
+	const uid int64 = 1000001
+
+	rod, err := srv.CreateItem(ctx, uid, "feeder_10125_FD360", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !srv.rigSetType(ctx, uid, rod.GUID, 12) { // BottomSimple: 铃铛/食笼/前导/钩
+		t.Fatal("设置初始钓组失败")
+	}
+	items := make(map[string]*store.Item)
+	for name, itemID := range map[string]string{
+		"bell":   "feeder_bell",     // 47；两种钓组都支持
+		"feeder": "feeder_30037",    // 31；目标钓组不支持
+		"leader": "fc_leader_40048", // 13；目标钓组不支持
+		"hook":   "c_hook_20712",    // 12；两种钓组都支持
+	} {
+		it, createErr := srv.CreateItem(ctx, uid, itemID, "backpack", 1)
+		if createErr != nil {
+			t.Fatalf("创建 %s: %v", name, createErr)
+		}
+		items[name] = it
+		res := srv.rigSetComponent(ctx, uid, rod.GUID, 0, it.GUID, 0,
+			rigSetOpts{ParentType: familyRod, EnforceCategory: true})
+		if res.Rejected {
+			t.Fatalf("装配 %s 被拒绝", name)
+		}
+	}
+
+	var released []*rigReleased
+	if !srv.rigSetType(ctx, uid, rod.GUID, 13, &released) { // BottomPaternoster: 只保留铃铛和钩
+		t.Fatal("切换目标钓组失败")
+	}
+	if len(released) != 2 {
+		t.Fatalf("应退回 2 件不兼容配件，实得 %d", len(released))
+	}
+	for _, name := range []string{"feeder", "leader"} {
+		row := mustItem(t, db, items[name].GUID)
+		if row.Container != "backpack" || row.RigGUID != "" {
+			t.Fatalf("%s 未退回背包: container=%q rig=%q", name, row.Container, row.RigGUID)
+		}
+	}
+	for _, name := range []string{"bell", "hook"} {
+		row := mustItem(t, db, items[name].GUID)
+		if row.Container != "rig" || row.RigGUID != rod.GUID {
+			t.Fatalf("%s 不应因切换被卸下: container=%q rig=%q", name, row.Container, row.RigGUID)
+		}
+	}
+	fresh := mustItem(t, db, rod.GUID)
+	comps := rigCompsOf(rigStoredF5(t, fresh))
+	for _, category := range []int64{31, 13} {
+		if got := rigCompKeysOfCategory(comps, category); len(got) != 0 {
+			t.Fatalf("目标钓组不支持的品类 %d 仍残留: %v", category, got)
+		}
+	}
+}
+
 // TestRigExplicitTypeWinsOverComponents 验证玩家显式选择的合法钓组类型
 // 不会因已装组件不同而被覆盖。
 func TestRigExplicitTypeWinsOverComponents(t *testing.T) {

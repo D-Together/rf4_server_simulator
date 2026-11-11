@@ -116,8 +116,9 @@ func TestDetachReturnsToBackpack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("造竿失败: %v", err)
 	}
-	// 钉在路亚族 SimpleJig：本用例验证计件拆分子实例的拆卸回退。
-	if !srv.rigSetType(ctx, uid, rod.GUID, 6) {
+	// BottomSimple 的钩槽同样为 250，且是 Feeder 竿允许的钓组；
+	// 本用例只验证计件拆分子实例的拆卸回退。
+	if !srv.rigSetType(ctx, uid, rod.GUID, 12) {
 		t.Fatal("rigSetType 失败")
 	}
 	reel, err := srv.CreateItem(ctx, uid, "bclp_5004", "backpack", 1) // 渔轮（品类 6）
@@ -268,8 +269,9 @@ func TestRig157Completeness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("造 FD390 失败: %v", err)
 	}
-	// 同 TestDetachReturnsToBackpack：钉路亚族保持计件拆分子实例路径。
-	if !srv.rigSetType(ctx, uid, rod.GUID, 6) {
+	// 先固定为与该完整组装一致的 BottomSimple，避免切换类型时按新规则
+	// 退回底钓组不支持的组件。
+	if !srv.rigSetType(ctx, uid, rod.GUID, 12) {
 		t.Fatal("rigSetType 失败")
 	}
 	reel, err := srv.CreateItem(ctx, uid, "spin_5184", "backpack", 1) // 渔轮

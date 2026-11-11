@@ -139,7 +139,7 @@ func TestRigDedupeAcrossMutuallyExclusiveCategories(t *testing.T) {
 	ctx := context.Background()
 	const uid = int64(1000001)
 
-	rod, err := srv.CreateItem(ctx, uid, "pilkr_10212_92-80190", "backpack", 1)
+	rod, err := srv.CreateItem(ctx, uid, "boatr_10222_SBH80_100", "backpack", 1)
 	if err != nil {
 		t.Fatalf("造竿失败: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestRigMountReplacesCrossCategorySharedSlot(t *testing.T) {
 	ctx := context.Background()
 	const uid = int64(1000001)
 
-	rod, err := srv.CreateItem(ctx, uid, "pilkr_10212_92-80190", "backpack", 1)
+	rod, err := srv.CreateItem(ctx, uid, "boatr_10222_SBH80_100", "backpack", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
