@@ -7,7 +7,7 @@ import (
 )
 
 // 官服 14/14 抓包 A 级锚点（2026-09-18 真值表 9 样本 + 2026-11-10/11 新抓 12+8 样本，
-// 见 specs/changes/fish-pull-k-table/spec.md 与 docs/根据实测包的鱼拉力修改后续建议.md）。
+// 见 specs/changes/fish-pull-k-table/spec.md「Further Notes」样本表）。
 // 只落数值锚点，不含任何抓包原始数据（CONTRIBUTING 禁令不受影响）。
 var officialPullAnchors = []struct {
 	species string
@@ -90,7 +90,6 @@ func TestFishPullGroupFallback(t *testing.T) {
 // TestFishPullLnSlopeTunable 验证斜率与 fallback 的 tunable 应急覆盖。
 func TestFishPullLnSlopeTunable(t *testing.T) {
 	srv := &Server{}
-	base := srv.fishFightPullFor(&RolledFish{Species: "perch", WeightG: 1000})
 	srv.tunCache = map[string]float64{"fish_pull_ln_slope": 0}
 	srv.tunAt = time.Now()
 	if got := srv.fishFightPullFor(&RolledFish{Species: "perch", WeightG: 1000}); math.Abs(got-17.6) > 1e-6 {
@@ -99,5 +98,4 @@ func TestFishPullLnSlopeTunable(t *testing.T) {
 	if got := srv.fishPullK0For("not_in_calib"); got != 17.5 {
 		t.Fatalf("fallback K0 应为 17.5，实得 %f", got)
 	}
-	_ = base
 }

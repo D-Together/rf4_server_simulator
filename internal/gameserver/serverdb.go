@@ -90,7 +90,6 @@ func (s *Server) loadFightCurves() {
 	}
 }
 
-// buildFightCurves 构造 27.f21 的完整搏鱼阶段池。
 // buildFightCurves 构造 27.f21 曲线池：鱼种池缺省借同习性池，张力列按
 // pull/池基准 uniform 缩放，其余列保持池原值（官方口径，见 spec）。
 func (s *Server) buildFightCurves(species string, pull float64) *proto.Value {
@@ -138,15 +137,6 @@ func (s *Server) buildFightCurves(species string, pull float64) *proto.Value {
 		out.Items = append(out.Items, wiregen.MustMakeObj("oiikpeaajln", items))
 	}
 	return out
-}
-
-func findFightCurveRow(rows [][19]float64, want int) ([19]float64, bool) {
-	for _, r := range rows {
-		if int(r[0]) == want {
-			return r, true
-		}
-	}
-	return [19]float64{}, false
 }
 
 // knownRealFightCurveRows 是 2026-10-31 真服 14/14 抓包中 27.f21 的原始两行。

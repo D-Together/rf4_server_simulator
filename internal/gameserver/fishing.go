@@ -587,9 +587,9 @@ var defaultFishPool = []fishPoolEntry{
 const maxMockWeight = 650
 
 // verifiedInitialStaminaRatio 来自旧版对真实服务器 14/14 帧的逐字节校准（63g 样本）。
-// verifiedForcePerGram（每克 0.00980665）与 2026-11-11 官服 21+8 条 14/14 A 级样本
+// verifiedForcePerGram（每克 0.00980665）与 2026-11-11 官服 29 条 14/14 A 级样本
 // 直接矛盾（官方 f8 = 体重kg × 逐鱼种 k，k ∈ 12.6..20.6，见
-// docs/根据实测包的鱼拉力修改后续建议.md），已从 f8 主路径移除，仅作历史口径注记；
+// specs/changes/fish-pull-k-table/spec.md），已从 f8 主路径移除，仅作历史口径注记；
 // newtonPerKgf 数值上恰为标准换算 9.80665，继续用于结算侧牛↔公斤力换算。
 const (
 	verifiedStaminaPerGram      = 2.3880400747623083
@@ -610,7 +610,7 @@ const newtonPerKgf = 9.80665
 // fishPullK0 是逐鱼种拉力基值（=1kg 体重时的 k，N/kg），来自官服 14/14 抓包
 // A 级样本按 k0 = k − fishPullLnSlope·ln(w_kg) 反推；f8 = w_kg × (K0 + slope·ln(w_kg))。
 // 种内斜率 ~0.3–0.4，已用 perch/crucian/g_carp 多重量级样本钉死；样本与推导见
-// specs/changes/fish-pull-k-table/spec.md 与 docs/根据实测包的鱼拉力修改后续建议.md。
+// specs/changes/fish-pull-k-table/spec.md「Further Notes」。
 const fishPullLnSlope = 0.35
 
 var fishPullK0 = map[string]float64{
@@ -630,8 +630,9 @@ var fishPullK0 = map[string]float64{
 	"s.bream":    13.0,
 }
 
-// fishPullGroupK0 是未实测鱼种的习性组拉力基值（v1 估计，依据 6.1 节已证实梯度：
-// 同科体型单调、海水/洄游高于静水；纯估计组 ±1.5）。键 = 习性组名。
+// fishPullGroupK0 是未实测鱼种的习性组拉力基值（v1 推断，依据已实测样本呈现的
+// 梯度：同科体型单调、海水/洄游高于静水；推断组 ±1.5，见 spec「Further Notes」）。
+// 键 = 习性组名。
 var fishPullGroupK0 = map[string]float64{
 	"marine_gadid":    19.7, // 海水鳕科
 	"herb_carp":       18.2, // 大型草食鲤科
