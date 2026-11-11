@@ -395,6 +395,8 @@ func (s *Server) recordFightReelLoad(ctx *Ctx) {
 		}
 	}
 	st.mu.Unlock()
+	// 以 14/8 为心跳做 5 秒节流播报；只读取上报里的耐力比例，不进磨损账。
+	s.maybeReportStamina(ctx, st, now)
 	if hasPrevious {
 		s.applyFightReelWear(s.dbCtx(), uid, previous, "14/8", true)
 	}
