@@ -52,6 +52,11 @@ const (
 	containerKeepnet       = 5
 	containerTradingCards  = 18
 	houseContainerCapacity = 100
+	// containerRewards 是客户端奖赏专用分组（lmmhdlhogdc=14）。3/16 响应处理
+	// 函数 ogbnjjglplh 把奖赏写死进该组（GameAssembly 0x1147EC0 `mov edx,0xe`）；
+	// 物品管理器 eegjkjenhoe 按物品 f4 容器枚举分组，house=10 进不了奖赏组。
+	// 奖赏落库仍用 house（3/16 读 house），但实时推送的 wire 树须把 f4 投影成 14。
+	containerRewards = 14
 )
 
 // ---- 4/1 items/count ----

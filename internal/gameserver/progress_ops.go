@@ -386,6 +386,7 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 		s.notifyFishEscape(ctx.Sess, pending, "收竿跑鱼")
 	}
 	var res *settleXpResult
+	var qualCups []*store.Item
 	if hasFish {
 		// 资格事件在结算前用咬钩快照装配；判定与经验/回执在同一事务提交。
 		// 达标当尾的结算响应即带完成（增量下发），重放从回执还原同一增量。
@@ -394,6 +395,11 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 		if res == nil {
 			ctx.ReplyFailure("System.IO.IOException", "钓获结算未能保存，请重试")
 			return nil, true
+		}
+		// 本尾鱼让某分支最后一条任务达标时，整分支完成发奖杯（kv 幂等，
+		// 重放不发）；奖杯挂 801.f8 奖励列表并在响应后推 4/22。
+		if !res.replayed && len(qualChanges) > 0 {
+			qualCups = s.ensureQualificationCups(cctx, uid)
 		}
 		stats813 = s.buildSettle813(cctx, uid, pending, res)
 		profileTree, _ = s.BuildProfile307W(cctx, uid, worldTotalGameMin(time.Now()))
@@ -434,6 +440,11 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 			}
 		}
 	}
+	for _, row := range qualCups {
+		if tree, terr := s.awardItemTree(cctx, row); terr == nil {
+			grants.Items = append(grants.Items, tree)
+		}
+	}
 	if hasFish && res.droppedCardGUID != "" {
 		card, err := s.DB.GetItemByGUID(cctx, res.droppedCardGUID)
 		if err != nil {
@@ -449,12 +460,13 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 			grants.Items = append(grants.Items, tree)
 		}
 	}
-	// 礼物行：801.f4 = 811 数组。结算阶段只有升级礼物一种来源（f0=1）；同数组
-	// 并存多来源的渲染能力保留给水域奖杯等后续玩法。无礼物保持 null（官服未升级
-	// 样本形态）。
+	// 礼物行：801.f4 = 811 数组（args 173）。升级礼物 / 稀有鱼 / 水域奖杯走 giftRows811
+	// 的 gift811Line；分支杯自带 f4=14 投影，用 qualificationGiftLine 单独构造后作为额外
+	// 的 811 元素追加到同一个数组。客户端 GameResult 按来源码各渲染礼物卡；无礼物保持
+	// null（官服未升级样本形态）。
 	giftRows := proto.Null()
 	if hasFish && res != nil {
-		lines := make([]gift811Line, 0, 3)
+		lines := make([]gift811Line, 0, 4)
 		if len(res.giftItems) > 0 {
 			lines = append(lines, gift811Line{source: giftSourceNewLevel, param: res.newLevel, items: res.giftItems})
 		}
@@ -486,6 +498,14 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 				ctx.Log.Warn("礼物行构造失败（801.f4 置空）", "err", rerr)
 			} else {
 				giftRows = rows
+			}
+		}
+		// 分支杯：自带 f4=14 的裸 811 行，追加到同一个 args(811)，不替换上面各行。
+		if len(qualCups) > 0 {
+			if line, lerr := s.qualificationGiftLine(cctx, qualCups); lerr != nil {
+				ctx.Log.Warn("资格奖杯礼物行构造失败", "err", lerr)
+			} else if line != nil {
+				giftRows = append811Row(giftRows, line)
 			}
 		}
 	}
@@ -546,6 +566,14 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 				}
 			})
 		}
+	}
+	if len(qualCups) > 0 {
+		cups := qualCups
+		ctx.AfterResponse(func() {
+			for _, row := range cups {
+				s.pushAwardUpdate(uid, row)
+			}
+		})
 	}
 	// 收竿时补挂同种库存，供客户端校验下一次抛竿；搏鱼中不补挂。
 	// 补挂后的钓组和背包数量在 801 响应发送后同步，避免结算覆盖数量更新。
