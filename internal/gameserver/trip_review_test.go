@@ -65,7 +65,7 @@ func TestTravelLockedVoucherMapRejected(t *testing.T) {
 }
 
 // TestPlaceTripPriceStrict 审查 P1 回归：票价必须整段按固定票价表校验。
-// 未收录地点、未收录币种（金币价缺失）、价格不符一律拒绝，不扣款。
+// 未收录地点、价格不符（银币/金币均含）一律拒绝，不扣款。
 func TestPlaceTripPriceStrict(t *testing.T) {
 	srv, db := newEconomyTxTestServer(t)
 	ctx := context.Background()
@@ -89,9 +89,10 @@ func TestPlaceTripPriceStrict(t *testing.T) {
 	if buy("level_002_kirzah_river", false, 1) {
 		t.Fatal("未收录地点应拒绝购买")
 	}
-	// 北海金币价未收录：gold=true price=1 此前被按 1 金币成交。
+	// 北海金币价已收录（2026-11-11 实抓 95）后，错报金币价仍必须拒绝：
+	// gold=true price=1 此前被按 1 金币成交（审查 P1）。
 	if buy("level_012_north_sea", true, 1) {
-		t.Fatal("未收录币种应拒绝购买")
+		t.Fatal("金币价不符应拒绝购买")
 	}
 	// 价格不符。
 	if buy("level_018_moskitnoe", false, 29900) {
