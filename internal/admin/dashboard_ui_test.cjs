@@ -28,7 +28,8 @@ test('params tabs preserve edits and upstream embedded API routing',async()=>{
    assert.equal(await page.locator('#tun_electric_locked_multiplier').count(),1);
    assert.equal(await page.locator('#tun_electric_motor_kg_per_power').count(),1);
    assert.equal(await page.locator('#tun_reel_slip_wear_low').isVisible(),true);
-   assert.equal(await page.locator('#tun_reel_burn_calibration_drag_kg').isVisible(),true);
+   assert.equal(await page.locator('#tun_reel_slip_deadband_ratio').isVisible(),true);
+   assert.equal(await page.locator('#tun_wear_stress_oil_per_s').isVisible(),true);
    await page.locator('button[data-page="reward"]').click();
    await page.locator('#tun_xp_gain').waitFor({state:'visible'});
    await page.locator('button[data-page="event"]').click();

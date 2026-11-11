@@ -324,14 +324,18 @@ const TUNABLE_DEFS=[
   ['reel_slip_wear_s26','泄力打滑26档磨损率',0.00005,'0.00005=0.005%/次。范围 1e-12 ~ 1'],
   ['reel_slip_wear_s27','泄力打滑27档磨损率',0.000075,'0.000075=0.0075%/次。范围 1e-12 ~ 1'],
   ['reel_slip_wear_s28','泄力打滑28档磨损率',0.000095,'0.000095=0.0095%/次。范围 1e-12 ~ 1'],
-  ['reel_slip_wear_max','泄力打滑29档(锁轮)磨损率',0.0001,'0.0001=0.01%/次；也是曲线边界与诊断口径。范围 1e-12 ~ 1'],
-  ['reel_slip_calibration_seconds','打滑校准秒数',1.8,'把单次基准换算成每秒磨损率的除数：越大=同样打滑时长磨损越少。范围 0.01 ~ 3600'],
-  ['reel_burn_calibration_drag_kg','锁轮烧蚀校准制动力(kg)',7.7,'烧穿时长 T 的强度基准：额定制动力越高越耐烧，此值越大烧得越快。范围 0.01 ~ 10000'],
-  ['reel_locked_burn_base_s','锁轮烧穿基准秒',10,'校准点摩擦片连续锁轮的烧穿秒数；调大=更耐烧。范围 0.01 ~ 3600'],
-  ['reel_locked_burn_curve','锁轮烧蚀曲线指数',1.5,'过载曲线 (t/T)^p：1.5=前段慢后段快；1.0=匀速。范围 0.1 ~ 10'],
+  ['reel_slip_wear_max','泄力打滑29档(锁轮)磨损率',0.0001,'0.0001=0.01%/次；29档单次基准，除以打滑校准秒数得每秒率。范围 1e-12 ~ 1'],
+  ['reel_slip_calibration_seconds','打滑校准秒数',41.7,'把29档单次基准换算成每秒磨损率的除数：越大=同样打滑时长磨损越少；41.7 对齐官服 W5 实测 0.00024%/s。范围 0.01 ~ 3600'],
+  ['reel_slip_deadband_ratio','打滑判定门槛倍率',1.05,'拉力 ≤ 泄力×该倍率不算打滑：1=只要超泄力就磨；官服 1.04× 实测零磨损，默认 1.05 留死区。范围 1 ~ 10'],
+  ['wear_stress_oil_per_s','轮油受力磨损率(%/s)',0.0004,'每搏鱼受力秒扣的轮油寿命百分点；官服实测 ≈0.0004。范围 0 ~ 0.01，0=关通道'],
+  ['wear_stress_gear_per_s','主齿轮受力磨损率(%/s)',0.0004,'每搏鱼受力秒扣的主齿轮寿命百分点；官服实测 ≈0.0004。范围 0 ~ 0.01，0=关通道'],
+  ['wear_stress_bearing_per_s','轴承受力磨损率(%/s)',0.00012,'每搏鱼受力秒扣的轴承寿命百分点；官服实测 ≈0.00012。范围 0 ~ 0.01，0=关通道'],
+  ['wear_stress_spool_per_s','线杯受力磨损率(%/s)',0.00012,'每搏鱼受力秒扣的线杯寿命百分点；官服实测 ≈0.00012。范围 0 ~ 0.01，0=关通道'],
+  ['wear_stress_guides_per_s','导环受力磨损率(%/s)',0.0004,'每搏鱼受力秒扣的导环寿命百分点；官服实测 ≈0.0004。范围 0 ~ 0.01，0=关通道'],
+  ['wear_stress_rodblank_per_s','竿坯受力磨损率(%/s)',0.00003,'每搏鱼受力秒扣的竿坯寿命百分点；官服实测 ≈0.00003。范围 0 ~ 0.01，0=关通道'],
+  ['wear_leader_per_stress_sec','前导受力磨损率(%/s)',0.00005,'每搏鱼受力秒扣的前导寿命百分点；底钓2 单场实测 ≈0.00005。范围 0 ~ 0.01，0=关通道'],
   ['reel_load_tick_seconds','负载上报兜底秒',1.9,'第一条14/8负载上报没有前序时刻时按此秒数起算。范围 0.01 ~ 600'],
   ['reel_load_max_tick_seconds','负载上报最大秒',5,'两条14/8之间最多折算的秒数，防止迟到上报一次烧完。范围 0.01 ~ 600'],
-  ['reel_cast_base_factor_lure','路亚每竿基准折扣',0.25,'路亚族每竿+泡水的消耗折扣；0.25=四分之一，底钓不打折。范围 0.001 ~ 1'],
   ['hook_nibble_enabled','嘬饵机制',0,'0=默认关闭，普通鱼和奖杯鱼首次抬竿不判嘬饵；1=恢复钩型嘬饵判定。中钩后的保持率倍率始终生效'],
   ['hook_spawn_match_strength','钩型发鱼软匹配强度',0,'0=默认关闭；1=标准；2=更偏向与钩型匹配的鱼重档位。只影响发鱼，不改后台咬口/保持率倍率'],
   ['grade_ratio_enabled','档位比例开关',1,'三选一发鱼模式之一（在「发鱼模式」卡片切换）；开启时按四档滑杆出鱼并覆盖鱼猎阶段权重与钩型发鱼软匹配'],
@@ -773,13 +777,13 @@ async function loadTunables(){
  // 3) 活动：限时活动开关与分支
  // 全部一次性渲染进 DOM，Tab 只切显隐（见 setParamsPage），避免缓存与重绘。
  const PAGES=[
-  {id:'gameplay',tab:'玩法与钓组',sub:'咬钩 · 手感 · 电轮 · 摩擦片磨损',groups:[
+  {id:'gameplay',tab:'玩法与钓组',sub:'咬钩 · 手感 · 电轮 · 磨损',groups:[
     ['玩法手感','咬钩快慢、饵料偏好、鱼的大小与挣扎力度',['bite_probability','bite_delay_fixed','bite_delay_scale','bite_delay_max','bite_delay_lure_max','bait_pref_scale','bait_pref_weight_shift','fish_weight_scale','fish_weight_cap','fight_power_scale','fish_pull_ln_slope','fish_pull_fallback_k']],
     ['钩型与咬口','嘬饵总开关与发鱼软匹配；后台钩型倍率仍独立生效',['hook_nibble_enabled','hook_spawn_match_strength']],
     ['电轮参数','电轮锁轮倍率与电机功率折算；改后最多 30 秒生效',['electric_locked_multiplier','electric_motor_kg_per_power']],
-    ['摩擦片磨损','泄力打滑与锁轮过载烧蚀两条通道的系数；改后最多 30 秒生效，只影响后续结算',['reel_slip_wear_low','reel_slip_wear_s25','reel_slip_wear_s26','reel_slip_wear_s27','reel_slip_wear_s28','reel_slip_wear_max','reel_slip_calibration_seconds']],
-    ['锁轮过载燃烧','锁轮烧穿时长与发热曲线；曲线越陡前段越省、末段越狠',['reel_burn_calibration_drag_kg','reel_locked_burn_base_s','reel_locked_burn_curve']],
-    ['负载上报与每竿基准','14/8 负载节拍与路亚每竿折扣；影响全部轮内零件的消耗',['reel_load_tick_seconds','reel_load_max_tick_seconds','reel_cast_base_factor_lure']],
+    ['摩擦片磨损','泄力打滑通道的系数；改后最多 30 秒生效，只影响后续结算',['reel_slip_wear_low','reel_slip_wear_s25','reel_slip_wear_s26','reel_slip_wear_s27','reel_slip_wear_s28','reel_slip_wear_max','reel_slip_calibration_seconds','reel_slip_deadband_ratio']],
+    ['受力磨损速率','轮件/竿件/前导按搏鱼受力秒扣磨损的速率；0=关通道',['wear_stress_oil_per_s','wear_stress_gear_per_s','wear_stress_bearing_per_s','wear_stress_spool_per_s','wear_stress_guides_per_s','wear_stress_rodblank_per_s','wear_leader_per_stress_sec']],
+    ['负载上报节拍','14/8 负载上报折算受力秒的口径；改后最多 30 秒生效',['reel_load_tick_seconds','reel_load_max_tick_seconds']],
   ]},
   {id:'reward',tab:'收益与通知',sub:'经验 · 掉卡 · 礼包 · 档位 · 聊天',groups:[
     ['经验与结算','改后只对新结算的鱼生效，已入护的不重算',['xp_gain','release_xp_ratio']],
