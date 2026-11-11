@@ -10,10 +10,10 @@ import (
 // 见 specs/changes/fish-pull-k-table/spec.md 与 docs/根据实测包的鱼拉力修改后续建议.md）。
 // 只落数值锚点，不含任何抓包原始数据（CONTRIBUTING 禁令不受影响）。
 var officialPullAnchors = []struct {
-	species  string
-	weightG  int64
-	pullN    float64 // 官方 f8（牛）
-	tolPct   float64 // 允许偏差
+	species string
+	weightG int64
+	pullN   float64 // 官方 f8（牛）
+	tolPct  float64 // 允许偏差
 }{
 	{"crucian", 611, 9.0919, 2},
 	{"crucian", 293, 4.28627, 2},

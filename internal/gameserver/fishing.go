@@ -633,80 +633,80 @@ var fishPullK0 = map[string]float64{
 // fishPullGroupK0 是未实测鱼种的习性组拉力基值（v1 估计，依据 6.1 节已证实梯度：
 // 同科体型单调、海水/洄游高于静水；纯估计组 ±1.5）。键 = 习性组名。
 var fishPullGroupK0 = map[string]float64{
-	"marine_gadid":   19.7, // 海水鳕科
-	"herb_carp":      18.2, // 大型草食鲤科
+	"marine_gadid":    19.7, // 海水鳕科
+	"herb_carp":       18.2, // 大型草食鲤科
 	"migratory_roach": 18.8, // 洄游速游鲤科
-	"sunfish":        20.4, // 小型凶猛太阳鱼科
-	"predator":       17.5, // 梭形掠食者
-	"carp_mid":       16.7, // 中型力量鲤科
-	"roach_run":      16.4, // 拟鲤族
-	"still_carp":     15.0, // 静水小型鲤科
-	"pond_carp":      13.7, // 小型池塘鲤科
-	"weak_silver":    13.0, // 小型银色弱鱼
-	"salmonid":       18.0, // 鲑科（纯估计）
-	"sturgeon":       17.0, // 鲟科（纯估计）
-	"catfish":        16.0, // 鲶科（纯估计）
-	"flatfish":       16.0, // 比目鱼（纯估计）
+	"sunfish":         20.4, // 小型凶猛太阳鱼科
+	"predator":        17.5, // 梭形掠食者
+	"carp_mid":        16.7, // 中型力量鲤科
+	"roach_run":       16.4, // 拟鲤族
+	"still_carp":      15.0, // 静水小型鲤科
+	"pond_carp":       13.7, // 小型池塘鲤科
+	"weak_silver":     13.0, // 小型银色弱鱼
+	"salmonid":        18.0, // 鲑科（纯估计）
+	"sturgeon":        17.0, // 鲟科（纯估计）
+	"catfish":         16.0, // 鲶科（纯估计）
+	"flatfish":        16.0, // 比目鱼（纯估计）
 }
 
 // fishPullSpeciesGroup 把未实测但高频的鱼种映射到习性组；缺省走 fallback。
 var fishPullSpeciesGroup = map[string]string{
-	"karasekarp":   "still_carp",
-	"din_m_carp":   "carp_mid",
-	"din_n_carp":   "carp_mid",
-	"n_carp":       "carp_mid",
-	"kohaku":       "carp_mid",
-	"o_ogon":       "carp_mid",
-	"n_asagi":      "carp_mid",
-	"yotsushiro":   "carp_mid",
-	"hi_utsri":     "carp_mid",
-	"m_goshiki":    "carp_mid",
-	"tench":        "carp_mid",
-	"kw_tench":     "carp_mid",
-	"c_barbel":     "carp_mid",
-	"bream":        "still_carp",
-	"wa_bream":     "still_carp",
-	"s.orfe":       "roach_run",
-	"e.chub":       "roach_run",
-	"shemaya":      "roach_run",
-	"syb_roach":    "roach_run",
-	"vobla":        "roach_run",
-	"lm_b_bass":    "predator",
-	"sm_bass":      "predator",
-	"sp_bass":      "predator",
-	"wh_bass":      "predator",
-	"s_bass":       "predator",
-	"hs_bass":      "predator",
-	"bp_bass":      "sunfish",
+	"karasekarp":    "still_carp",
+	"din_m_carp":    "carp_mid",
+	"din_n_carp":    "carp_mid",
+	"n_carp":        "carp_mid",
+	"kohaku":        "carp_mid",
+	"o_ogon":        "carp_mid",
+	"n_asagi":       "carp_mid",
+	"yotsushiro":    "carp_mid",
+	"hi_utsri":      "carp_mid",
+	"m_goshiki":     "carp_mid",
+	"tench":         "carp_mid",
+	"kw_tench":      "carp_mid",
+	"c_barbel":      "carp_mid",
+	"bream":         "still_carp",
+	"wa_bream":      "still_carp",
+	"s.orfe":        "roach_run",
+	"e.chub":        "roach_run",
+	"shemaya":       "roach_run",
+	"syb_roach":     "roach_run",
+	"vobla":         "roach_run",
+	"lm_b_bass":     "predator",
+	"sm_bass":       "predator",
+	"sp_bass":       "predator",
+	"wh_bass":       "predator",
+	"s_bass":        "predator",
+	"hs_bass":       "predator",
+	"bp_bass":       "sunfish",
 	"black_crappie": "sunfish",
-	"warm":         "sunfish",
-	"riv_rb_trout": "salmonid",
-	"sevan_trout":  "salmonid",
-	"palia_lud":    "salmonid",
-	"malma":        "salmonid",
-	"gc_smelt":     "salmonid",
-	"taimen":       "salmonid",
-	"os_grayling":  "salmonid",
-	"coalfish":     "marine_gadid",
-	"pollachius":   "marine_gadid",
-	"menek":        "marine_gadid",
-	"p_sturgeon":   "sturgeon",
-	"sterlet":      "sturgeon",
-	"beluga":       "sturgeon",
-	"fhcatfish":    "catfish",
-	"ch_catfish":   "catfish",
-	"w_catfish":    "catfish",
-	"burbot":       "catfish",
-	"turbot":       "flatfish",
-	"sea_kambala":  "flatfish",
-	"lh_kambala":   "flatfish",
-	"asp":          "predator",
-	"ruffe":        "predator",
-	"ruffe_n":      "predator",
-	"zander":       "predator",
-	"g_shad":       "weak_silver",
-	"d_zubatka":    "predator",
-	"m_zubatka":    "predator",
+	"warm":          "sunfish",
+	"riv_rb_trout":  "salmonid",
+	"sevan_trout":   "salmonid",
+	"palia_lud":     "salmonid",
+	"malma":         "salmonid",
+	"gc_smelt":      "salmonid",
+	"taimen":        "salmonid",
+	"os_grayling":   "salmonid",
+	"coalfish":      "marine_gadid",
+	"pollachius":    "marine_gadid",
+	"menek":         "marine_gadid",
+	"p_sturgeon":    "sturgeon",
+	"sterlet":       "sturgeon",
+	"beluga":        "sturgeon",
+	"fhcatfish":     "catfish",
+	"ch_catfish":    "catfish",
+	"w_catfish":     "catfish",
+	"burbot":        "catfish",
+	"turbot":        "flatfish",
+	"sea_kambala":   "flatfish",
+	"lh_kambala":    "flatfish",
+	"asp":           "predator",
+	"ruffe":         "predator",
+	"ruffe_n":       "predator",
+	"zander":        "predator",
+	"g_shad":        "weak_silver",
+	"d_zubatka":     "predator",
+	"m_zubatka":     "predator",
 }
 
 // fishPullK0For 返回鱼种拉力基值：实测种 → 习性组 → fallback（tunable 可覆盖）。
