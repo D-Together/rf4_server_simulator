@@ -1641,7 +1641,7 @@ func hCraftAddTemplate(ctx *Ctx) ([]byte, bool) {
 
 	tmpl, ok := craftTemplateFromRequest(ctx.Tree)
 	if !ok {
-		ctx.Log.Warn("9/6 请求体不是 171 模板")
+		ctx.Log.Warn("9/6 请求体不是合法 171 模板（缺字段或 f3/f4 形状不符）")
 		return []byte{0x00}, true // ctx.reply(None)
 	}
 	if tmpl.Fields[2].StrOr() == "" {
@@ -1660,6 +1660,11 @@ func hCraftAddTemplate(ctx *Ctx) ([]byte, bool) {
 	}
 	tmpl.Fields[0] = proto.FGuid(guid)
 
+	// f3/f4 已由 craftTemplateFromRequest 校验为非 nil 的 args(96) 容器，
+	// 这里只解析一次，落库与日志共用结果，不再二次解引用字段。
+	toolsJSON, toolCount := craftTemplateEntriesJSON(tmpl.Fields[3].Val)
+	materialsJSON, materialCount := craftTemplateEntriesJSON(tmpl.Fields[4].Val)
+
 	now := float64(time.Now().Unix())
 	row := &store.CraftTemplate{
 		UID:           ctx.Sess.Userid,
@@ -1667,8 +1672,8 @@ func hCraftAddTemplate(ctx *Ctx) ([]byte, bool) {
 		RecipeID:      recipe.RecipeID,
 		Name:          tmpl.Fields[1].StrOr(),
 		Kind:          tmpl.Fields[2].StrOr(),
-		ToolsJSON:     craftTemplateEntriesJSON(tmpl.Fields[3].Val),
-		MaterialsJSON: craftTemplateEntriesJSON(tmpl.Fields[4].Val),
+		ToolsJSON:     toolsJSON,
+		MaterialsJSON: materialsJSON,
 		CreatedTs:     now,
 		UpdatedTs:     now,
 	}
@@ -1682,8 +1687,7 @@ func hCraftAddTemplate(ctx *Ctx) ([]byte, bool) {
 		return nil, false
 	}
 	ctx.Log.Info("9/6 配方模板", "recipe", recipe.RecipeID, "guid", guid,
-		"name", row.Name, "tools", len(tmpl.Fields[3].Val.Items),
-		"materials", len(tmpl.Fields[4].Val.Items))
+		"name", row.Name, "tools", toolCount, "materials", materialCount)
 	return body, true
 }
 
@@ -1701,7 +1705,7 @@ func hCraftDeleteTemplate(ctx *Ctx) ([]byte, bool) {
 	}
 	guid := templateGUIDOf(ctx.Tree)
 	if guid == "" {
-		ctx.Log.Warn("9/7 请求缺模板 GUID")
+		ctx.Log.Warn("9/7 请求形状不认识或缺少模板 GUID，按失败关闭不执行删除")
 		return []byte{0x00}, true
 	}
 	deleted, err := srv.DB.DeleteCraftTemplate(ctx.Sess.pushCtx(), ctx.Sess.Userid, guid)
@@ -1712,35 +1716,49 @@ func hCraftDeleteTemplate(ctx *Ctx) ([]byte, bool) {
 	return []byte{0x00}, true
 }
 
-// templateGUIDOf 从请求树里取第一个 16 字节 GUID（9/7 的模板 id）。
+// templateGUIDOf 取 9/7 的模板 GUID。
+//
+// 实抓形状（2026-11-11 15:52:57，len=24）是 args(524) 的第一个参数直接就是
+// GUID：`03 03 "524" 0100 0c <16 bytes>`。因此只认顶层 args 的第 0 个元素，
+// 不再整树找"第一个 32 位 hex"——那样一旦请求里先出现容器/玩家 GUID，
+// 就会删错行。形状不认识时返回空串（fail closed，宁可不删也不删错）。
 func templateGUIDOf(root *proto.Value) string {
-	var out string
-	var walk func(v *proto.Value)
-	walk = func(v *proto.Value) {
-		if v == nil || out != "" {
-			return
-		}
-		switch v.Kind {
-		case proto.KindGuid:
-			if len(v.Hex) == 32 && v.Hex != zeroGUIDHex {
-				out = v.Hex
-			}
-		case proto.KindObj:
-			for i := range v.Fields {
-				walk(v.Fields[i].Val)
-			}
-		case proto.KindArgs, proto.KindValList, proto.KindArray, proto.KindTypedArr:
-			for _, it := range v.Items {
-				walk(it)
-			}
-		}
+	if root == nil {
+		return ""
 	}
-	walk(root)
-	return out
+	if root.Kind != proto.KindArgs && root.Kind != proto.KindValList {
+		return ""
+	}
+	if len(root.Items) == 0 {
+		return ""
+	}
+	return guidOfValue(root.Items[0])
 }
 
-// craftTemplateFromRequest 从请求树里取 171 模板对象。
-// 优先精确匹配 171；客户端把模板包在 args 里时沿容器下钻一层。
+// guidOfValue 取单个 GUID 值；非 GUID 或全零返回空串。
+func guidOfValue(v *proto.Value) string {
+	if v == nil || v.Kind != proto.KindGuid {
+		return ""
+	}
+	if len(v.Hex) != 32 || v.Hex == zeroGUIDHex {
+		return ""
+	}
+	return v.Hex
+}
+
+// craftTemplateEntryTypeID / craftTemplateEntryClass 是 171.f3/f4 的元素类：
+// hbokamnohjb(170)，DTO bpdjphlfjdj。客户端按 bpdjphlfjdj[] 强转。
+const (
+	craftTemplateEntryTypeID = 170
+	craftTemplateEntryClass  = "hbokamnohjb"
+)
+
+// craftTemplateFromRequest 从请求树里取 171 模板对象并校验 f3/f4 形状。
+//
+// 只找到 171 还不够：f3/f4 是 VAL 字段，畸形请求可以让它是 null、标量或
+// 别的类型。不校验就往下走会在解引用 Val.Items 时 panic（handler 层没有
+// recover，panic 会打死整个 gameserver 进程），或者在 panic 之前先落库一条
+// 空模板脏数据。因此形状不符一律返回 false，由调用方回 null，既不落库也不崩。
 func craftTemplateFromRequest(root *proto.Value) (*proto.Value, bool) {
 	var found *proto.Value
 	var walk func(v *proto.Value)
@@ -1771,14 +1789,39 @@ func craftTemplateFromRequest(root *proto.Value) (*proto.Value, bool) {
 	if found == nil || len(found.Fields) < 5 {
 		return nil, false
 	}
+	if !craftTemplateEntryListValid(found.Fields[3].Val) {
+		return nil, false
+	}
+	if !craftTemplateEntryListValid(found.Fields[4].Val) {
+		return nil, false
+	}
 	return found, true
 }
 
-// craftTemplateEntriesJSON 把 170 条目列表序列化成存取用的 JSON。
-// 空列表落成 "[]"，读出来仍是空列表，不会变成 null。
-func craftTemplateEntriesJSON(v *proto.Value) string {
+// craftTemplateEntryListValid 校验 171.f3/f4：必须是 args 容器，且每个元素
+// 都是 hbokamnohjb(170) 三字段对象；空列表合法。
+func craftTemplateEntryListValid(v *proto.Value) bool {
+	if v == nil || v.Kind != proto.KindArgs {
+		return false
+	}
+	for _, it := range v.Items {
+		if it == nil || it.Kind != proto.KindObj || len(it.Fields) < 3 {
+			return false
+		}
+		if it.TypeID != craftTemplateEntryTypeID && it.Class != craftTemplateEntryClass {
+			return false
+		}
+	}
+	return true
+}
+
+// craftTemplateEntriesJSON 把 170 条目列表序列化成存取用的 JSON，并返回条数。
+//
+// 只接受 hbokamnohjb(170) 元素：旧客户端或畸形请求可能塞进别的三字段对象，
+// 不校验就会把任意对象当成模板条目存下来，9/5 再原样下发成坏模板。
+func craftTemplateEntriesJSON(v *proto.Value) (string, int) {
 	if v == nil || v.Kind != proto.KindArgs || len(v.Items) == 0 {
-		return "[]"
+		return "[]", 0
 	}
 	type entry struct {
 		Desc   string `json:"desc"`
@@ -1790,6 +1833,9 @@ func craftTemplateEntriesJSON(v *proto.Value) string {
 		if it == nil || it.Kind != proto.KindObj || len(it.Fields) < 3 {
 			continue
 		}
+		if it.TypeID != craftTemplateEntryTypeID && it.Class != craftTemplateEntryClass {
+			continue
+		}
 		e := entry{Desc: it.Fields[0].StrOr(), ItemID: it.Fields[2].StrOr()}
 		if n := it.Fields[1].Num; n != nil {
 			e.Idx = uint32(*n)
@@ -1798,9 +1844,9 @@ func craftTemplateEntriesJSON(v *proto.Value) string {
 	}
 	raw, err := json.Marshal(out)
 	if err != nil {
-		return "[]"
+		return "[]", 0
 	}
-	return string(raw)
+	return string(raw), len(out)
 }
 
 // craftTemplateEntriesFromJSON 还原 170 条目列表；坏数据返回空列表而不是报错，

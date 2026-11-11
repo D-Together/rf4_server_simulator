@@ -61,23 +61,38 @@ func hCraftTemplates(ctx *Ctx) ([]byte, bool) {
 }
 
 // craftTemplatesTree 读库构造 9/5 响应树；任何失败都返回空 args(97)。
+//
+// 逐条跳过「配方已不在静态库」的模板：配方被移除或改名后，模板点进去只会
+// 得到一条无法制作的死条目。跳过是单条粒度，不影响其他模板；跳过的条数会
+// 记日志，便于和玩家反馈对账。
 func craftTemplatesTree(ctx *Ctx) *proto.Value {
 	srv := ctx.Sess.Srv
 	if srv == nil || srv.DB == nil {
 		return proto.Args(proto.S("97"))
 	}
-	rows, err := srv.DB.ListCraftTemplates(ctx.Sess.pushCtx(), ctx.Sess.Userid)
+	cctx := ctx.Sess.pushCtx()
+	rows, err := srv.DB.ListCraftTemplates(cctx, ctx.Sess.Userid)
 	if err != nil {
 		ctx.Log.Warn("9/5 模板列表读取失败", "err", err)
 		return proto.Args(proto.S("97"))
 	}
 	items := make([]*proto.Value, 0, len(rows))
+	skipped := 0
 	for _, row := range rows {
+		if srv.resolveRecipe(cctx, row.RecipeID) == nil {
+			skipped++
+			ctx.Log.Warn("9/5 跳过配方已失效的模板",
+				"guid", row.GUID, "recipe", row.RecipeID, "name", row.Name)
+			continue
+		}
 		items = append(items, craftTemplate(
 			row.GUID, row.Name, row.Kind,
 			craftTemplateEntriesFromJSON(row.ToolsJSON),
 			craftTemplateEntriesFromJSON(row.MaterialsJSON),
 		))
+	}
+	if skipped > 0 {
+		ctx.Log.Info("9/5 模板列表", "total", len(rows), "served", len(items), "skipped", skipped)
 	}
 	return proto.Args(proto.S(craftTemplateListCode), items...)
 }
