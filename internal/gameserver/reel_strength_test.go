@@ -54,6 +54,18 @@ func reloadReel(t *testing.T, db *store.DB, guid string) *store.Item {
 	return row
 }
 
+// TestReelStrengthTableIsEmbedded 确保规格表随二进制编译，不依赖运行目录或发布包文件白名单。
+func TestReelStrengthTableIsEmbedded(t *testing.T) {
+	t.Parallel()
+	if len(reelStrengthJSON) == 0 {
+		t.Fatal("轮根规格表未嵌入二进制")
+	}
+	loadReelStrengthTable()
+	if len(reelStrengthTable) < 500 {
+		t.Fatalf("轮根规格表加载条目过少: %d", len(reelStrengthTable))
+	}
+}
+
 // TestReelStrengthAnchors 锁定规格表锚点值（防转录手误/文件缺失）。
 func TestReelStrengthAnchors(t *testing.T) {
 	t.Parallel()

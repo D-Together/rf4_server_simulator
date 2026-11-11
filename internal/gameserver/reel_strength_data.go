@@ -1,6 +1,6 @@
 package gameserver
 
-// 轮根规格表：data/reel_strength.json（来源 轮表.xlsx"精确锁轮表"列，按 ItemID 对齐）。
+// 轮根规格表：assets/reel_strength.json（来源 轮表.xlsx"精确锁轮表"列，按 ItemID 对齐）。
 // root_spec 是出厂满耐久轮根——渔轮实例 nlmnpekipjc(csStrength) 的标称值；
 // 官方 4/22 实抓验证：实例轮根 = root_spec × 轴承子件耐久
 // （Turion SW 30000: 127.94×0.98779≈126.35；Tagara II 6000: 45.89×0.9756≈44.77）。
@@ -9,19 +9,20 @@ package gameserver
 // 注意区分：root_spec 不是摩擦片额定（base_drag，官方语义里两者独立，比值 2.2~3.6×）。
 
 import (
+	_ "embed"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"sync"
 
 	"rf4server/internal/store"
 )
 
+//go:embed assets/reel_strength.json
+var reelStrengthJSON []byte
+
 var (
-	reelStrengthOnce   sync.Once
-	reelStrengthTable  map[string]reelStrengthEntry
-	reelStrengthLoaded bool
-	reelStrengthMu     sync.Mutex
+	reelStrengthOnce  sync.Once
+	reelStrengthTable map[string]reelStrengthEntry
+	reelStrengthMu    sync.Mutex
 	// reelStrengthMissed 记录已告警过的未收录 ItemID，避免每次 canon 都刷日志。
 	reelStrengthMissed = map[string]bool{}
 )
@@ -33,48 +34,17 @@ type reelStrengthEntry struct {
 	Tier     string  `json:"tier"` // exact=精确锁轮表；estimate=沿用旧估算
 }
 
-// reelStrengthPath 依次尝试多个位置，避免服务端工作目录不同导致读不到。
-func reelStrengthPath() (string, bool) {
-	var cands []string
-	if p := os.Getenv("RF4_REEL_STRENGTH_FILE"); p != "" {
-		cands = append(cands, p)
-	}
-	cands = append(cands,
-		"data/reel_strength.json", "server_data/reel_strength.json",
-		"../data/reel_strength.json", "../server_data/reel_strength.json",
-		"../../data/reel_strength.json", "../../server_data/reel_strength.json")
-	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Dir(exe)
-		cands = append(cands,
-			filepath.Join(dir, "data", "reel_strength.json"),
-			filepath.Join(dir, "..", "data", "reel_strength.json"))
-	}
-	for _, p := range cands {
-		if _, err := os.Stat(p); err == nil {
-			return p, true
-		}
-	}
-	return "", false
-}
-
+// loadReelStrengthTable 解析编译期嵌入的规格表。使用 go:embed 而不是读取工作目录，
+// 保证源码运行、测试和发布包看到同一份数据，也避免发布时漏带资源后静默回退旧口径。
 func loadReelStrengthTable() {
 	reelStrengthOnce.Do(func() {
-		path, ok := reelStrengthPath()
-		if !ok {
-			return
-		}
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return
-		}
 		var doc struct {
 			Reels map[string]reelStrengthEntry `json:"reels"`
 		}
-		if err := json.Unmarshal(raw, &doc); err != nil {
+		if err := json.Unmarshal(reelStrengthJSON, &doc); err != nil {
 			return
 		}
 		reelStrengthTable = doc.Reels
-		reelStrengthLoaded = true
 	})
 }
 
