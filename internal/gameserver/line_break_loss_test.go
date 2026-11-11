@@ -162,3 +162,120 @@ func TestMainLineBreakSubMeterReportCostsOneMeter(t *testing.T) {
 		t.Fatalf("上报 0.3 米应钳到扣 1 米（剩 49），实得剩余 %d 米", got)
 	}
 }
+
+// ---- 断竿的主线扣减 ----
+//
+// 断竿不再整卷判死：只按 17/9 上报的实际放线米数扣（与断主线同源），
+// 扣剩的线与渔轮一样留在断竿上，可 17/3 拆下换竿；未上报一米不扣。
+
+// 断竿上报 12.5 米：扣 13 米（取整），扣剩 37 米的线仍挂在断竿上。
+func TestRodBreakDeductsReportedLineOutKeepsLineMounted(t *testing.T) {
+	t.Parallel()
+	srv, db := newRigTestServer(t)
+	sess, rodGUID, lineGUID := mountMonoFifty(t, srv)
+
+	tree := rigRequestTree(t, proto.Guid(rodGUID), proto.Guid(rodGUID), proto.U32(1), proto.Null())
+	body, ok := hDynamicRodBreak(&Ctx{
+		Sess: sess, Main: 17, Sub: 9, Tree: tree, Body: lineBreakBodyWithLineOut(12.5),
+		DecodeOK: true, ExpectResponse: true, Log: logging.Discard(),
+	})
+	if !ok || len(body) == 0 {
+		t.Fatal("17/9 断竿未处理")
+	}
+	if got := lineLengthOfTestItem(t, srv, lineGUID); got != 37 {
+		t.Fatalf("断竿应只扣上报的 13 米（剩 37），实得剩余 %d 米", got)
+	}
+	// 线仍在竿上：f3 引用与 catLine 投影行都保留。
+	rodRow := mustItem(t, db, rodGUID)
+	rodFields, err := FieldsFromJSON(rodRow.FieldsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idx := fieldIdxByCS(rodRow.WireClass, csLine); idx < 0 || idx >= len(rodFields) || rodFields[idx].GuidHex() != lineGUID {
+		t.Fatalf("断竿后竿 f3 应保留主线 %s", lineGUID)
+	}
+	if got := rigSlotGUIDs(t, srv, rodGUID)[catLine]; got != lineGUID {
+		t.Fatalf("断竿后 catLine 投影应保留主线，实得 %q", got)
+	}
+	// 11028：线不进移除列表，更新段带线树。
+	dec, _, err := proto.DecodeValue(body, 0, srv.Table())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f4 := dec.Fields[4].Val; f4 != nil {
+		for _, it := range f4.Items {
+			if it.Hex == lineGUID {
+				t.Fatalf("扣剩的主线不应进 11028 移除列表: %+v", f4.Items)
+			}
+		}
+	}
+	hasLineTree := false
+	if f3 := dec.Fields[3].Val; f3 != nil {
+		for _, it := range f3.Items {
+			if containsGUID(deepGUIDs(it), lineGUID) {
+				hasLineTree = true
+			}
+		}
+	}
+	if !hasLineTree {
+		t.Fatal("断竿更新段应包含扣剩主线的物品树")
+	}
+}
+
+// 断竿上报米数超过剩余线长：封顶扣光，主线按耗尽删除、f3 清空。
+func TestRodBreakLineExhaustedWhenReportedOverRemaining(t *testing.T) {
+	t.Parallel()
+	srv, db := newRigTestServer(t)
+	sess, rodGUID, lineGUID := mountMonoFifty(t, srv)
+
+	tree := rigRequestTree(t, proto.Guid(rodGUID), proto.Guid(rodGUID), proto.U32(1), proto.Null())
+	body, ok := hDynamicRodBreak(&Ctx{
+		Sess: sess, Main: 17, Sub: 9, Tree: tree, Body: lineBreakBodyWithLineOut(200),
+		DecodeOK: true, ExpectResponse: true, Log: logging.Discard(),
+	})
+	if !ok || len(body) == 0 {
+		t.Fatal("17/9 断竿未处理")
+	}
+	if row, _ := db.GetItemByGUID(context.Background(), lineGUID); row != nil {
+		t.Fatalf("上报 200 米 > 线长 50 米，应封顶扣光并删除主线，实得 %+v", row)
+	}
+	rodRow := mustItem(t, db, rodGUID)
+	rodFields, err := FieldsFromJSON(rodRow.FieldsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idx := fieldIdxByCS(rodRow.WireClass, csLine); idx >= 0 && idx < len(rodFields) && rodFields[idx].GuidHex() != "" {
+		t.Fatal("主线耗尽后竿 f3 应清空")
+	}
+	if got := rigSlotGUIDs(t, srv, rodGUID)[catLine]; got != "" {
+		t.Fatalf("主线耗尽后 catLine 投影应清空，实得 %q", got)
+	}
+}
+
+// 断竿未上报放线米数：主线一米不扣，整卷保留。
+func TestRodBreakKeepsLineFullyWithoutLineOutReport(t *testing.T) {
+	t.Parallel()
+	srv, db := newRigTestServer(t)
+	sess, rodGUID, lineGUID := mountMonoFifty(t, srv)
+
+	tree := rigRequestTree(t, proto.Guid(rodGUID), proto.Guid(rodGUID), proto.U32(1), proto.Null())
+	body, ok := hDynamicRodBreak(&Ctx{
+		Sess: sess, Main: 17, Sub: 9, Tree: tree,
+		DecodeOK: true, ExpectResponse: true, Log: logging.Discard(),
+	})
+	if !ok || len(body) == 0 {
+		t.Fatal("17/9 断竿未处理")
+	}
+	if got := lineLengthOfTestItem(t, srv, lineGUID); got != 50 {
+		t.Fatalf("未上报放线米数时主线应一米不扣（剩 50），实得剩余 %d 米", got)
+	}
+	logs, err := db.ListItemDamageLogs(context.Background(), 1000001, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range logs {
+		if entry.Event == damageEventLineBreak || entry.Event == damageEventLineExhausted {
+			t.Fatalf("未扣线不应记 line_break/line_exhausted: %+v", entry)
+		}
+	}
+}
