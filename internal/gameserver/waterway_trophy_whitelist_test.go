@@ -251,3 +251,79 @@ func TestWaterwayTrophySuraAllPanelCellsReachable(t *testing.T) {
 		t.Fatal("16 格全部上星后没有发放奖杯")
 	}
 }
+
+// 2026-11-11 逐格核对的结果：原先挂在 trophyFishWhitelistMissing 里的两处缺格，其实都是
+// 本图能钓到的真实鱼种——下通古斯卡河那一格是鳟鱼 riv_brown_trout，挪威海那一格是魣鳕
+// m_molva（当时按显示名分别读成了「第三种鲟」和「鲣鱼」）。补进清单后：
+// missing 表为空、两格进判定集合、分母恢复成面板格数，玩家把面板填满就能拿奖杯。
+func TestTrophyFishWhitelistMissingCellsResolved(t *testing.T) {
+	t.Parallel()
+	if len(trophyFishWhitelistMissing) != 0 {
+		t.Fatalf("缺格表应为空（两格已确认真 key），实得 %v", trophyFishWhitelistMissing)
+	}
+	const northSea = "level_012_north_sea"
+	wl := trophyFishWhitelistSet(northSea)
+	if _, ok := wl["m_molva"]; !ok {
+		t.Fatal("挪威海面板那一格应是魣鳕 m_molva")
+	}
+	if got := trophyFishWhitelistTotal(northSea); got != 34 {
+		t.Fatalf("挪威海分母应为面板 34 格，实得 %d", got)
+	}
+	// 面板末尾四格顺序（核对时按游戏内面板逐格报的位置）：31 魣鳕、32 鲽鱼、33 黑线鳕、34 黑长鲳。
+	cells := trophyFishWhitelist[northSea]
+	if len(cells) < 4 {
+		t.Fatalf("挪威海清单只有 %d 格", len(cells))
+	}
+	tail := cells[len(cells)-4:]
+	want := []string{"m_molva", "sea_kambala", "piksha", "centroloph_n"}
+	for i := range want {
+		if tail[i].key != want[i] {
+			t.Fatalf("挪威海第 %d 格应为 %s，实得 %s", len(cells)-4+i+1, want[i], tail[i].key)
+		}
+	}
+
+	const tunguska = "level_015_tunguska"
+	wl2 := trophyFishWhitelistSet(tunguska)
+	if _, ok := wl2["riv_brown_trout"]; !ok {
+		t.Fatal("下通古斯卡河面板那一格应是鳟鱼 riv_brown_trout")
+	}
+	if got := trophyFishWhitelistTotal(tunguska); got != 23 {
+		t.Fatalf("下通古斯卡河分母应为面板 23 格，实得 %d", got)
+	}
+}
+
+// 显示名只用于排障与 3/17 面板展示，但写错会让人对着面板找不到格子，所以把 2026-11-11
+// 核对过的几个易错格子钉住（客户端名与 loc_fish.name_zh 同形异写的一批）。
+func TestTrophyFishWhitelistDisplayNamesReviewedByPlayer(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ water, key, zh string }{
+		{"level_003_viiveri_lake", "riv_rb_trout", "虹鳟"},
+		{"level_012_north_sea", "p_zubatka", "大西洋狼鳚"},
+		{"level_012_north_sea", "zoarces_v", "绵鳚"},
+		{"level_012_north_sea", "molva", "蓝魣鳕"},
+		{"level_012_north_sea", "sea_kambala", "鲽鱼"},
+		{"level_012_north_sea", "centroloph_n", "黑长鲳"},
+		{"level_015_tunguska", "riv_brown_trout", "鳟鱼"},
+		{"level_016_yama", "mikija", "堪察加虹鳟"},
+		{"level_016_yama", "golets_lev", "莱文氏红点鲑"},
+		{"level_016_yama", "chan_m", "蒙古红鲌"},
+		{"level_016_yama", "kijuch", "银鳟鱼"},
+		{"level_018_moskitnoe", "s_freaks", "C2超级怪胎"},
+		{"level_018_moskitnoe", "karasekarp", "鲤鲫"},
+	}
+	for _, c := range cases {
+		found := false
+		for _, cell := range trophyFishWhitelist[c.water] {
+			if cell.key != c.key {
+				continue
+			}
+			found = true
+			if cell.zh != c.zh {
+				t.Errorf("%s 的 %s 显示名应为 %q，实得 %q", c.water, c.key, c.zh, cell.zh)
+			}
+		}
+		if !found {
+			t.Errorf("%s 清单里没有 %s", c.water, c.key)
+		}
+	}
+}

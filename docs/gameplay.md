@@ -303,19 +303,21 @@ medium/large 槽，模型与槽位对不上，客户端**渔护列表的缩略�
 不发奖杯」的真正根因。
 
 所以清单是**逐图截图反推**出来的，写在 `fish_trophy_whitelist.go` 的
-`trophyFishWhitelist`（18 个水域全部录完，共 322 格）。反推两步：
+`trophyFishWhitelist`（18 个水域全部录完，共 324 格）。反推两步：
 
 1. 面板卡片显示的是玩家自己的纪录，用**克重 + 体长**回查 `catch_log` 直接锁定
    `fish_key`——比读名字可靠得多；
 2. 「未钓到」的灰卡没有重量，只能按该水域鱼种池 + 客户端显示名比对。客户端名与
    `loc_fish.name_zh` 并不总一致，必须记别名：`常见鲃鱼`=c_barbel、`长吻梅花鲈`=ruffe_n、
-   `河螯虾`=crawfish、`鳟鱼`=riv_brown_trout、`红鳟`=riv_rb_trout、`拉多加白鲑`=ripus、
+   `河螯虾`=crawfish、`鳟鱼`=riv_brown_trout、`虹鳟`=riv_rb_trout、`拉多加白鲑`=ripus、
    `莱芒湖白鲑`=sig_ludoga、`欧白鲑`=vendace、`湖鳟鱼`=gc_smelt、`蓝舒鳣`=molva、
    `魣鳕`=m_molva、`棱鲱`=tiulka、`鲢鱼`=s_carp、`泥鳅`=vjun。
 
-还有两格认不出 key（客户端独有的鱼，本服 252 个鱼种里没有）：下通古斯卡河的「鲟鱼」、
-挪威海的「鲣鱼」。它们记在 `trophyFishWhitelistMissing` 里：**分母加一、分子永远不加**，
-奖杯不会误发。
+`trophyFishWhitelistMissing` 记「面板上有、但服务端 252 个鱼种里认不出 key」的格子：
+**分母加一、分子永远不加**，奖杯不会误发。这一栏目前是**空的**——原先那两格
+（下通古斯卡河「第三种鲟」、挪威海「鲣鱼 5.004kg/62cm」）在 2026-11-11 逐格核对后
+分别确认是「鳟鱼」`riv_brown_trout` 与「魣鳕」`m_molva`，都不是客户端独有的鱼，已按真
+key 补进清单。机制留着给将来新发现的数据缺口用。
 
 「认得出、但本服派不出来」这一类记在 `trophyFishWhitelistUnspawnable` 里：**分母一并
 扣掉、分子也不计**，把能拿到的格子全上星就该集齐，而不是被一格不存在的鱼卡死（与

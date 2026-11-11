@@ -49,11 +49,13 @@ Status: ready
   `econ.go` 的 `fishingKeep` 保留同一次调用，但只是**兜底**（结算发放失败时重试，幂等），
   那时已经没有结算界面，才改走 4/22 + `pushSystemChat` 播报。
 - 收录清单：`internal/gameserver/fish_trophy_whitelist.go`，key 是水域 systemID，
-  value 是面板格子（`catch_log.fish_key` + 客户端显示名）。18 个水域全部录入，共 322 格
+  value 是面板格子（`catch_log.fish_key` + 客户端显示名）。18 个水域全部录入，共 324 格
   （埃尔克湖 17 格于 2026-11-11 按面板截图补齐：本图 19 种鱼里只有斑点雀鳝 `sgar`、
   鳄雀鳝 `agar` 不在面板上）。
   - `trophyFishWhitelistMissing`：面板上有、但服务端 252 个鱼种里认不出 key 的格子。
-    计入分母、分子永不加（宁可晚发也不误发）。
+    计入分母、分子永不加（宁可晚发也不误发）。**当前为空**——原两格（下通古斯卡河
+    「第三种鲟」、挪威海「鲣鱼」）于 2026-11-11 核对后确认是 `riv_brown_trout` 鳟鱼与
+    `m_molva` 魣鳕，已按真 key 补进清单。
   - `trophyFishWhitelistUnspawnable`：认得出 key、但该水域 `loc_wiki_fish` 里没有这种鱼。
     分母一并扣掉、分子也不计，避免把该水域卡成永远集不齐。**当前为空**——原条目
     （苏拉河「鲑鱼」→`k_salmon`）在 2026-11-11 核对后确认是「鲢鱼」`s_carp`，本图能派鱼，
@@ -98,8 +100,8 @@ Status: ready
 
 ## Out of Scope
 
-- 不补 `trophyFishWhitelistMissing` 里那两格（下通古斯卡河「鲟鱼」、挪威海「鲣鱼」）
-  对应的鱼种——需要客户端独有的鱼种数据。
+- 不再有「面板有、本服没有」的格子：原 `trophyFishWhitelistMissing` 的两格已确认为
+  本图真实鱼种（鳟鱼 `riv_brown_trout`、魣鳕 `m_molva`），机制保留但表为空。
 - 不补苏拉河任何「派不出」的派鱼规则：该图 16 格都是本图真实鱼种，不需要例外；
   `loc_wiki_fish` 是从客户端静态数据反推的，人为加行会污染生态与查询链路。
 - 不给历史放生的鱼补 `catch_log` 行：补丁上线前的放生记录没有落库，无法追溯。
