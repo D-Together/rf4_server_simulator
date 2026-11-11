@@ -3,6 +3,7 @@ package gameserver
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"rf4server/internal/proto"
 	"rf4server/internal/store"
@@ -77,6 +78,7 @@ func (s *Server) ensureQualificationCups(ctx context.Context, uid int64) []*stor
 		branchRules[branch] = append(branchRules[branch], r.ID)
 	}
 	var granted []*store.Item
+	var names []string
 	permanentDone := 0
 	for branch := int64(1); branch <= 20; branch++ {
 		cup, ok := qualificationCupByBranch[branch]
@@ -98,18 +100,50 @@ func (s *Server) ensureQualificationCups(ctx context.Context, uid int64) []*stor
 		}
 		if it := s.grantQualificationCup(ctx, uid, branch, cup); it != nil {
 			granted = append(granted, it)
+			names = append(names, cup.NameZh)
 		}
 	}
 	if permanentDone == qualificationBranches {
 		if it := s.grantQualificationCup(ctx, uid, 0, qualificationTotalCup); it != nil {
 			granted = append(granted, it)
+			names = append(names, qualificationTotalCup.NameZh)
 		}
+	}
+	if len(names) > 0 {
+		s.broadcastQualificationCups(uid, names)
 	}
 	return granted
 }
 
+// broadcastQualificationCups 把一次巡检新发的奖杯合并成一条聊天播报。
+// 老档首次登录（28/2 兜底）可能一次补发多枚，逐条播报会刷屏，故合并。
+func (s *Server) broadcastQualificationCups(uid int64, names []string) {
+	text := qualificationCupsBroadcastText(names)
+	if text == "" {
+		return
+	}
+	for _, sess := range s.sessionsForUID(uid) {
+		sess.pushSystemChat(text)
+	}
+}
+
+// qualificationCupsBroadcastText 把若干奖杯名拼成一条播报；空输入返回空串。
+func qualificationCupsBroadcastText(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("获得奖赏：")
+	for _, n := range names {
+		b.WriteString("「")
+		b.WriteString(n)
+		b.WriteString("」")
+	}
+	return b.String()
+}
+
 // grantQualificationCup 单杯发放：幂等键与物品同事务提交，先到先得；
-// 已发过返回 nil。成功后聊天播报（升级礼物同通道，已验证可渲染）。
+// 已发过返回 nil。播报由调用方 ensureQualificationCups 合并成一条统一发送。
 func (s *Server) grantQualificationCup(ctx context.Context, uid, branch int64, cup qualificationCup) *store.Item {
 	it, err := s.prepareNewItem(ctx, uid, cup.ItemID, "house", 1, "")
 	if err != nil {
@@ -140,29 +174,25 @@ func (s *Server) grantQualificationCup(ctx context.Context, uid, branch int64, c
 		s.log.Warn("资格奖杯提交失败", "uid", uid, "branch", branch, "err", err)
 		return nil
 	}
-	label := "活动奖励"
-	if branch == 0 {
-		label = "资格奖励：8 个分支全部完成"
-	} else if branch <= qualificationBranches {
-		label = "资格奖励：分支全部完成"
-	}
-	for _, sess := range s.sessionsForUID(uid) {
-		sess.pushSystemChat(fmt.Sprintf("%s，获得奖赏「%s」", label, cup.NameZh))
-	}
 	return row
 }
 
 // awardItemTree 构造奖赏物品的 wire 树，并把容器枚举 f4 投影到奖赏专用分组
 // （containerRewards=14）。ItemToTree 会按 house 投影成 10，客户端物品管理器
 // 据此挂进房屋组而非奖赏面板读的 14 组，故这里覆盖回 14（见 containerRewards）。
+// 找不到容器槽位时保持原样但打 warn：这种物品会以 house=10 推送，奖赏面板看不到。
 func (s *Server) awardItemTree(ctx context.Context, it *store.Item) (*proto.Value, error) {
 	tree, err := s.ItemToTree(ctx, it)
 	if err != nil {
 		return nil, err
 	}
-	if idx := fieldIdxByCS(it.WireClass, csSlotEnum); idx >= 0 && idx < len(tree.Fields) {
-		tree.Fields[idx].Num = ptrU64(containerRewards)
+	idx := fieldIdxByCS(it.WireClass, csSlotEnum)
+	if idx < 0 || idx >= len(tree.Fields) {
+		s.log.Warn("奖赏物品缺少容器槽位字段，f4 未投影到奖赏分组（面板可能不显示）",
+			"item", it.ItemID, "wire_class", it.WireClass, "idx", idx)
+		return tree, nil
 	}
+	tree.Fields[idx].Num = ptrU64(containerRewards)
 	return tree, nil
 }
 
@@ -180,17 +210,21 @@ func (s *Server) pushAwardUpdate(uid int64, it *store.Item) {
 	}
 }
 
+// giftSourceGameEvent 是 811.f0 的「游戏活动」来源码：客户端卡片取词函数
+// （GameAssembly 0x180D4BD40，跳转表 0x180D4C04C）里唯一适合资格完成的通用文案，
+// 实机确认可渲染。有效来源只有 1/2/4/5/6，3 是空号（ja 越界目标，画不出卡）。
+const giftSourceGameEvent = 2
+
 // qualificationGiftLine 把本次新发的分支杯包成一条 811(bkmnmjcfbic) 礼物行，
 // 供 801.f4 携带，客户端 GameResult 按来源码渲染礼物卡（升级礼物同机制）。
 //
-// 来源码与 f1 的硬约束来自 PR #407 的客户端反汇编 + 实机校准
-// （卡片取词函数 GameAssembly 0x180D4BD40，跳转表 0x180D4C04C）：
+// 来源码与 f1 的硬约束来自 PR #407 的客户端反汇编 + 实机校准：
 //   - 有效来源只有 1/2/4/5/6；3 的落点是 ja 越界目标，是空号，画不出卡。
 //     1=新级别、2=游戏活动、4=塑封卡牌合集、5=数条稀有鱼、6=集齐水域。
 //   - f1=0 客户端整枚跳过，必须给非 0（无占位符的来源随便给非 0 即可）。
 //
-// 资格完成没有专属来源码，取通用的 2（游戏活动）渲染卡片；保留 tunable
-// qual_gift_source 供实机微调。无杯返回 nil。
+// 资格完成没有专属来源码，固定取通用的 2（游戏活动），不做可配置项：
+// 3 是空号，若把来源码做成 tunable，手工设成 3 会静默丢卡。无杯返回 nil。
 func (s *Server) qualificationGiftLine(ctx context.Context, cups []*store.Item) (*proto.Value, error) {
 	if len(cups) == 0 {
 		return nil, nil
@@ -203,9 +237,8 @@ func (s *Server) qualificationGiftLine(ctx context.Context, cups []*store.Item) 
 		}
 		items.Items = append(items.Items, tree)
 	}
-	source := uint32(s.tunableF("qual_gift_source", 2))
 	return wiregen.MakeObj("bkmnmjcfbic", map[int]*proto.Value{
-		0: proto.U32(source),
+		0: proto.U32(giftSourceGameEvent),
 		1: proto.U32(1), // 非 0：f1=0 客户端整枚跳过（PR #407 实证）
 		2: items,
 		3: proto.Args(proto.S("61")),

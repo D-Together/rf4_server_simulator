@@ -2,9 +2,11 @@ package gameserver
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"rf4server/internal/logging"
+	"rf4server/internal/proto"
 	"rf4server/internal/store"
 )
 
@@ -179,5 +181,68 @@ func TestAwardItemTreeProjectsRewardsGroup(t *testing.T) {
 	}
 	if got := u64Of(tree.Fields[idx].Num); got != containerRewards {
 		t.Fatalf("奖赏 f4=%d，期望 %d（奖赏分组）", got, containerRewards)
+	}
+}
+
+// 重放：同一进度连续两次巡检，第二次不返回新杯、奖赏物品总行数不变。
+func TestQualificationCupReplayIdempotent(t *testing.T) {
+	srv, db := newStaticRigTestServer(t)
+	defer db.Close()
+	uid := int64(1000001)
+	c := context.Background()
+	completeQualificationTasks(t, db, uid, qualificationBranchRuleIDs(1, nil))
+
+	countRows := func() int {
+		var n int
+		if err := db.SQL.QueryRow(
+			`SELECT COUNT(*) FROM item WHERE uid=? AND wire_class='enikeammfen' AND type_id=2015`,
+			uid).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if cups := srv.ensureQualificationCups(c, uid); len(cups) != 1 {
+		t.Fatalf("首次应发 1 杯，实得 %d", len(cups))
+	}
+	before := countRows()
+	if again := srv.ensureQualificationCups(c, uid); len(again) != 0 {
+		t.Fatalf("重放不应返回新杯，实得 %d", len(again))
+	}
+	if after := countRows(); after != before {
+		t.Fatalf("重放后奖赏物品行数应不变，before=%d after=%d", before, after)
+	}
+}
+
+// 合并播报：多枚奖杯只拼一条系统消息，名字数量与传入一致、无换行。
+func TestQualificationCupsBroadcastText(t *testing.T) {
+	if got := qualificationCupsBroadcastText(nil); got != "" {
+		t.Fatalf("空输入应返回空串，实得 %q", got)
+	}
+	if got := qualificationCupsBroadcastText([]string{"纺车竿高手"}); got != "获得奖赏：「纺车竿高手」" {
+		t.Fatalf("单枚文案不符: %q", got)
+	}
+	multi := qualificationCupsBroadcastText([]string{"纺车竿高手", "超级高手"})
+	if want := "获得奖赏：「纺车竿高手」「超级高手」"; multi != want {
+		t.Fatalf("多枚文案不符: %q，期望 %q", multi, want)
+	}
+	if strings.Count(multi, "「") != 2 || strings.ContainsAny(multi, "\r\n") {
+		t.Fatalf("多枚应合并为一行且含 2 个名字: %q", multi)
+	}
+}
+
+// append811Row 把裸 811 行并入 801.f4 的 args(173)：空容器新建，非空原地追加且保序。
+// 这是 #407 的 gift811Line 行与本 PR 的资格杯行共存的接缝。
+func TestAppend811Row(t *testing.T) {
+	levelLine := proto.U32(1) // 占位载荷：本函数只做容器拼接，不解析内容
+	qualLine := proto.U32(2)
+
+	got := append811Row(proto.Null(), qualLine)
+	if got.Kind != proto.KindArgs || len(got.Items) != 1 || got.Items[0] != qualLine {
+		t.Fatalf("空容器应新建 args(173) 并含该行")
+	}
+	base := proto.Args(proto.S("173"), levelLine)
+	got = append811Row(base, qualLine)
+	if got != base || len(got.Items) != 2 || got.Items[0] != levelLine || got.Items[1] != qualLine {
+		t.Fatalf("非空容器应原地追加并保序，实得 %d 行", len(got.Items))
 	}
 }
