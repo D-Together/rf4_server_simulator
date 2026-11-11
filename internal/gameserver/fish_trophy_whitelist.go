@@ -11,7 +11,7 @@ package gameserver
 // vs 10，阿赫图巴 54 vs 37）。拿它们当分母永远不会集齐——这就是「面板看着满了却拿不
 // 到奖杯」的根因。
 //
-// 清单来源：玩家逐图截图反推（2026-11-10，18 张面板截图）。反推方法：面板卡片显示的
+// 清单来源：玩家逐图截图反推（2026-11-10 的 18 张，外加 2026-11-11 补录的埃尔克湖）。反推方法：面板卡片显示的
 // 是玩家自己的纪录，用**克重+体长**回查 catch_log 即可锁定 fish_key；对不上重量的
 // （未钓到）按该水域鱼种池 + 客户端的显示名比对。注意客户端显示名与 loc_fish.name_zh
 // 并不总一致（常见鲃鱼=c_barbel、长吻梅花鲈=ruffe_n、河螯虾=crawfish、鳟鱼=
@@ -58,7 +58,7 @@ var trophyFishWhitelist = map[string][]trophyFishCell{
 		{key: "burbot", zh: "江鳕"},
 		{key: "gc_smelt", zh: "湖鳟鱼"},
 		{key: "salvel_l", zh: "美洲红点鲑"},
-		{key: "riv_rb_trout", zh: "红鳟"},
+		{key: "riv_rb_trout", zh: "虹鳟"},
 		{key: "perch", zh: "鲈鱼"},
 	},
 	// level_004_torfyanoe_ozero
@@ -151,10 +151,10 @@ var trophyFishWhitelist = map[string][]trophyFishCell{
 		{key: "rudd", zh: "红鳍鱼"},
 		{key: "asp", zh: "赤梢鱼"},
 		{key: "dace", zh: "雅罗鱼"},
-		// 面板上这一格显示「鲑鱼」，但苏拉河的 loc_wiki_fish 37 种里没有鲑鱼
-		// （k_salmon 只出现在阿赫图巴河），派不出鱼就永远上不了星。格子保留
-		// 在清单里如实反映面板，判定时由 trophyFishWhitelistUnspawnable 扣掉。
-		{key: "k_salmon", zh: "鲑鱼"},
+		// 这一格原先按显示名认成了「鲑鱼」k_salmon，但苏拉河 37 种鱼里没有任何鲑科鱼，
+		// 派不出来就永远上不了星。2026-11-11 核对后确认客户端那一格是「鲢鱼」s_carp
+		// （本图确实能钓到，loc_fish 有 15 条记录、fish_ecology 也齐全），改回真 key。
+		{key: "s_carp", zh: "鲢鱼"},
 		{key: "bh_carp", zh: "鳙鱼"},
 	},
 	// level_009_ahtuba
@@ -240,7 +240,7 @@ var trophyFishWhitelist = map[string][]trophyFishCell{
 		{key: "menek", zh: "单鳍鳕"},
 		{key: "pinagor", zh: "圆鳍鱼"},
 		{key: "turbot", zh: "大菱鲆"},
-		{key: "p_zubatka", zh: "大西洋狼鲷"},
+		{key: "p_zubatka", zh: "大西洋狼鳚"},
 		{key: "makrel", zh: "大西洋鲭"},
 		{key: "atl_herring", zh: "大西洋鲱"},
 		{key: "atl_cod", zh: "大西洋鳕"},
@@ -256,19 +256,23 @@ var trophyFishWhitelist = map[string][]trophyFishCell{
 		{key: "katran", zh: "白斑角鲨"},
 		{key: "m_scorpius", zh: "短角大杜父鱼"},
 		{key: "s_saurus", zh: "竹刀鱼"},
-		{key: "zoarces_v", zh: "绯鲷"},
+		{key: "zoarces_v", zh: "绵鳚"},
 		{key: "coalfish", zh: "绿青鳕"},
 		{key: "m_zubatka", zh: "花狼鱼"},
-		{key: "molva", zh: "蓝舒鲣"},
+		{key: "molva", zh: "蓝魣鳕"},
 		{key: "poutassou", zh: "蓝鳕"},
 		{key: "ambl_r", zh: "钝头鳐"},
 		{key: "lh_kambala", zh: "长吻黄盖鲽"},
 		{key: "hippoglos_p", zh: "长拟庸鲽"},
 		{key: "pollachius", zh: "青鳕"},
 		{key: "halibut_b", zh: "马舌鲽"},
-		{key: "sea_kambala", zh: "鲆鲽"},
+		// 这一格原先被记成「鲣鱼 5.004kg/62cm」、认不出 key，挂在
+		// trophyFishWhitelistMissing 里当缺格。2026-11-11 逐格核对后确认是「魣鳕」
+		// m_molva（本图 57 种里确实有，能正常派鱼），缺格已清空。
+		{key: "m_molva", zh: "魣鳕"},
+		{key: "sea_kambala", zh: "鲽鱼"},
 		{key: "piksha", zh: "黑线鳕"},
-		{key: "centroloph_n", zh: "黑长鲷"},
+		{key: "centroloph_n", zh: "黑长鲳"},
 	},
 	// level_013_sev_don
 	"level_013_sev_don": {
@@ -339,6 +343,10 @@ var trophyFishWhitelist = map[string][]trophyFishCell{
 		{key: "syb_elets", zh: "贝加尔雅罗鱼"},
 		{key: "sig_p", zh: "驼背白鲑"},
 		{key: "peled", zh: "高白鲑"},
+		// 原先这一格被记成「第三种鲟」、认不出 key，挂在 trophyFishWhitelistMissing
+		// 里当缺格。2026-11-11 核对后确认是「鳟鱼」riv_brown_trout（本图 41 种里有，
+		// loc_fish 也有捕获记录），缺格已清空。
+		{key: "riv_brown_trout", zh: "鳟鱼"},
 		{key: "dr_char", zh: "黄斑红点鲑"},
 	},
 	// level_016_yama
@@ -348,22 +356,22 @@ var trophyFishWhitelist = map[string][]trophyFishCell{
 		{key: "neiva", zh: "内维红点鲑"},
 		{key: "a_char", zh: "北极红点鲑"},
 		{key: "lenok_t", zh: "图们江细鳞鲑"},
-		{key: "mikija", zh: "堪察加红鲑"},
+		{key: "mikija", zh: "堪察加虹鳟"},
 		{key: "chavycha", zh: "大鳞麻哈鱼"},
 		{key: "keta", zh: "大麻哈鱼"},
 		{key: "trib_h", zh: "珠星三块鱼"},
 		{key: "kunja", zh: "白斑红点鲑"},
 		{key: "nerka", zh: "红大麻哈鱼"},
 		{key: "malma", zh: "花羔红点斑鲑"},
-		{key: "golets_lev", zh: "荣氏红点鲑"},
-		{key: "chan_m", zh: "蒙古红鲃"},
-		{key: "kijuch", zh: "银鲪鱼"},
+		{key: "golets_lev", zh: "莱文氏红点鲑"},
+		{key: "chan_m", zh: "蒙古红鲌"},
+		{key: "kijuch", zh: "银鳟鱼"},
 		{key: "onkor_mg", zh: "马苏大麻哈鱼"},
 		{key: "onkor_m", zh: "马苏鱼"},
 	},
 	// level_018_moskitnoe
 	"level_018_moskitnoe": {
-		{key: "s_freaks", zh: "C2超级怪物"},
+		{key: "s_freaks", zh: "C2超级怪胎"},
 		{key: "din_l_carp", zh: "丁克斯带形鲤"},
 		{key: "din_m_carp", zh: "丁克斯镜鲤"},
 		{key: "tench", zh: "丁鱥"},
@@ -377,7 +385,28 @@ var trophyFishWhitelist = map[string][]trophyFishCell{
 		{key: "c.carp", zh: "金鲫"},
 		{key: "crucian", zh: "银鲫"},
 		{key: "m_carp", zh: "镜鲤"},
-		{key: "karasekarp", zh: "鲢鲤"},
+		{key: "karasekarp", zh: "鲤鲫"},
+	},
+	// level_019_american_pond（埃尔克湖）17 格：本图 19 种鱼里只有斑点雀鳝 sgar 与
+	// 鳄雀鳝 agar 不在面板上，其余全收（2026-11-11 面板截图核对）。
+	"level_019_american_pond": {
+		{key: "lm_b_bass", zh: "大口黑鲈"},
+		{key: "warm", zh: "太阳鱼"},
+		{key: "resfish", zh: "小冠太阳鱼"},
+		{key: "sm_bass", zh: "小口黑鲈"},
+		{key: "ch_catfish", zh: "斑点叉尾鮰"},
+		{key: "sp_bass", zh: "斑点黑鲈"},
+		{key: "hs_bass", zh: "杂交条纹狼鲈"},
+		{key: "s_bass", zh: "条纹狼鲈"},
+		{key: "fwdrum", zh: "淡水石首鱼"},
+		{key: "walleye", zh: "玻璃梭鲈"},
+		{key: "white_crappie", zh: "白刺盖太阳鱼"},
+		{key: "bp_bass", zh: "眼点丽鱼"},
+		{key: "g_shad", zh: "美洲真鰶"},
+		{key: "b_gill", zh: "蓝鳃太阳鱼"},
+		{key: "wh_bass", zh: "金眼狼鲈"},
+		{key: "fhcatfish", zh: "铲鮰"},
+		{key: "black_crappie", zh: "黑斑刺盖太阳鱼"},
 	},
 }
 
@@ -385,25 +414,21 @@ var trophyFishWhitelist = map[string][]trophyFishCell{
 // 卡片，可是服务端 252 个鱼种里没有对得上号的（属于客户端独有、本服没有的鱼）。这些
 // 格子永远不可能上星，于是把分母补上、但分子永远不加——奖杯不会误发，等以后补齐鱼种
 // 再把这一项删掉。
-var trophyFishWhitelistMissing = map[string]int{
-	"level_015_tunguska":  1, // 面板上的「鲟鱼」：除东西伯利亚鲟/西伯利亚小体鲟之外的第三种鲟
-	"level_012_north_sea": 1, // 面板上的「鲣鱼」：5.004kg/62cm，对不上任何已有 key
-}
+//
+// 目前为空：原先那两格（下通古斯卡河「第三种鲟」、挪威海「鲣鱼 5.004kg/62cm」）在
+// 2026-11-11 逐格核对后分别确认是「鳟鱼」riv_brown_trout 与「魣鳕」m_molva，都已改回
+// 真 key，分母不再需要补。机制留着给将来新发现的数据缺口用。
+var trophyFishWhitelistMissing = map[string]int{}
 
 // trophyFishWhitelistUnspawnable 记录「面板上有、本服这张图却派不出」的鱼种 key。
 //
-// 苏拉河面板截图里有一格显示「鲑鱼」，当时按显示名映射成了 k_salmon；但
-// `loc_wiki_fish` 里 k_salmon 只出现在阿赫图巴河，苏拉河那 37 种里没有它，而正常派鱼
-// 走的就是 loc_wiki_fish——这一格永远上不了星，面板就永远集不齐，奖杯也永远发不出去
-// （2026-11-10 review P2）。这里把它从分母里扣掉、分子也不计：玩家把**能拿到的格子**
-// 全部上星就该拿到奖杯，而不是被一格根本不存在的鱼卡死。
+// 目前为空：唯一的一格（苏拉河「鲑鱼」）在 2026-11-11 核对后确认是「鲢鱼」s_carp，
+// 本图能正常派鱼，已改回真 key，不再需要扣分母。机制留着给将来新发现的数据缺口用。
 //
 // 与 trophyFishWhitelistMissing 的区别：missing 是「认不出是哪种鱼」（分母 +1、
 // 分子永远不加，宁可晚发也不误发）；unspawnable 是「认得出，但本服钓不到」（分母
 // 一并扣掉，不阻塞）。两者都是数据缺口，补齐鱼种或确认真实 key 后删掉对应条目即可。
-var trophyFishWhitelistUnspawnable = map[string][]string{
-	"level_008_sura_river": {"k_salmon"},
-}
+var trophyFishWhitelistUnspawnable = map[string][]string{}
 
 // trophyFishCell 是面板上一个格子：key 是 catch_log.fish_key，zh 是客户端显示名
 // （只用于注释/排障，判定一律用 key）。

@@ -104,7 +104,8 @@ func (s *Server) fishingEnd(ctx *Ctx) ([]byte, bool) {
 		prevLevel = max64(1, newLevel-1)
 		// 按实际钓组大类增长；概率随当前熟练度反比下降，满熟练度不再增加。
 		skillID, skillGain := s.awardFishingProficiency(cctx, uid, rigType)
-		// catch_log 只在 14/5 入护时写入；14/4 放生的鱼不进入统计和纪录。
+		// catch_log 已在 settleCatchOnce 的 14/4 事务里写下这一尾（source='catch'），
+		// 入护只把同一行抬成 'keep'，放生保持 'catch'——图鉴与统计都认「钓到过」。
 		pending.XP = xp
 		pending.Silver = silver
 		// 对本次钓组组件施加钓获磨损。
@@ -308,29 +309,28 @@ func (s *Server) fishingKeep(ctx *Ctx) ([]byte, bool) {
 		}
 		st.mu.Unlock()
 		s.notifyFishKept(ctx.Sess, &kept)
-		// 稀有鱼 / 超级稀有鱼鱼种数奖座：入护才计入图鉴（catch_log 刚落库），
-		// 放生不计——与 3/17 图鉴、307.f16 星号同一口径。奖座推 4/22 并播报。
-		if keptInNet {
-			if gifts := s.rarityMilestoneAfterKeep(cctx, uid); len(gifts) > 0 {
-				pushRarityStatuettesOnKeep(ctx.Sess, gifts)
-			}
-		}
+		// 稀有鱼 / 超级稀有鱼鱼种数奖座**不在这里判定**：官方结算界面（801）在
+		// 玩家选择入护或放生之前就弹出奖座礼物卡，因此口径是「钓到过的鱼种数」，
+		// 已在 14/4 结算时按 catch_seen 判定并随 801.f4 下发（见 rarity_milestones.go）。
+		// 图鉴与 307.f16 现在同一口径：catch_log 在结算就落库，放生也点亮。
 		// 钓获礼包：入护成功后按概率当场开箱（异步，避免拖慢入护回包）。
 		s.scheduleLootBox(ctx.Sess, &kept)
-		// 本尾已落 catch_log；14/4 结算卡 f7 的档案快照早于落库、不含本尾，
-		// 在此补推新档案，等级旁星号（307.f16）即时计入新奖杯鱼种。
+		// 本尾已在 14/4 结算事务里落 catch_log，f7 的档案快照就含它；
+		// 这里再推一次 307，让护网变化与等级旁星号（f16）在入护后立刻刷新。
 		ctx.Sess.Push2_1()
 		// 水域奖杯：这一尾可能刚好补上该水域面板的最后一种鱼。
 		//
-		// 只在 keptInNet（本次真的写进 keepnet_items + catch_log）时判定：
-		// 图鉴、307.f16 星号、3/17 面板都只认 catch_log，14/6 放生不写，所以
-		// 「入护即判定」才保证「面板填满」与「拿到奖杯」严格等价（review P2）。
+		// 正式判定在 14/4 结算（waterwayTrophyAfterCatch，数据源 catch_seen，
+		// 随 801.f4 来源码 6 在结算界面弹卡）。这里只在 keptInNet 时兜底重试，
+		// 幂等键保证不会重复发。
 		if keptInNet {
+			// 水域奖杯的正式判定在 14/4 结算（waterwayTrophyAfterCatch，数据源 catch_seen，
+			// 随 801.f4 来源码 6 在结算界面弹卡）。这里只是**兜底**：结算路径若发失败
+			// （物品定义读不到、DB 抖动），入护时再试一次；幂等键保证不会重复发。
+			// 真在这里补发时已经没有结算界面了，所以改走背包增量 + 系统播报。
 			if trophy, terr := s.grantWaterwayTrophy(cctx, uid, keepLevel); terr != nil {
 				ctx.Log.Warn("水域奖杯发放失败", "water", keepLevel, "err", terr)
 			} else if trophy != nil {
-				// 结算界面（801）早于入护，已经发不出去了；改用背包增量 + 系统播报，
-				// 与稀有鱼奖座、福袋开箱同一通道。
 				ctx.Sess.pushWaterwayTrophies([]*store.Item{trophy})
 				name := s.lootItemName(cctx, trophy.ItemID)
 				if name == "" {
@@ -347,7 +347,7 @@ func (s *Server) fishingKeep(ctx *Ctx) ([]byte, bool) {
 		if err2 != nil {
 			return nil, false
 		}
-		// 入护后 catch_log 才写入本次鱼获，诱饵广度类成就在这一刻判定。
+		// 入护事务提交后再判定诱饵广度类成就（统计源是 catch_log，含本次鱼获）。
 		s.evaluateAchievements(ctx, achievementEvent{
 			Kind: evFishKept, DistinctBaits: s.distinctCatchBaits(cctx, uid),
 		})
@@ -460,8 +460,8 @@ func (s *Server) fishingRelease(ctx *Ctx) ([]byte, bool) {
 			s.DB.NamedFishNoteRecatch(cctx, pending.NamedID)
 		}
 		if !replayed {
-			// 放生同样在结算卡之后落 catch_log，补推新档案刷新等级旁星号
-			// （与 14/5 入护路径同一时机）；与放生经验是否为 0 无关。
+			// 放生的鱼在 14/4 结算时已落 catch_log 并点亮图鉴，这里补推新档案，
+			// 让护网清空与等级旁星号立刻刷新；与放生经验是否为 0 无关。
 			ctx.Sess.Push2_1()
 		}
 		if !replayed && result.Bonus > 0 {

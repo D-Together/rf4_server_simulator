@@ -20,7 +20,7 @@ var PlayerTables = []string{
 	"profile", "item", "container_slot", "owned_items", "rig", "rig_component",
 	"rod_pod_setting", "rod_pod_alarm", "rod_setting", "txn", "mail", "keepnet_items",
 	"skill", "skill_node", "player_counters", "player_achievements", "player_qualifications", "device",
-	"catch_log", "competition", "competition_member", "competition_result", "named_fish", "place_access",
+	"catch_log", "catch_seen", "competition", "competition_member", "competition_result", "named_fish", "place_access",
 	"fishing_state", "item_damage_log", "membership_order", "reel_performance", "cafe_order", "cafe_order_completion",
 	"player_condition", "campfire_state", "happy_hour_state",
 	"drink_bonus_clock", "drink_bonus_effect", "trip_state", "trip_grant",

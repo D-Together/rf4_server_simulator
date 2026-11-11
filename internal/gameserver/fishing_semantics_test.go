@@ -211,6 +211,61 @@ func TestCatchLogWrittenOnceOnKeep(t *testing.T) {
 	}
 }
 
+// TestCatchLogReplayedSettleAfterKeptStaysSingleRow 钉住重放口径：
+// 唯一索引 uq_catch_log_fish_identity 只到 (uid, source, catch_guid)，14/5 入护把行
+// 从 'catch' 抬成 'keep' 后 'catch' 槽位空出——若无别的守卫，同一 GUID 再走一次
+// 14/4 结算会插进第二条 source='catch' 行，图鉴与 321 统计翻倍。实际防线是
+// catch-settlement:<uid>:<guid> 的 kv 回执（与结算同事务写入）：重放直接走回执返回，
+// 不再开事务。这里把「结算 → 入护 → 重放 14/4」整条链钉死。
+func TestCatchLogReplayedSettleAfterKeptStaysSingleRow(t *testing.T) {
+	srv, db := newDetachTestServer(t)
+	ctx := context.Background()
+	const uid = int64(1000001)
+	f := &RolledFish{FishGUID: "55555555555555555555555555555555", Species: "c.roach", Grade: 1, WeightG: 186, LengthM: 0.1981, LocLevel: "level_019_american_pond"}
+	if r := srv.settleCatchXP(ctx, uid, f, 1); r == nil || r.replayed {
+		t.Fatal("首次结算应真实入账")
+	}
+	st := srv.stateFor(uid)
+	st.mu.Lock()
+	st.Pending = f
+	st.Loc = "loc19_03"
+	st.Spot = 123
+	st.Bait = "worm_01"
+	st.mu.Unlock()
+	sess := newProbeSess(srv)
+	tree := rigRequestTree(t, proto.Guid("66666666666666666666666666666666"), proto.Guid(f.FishGUID))
+	if body, ok := srv.fishingKeep(&Ctx{Sess: sess, Main: 14, Sub: 5, Tree: tree, DecodeOK: true, Log: logging.Discard()}); !ok || len(body) == 0 {
+		t.Fatal("14/5 未处理")
+	}
+	var xpBefore int64
+	if err := db.SQL.QueryRowContext(ctx, `SELECT xp FROM profile WHERE uid=?`, uid).Scan(&xpBefore); err != nil {
+		t.Fatal(err)
+	}
+	r := srv.settleCatchXP(ctx, uid, f, 1)
+	if r == nil {
+		t.Fatal("重放结算返回 nil")
+	}
+	if !r.replayed {
+		t.Fatal("重放结算应命中 kv 回执并标记 replayed")
+	}
+	var n int
+	var source string
+	if err := db.SQL.QueryRowContext(ctx,
+		`SELECT COUNT(*), COALESCE(MAX(source),'') FROM catch_log WHERE uid=?`, uid).Scan(&n, &source); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || source != "keep" {
+		t.Fatalf("重放后 catch_log 行数=%d source=%q，期望 1 行 keep", n, source)
+	}
+	var xpAfter int64
+	if err := db.SQL.QueryRowContext(ctx, `SELECT xp FROM profile WHERE uid=?`, uid).Scan(&xpAfter); err != nil {
+		t.Fatal(err)
+	}
+	if xpAfter != xpBefore {
+		t.Fatalf("重放结算不得重复入账: xp %d -> %d", xpBefore, xpAfter)
+	}
+}
+
 func TestFishingLeftBumpsEscapes(t *testing.T) {
 	srv, db := newDetachTestServer(t)
 	const uid = int64(1000001)

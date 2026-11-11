@@ -21,10 +21,11 @@ import (
 // 判定口径与 3/17 面板完全一致（同一份 trophyFishWhitelist 收录清单、同一条
 // recordTrophyGrade 准入门槛）。
 //
-// 判定时机是 **14/5 入护落库之后**，不是 14/4 结算：`catch_log` 只在入护时写入，
-// 14/6 放生不写；图鉴、307.f16 星号、3/17 面板全从 `catch_log` 统计。若在结算时
-// 就发，「发奖杯 → 随后放生」会留下「有奖杯、面板没满」的错位（2026-11-10 review P2）。
-// 入护之后再判定，放生的鱼自然不计数，「面板填满」与「拿到奖杯」严格等价。
+// 判定时机是 **14/4 结算当场**，与稀有鱼奖座同一时刻：官方结算界面在玩家选择入护
+// 或放生之前就画出「捕获了该水域的所有稀有鱼」这张卡，说明官方的收集进度在
+// 「钓到」那一刻就成立。catch_log 现在也在 14/4 结算事务里写入（source='catch'），
+// 入护只把它抬成 'keep'、放生保持 'catch'——图鉴、307.f16 星号、3/17 面板、
+// 321 统计与这里的水域进度因此都读同一套「钓到过」的记录，不再有两套口径。
 //
 // 奖杯是纪念品：卖掉、丢掉、转到小屋之后都不会重发，因此发放记录单独写在 kv 里，
 // 不能依赖「现在背包里有没有这枚奖杯」来判断是否发过。
@@ -81,17 +82,20 @@ func (s *Server) waterwayTrophyProgressFor(ctx context.Context, uid int64, locLe
 	}
 	err := s.DB.SQL.QueryRowContext(ctx, `
 		SELECT COUNT(DISTINCT lf.fish_key),
-		       COUNT(DISTINCT CASE WHEN c.grade>=? THEN c.fish_key END)
+		       COUNT(DISTINCT CASE WHEN cs.best_grade>=? THEN cs.fish_key END)
 		FROM loc_fish lf
 		JOIN loc_alias a ON a.loc = lf.loc
-		LEFT JOIN catch_log c ON c.uid=? AND c.fish_key=lf.fish_key
-		     AND (c.loc_level=a.alias OR (COALESCE(c.loc_level,'')='' AND c.loc=a.loc))
-		WHERE a.alias=?`, recordTrophyGrade, uid, locLevel).Scan(&p.Total, &p.Done)
+		LEFT JOIN catch_seen cs ON cs.uid=? AND cs.fish_key=lf.fish_key AND cs.loc_level=?
+		WHERE a.alias=?`, recordTrophyGrade, uid, locLevel, locLevel).Scan(&p.Total, &p.Done)
 	return p, err
 }
 
 // whitelistTrophyProgress 按面板收录清单算进度：分母是清单长度，分子是清单里在该
 // 水域已上星（grade 3）或蓝冠（grade 4）的鱼种数。清单外的记录一律不参与。
+//
+// 数据源是 `catch_seen`（钓到即记，带 loc_level）。结算发生在入护之前，
+// 所以不能等 catch_log 的 source 变成 'keep' 才判——那时结算界面早就发出去了。
+// catch_seen 与 catch_log 在同一结算事务里落库，两者对「钓到过」的认定一致。
 func (s *Server) whitelistTrophyProgress(ctx context.Context, uid int64, locLevel string, wl map[string]struct{}) (waterwayTrophyProgress, error) {
 	// 分母 = 认得出的格子 + 认不出的格子（后者永远不算完成，见 trophyFishWhitelistMissing）。
 	p := waterwayTrophyProgress{Total: int64(trophyFishWhitelistTotal(locLevel))}
@@ -105,19 +109,13 @@ func (s *Server) whitelistTrophyProgress(ctx context.Context, uid int64, locLeve
 	}
 	// IN 列表按 key 排序，保证 SQL 文本稳定（便于日志与 EXPLAIN 对照）。
 	sort.Strings(keys)
-	var locName string
-	if err := s.DB.SQL.QueryRowContext(ctx, `SELECT COALESCE(loc,'') FROM loc_alias WHERE alias=?`, locLevel).Scan(&locName); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return p, err
-	}
 	ph := strings.TrimSuffix(strings.Repeat("?,", len(keys)), ",")
-	q := `SELECT COUNT(DISTINCT fish_key) FROM catch_log
-		WHERE uid=? AND grade>=? AND fish_key IN (` + ph + `)
-		  AND (loc_level=? OR (COALESCE(loc_level,'')='' AND loc=?))`
-	args = append(args, uid, int64(recordTrophyGrade))
+	q := `SELECT COUNT(DISTINCT fish_key) FROM catch_seen
+		WHERE uid=? AND loc_level=? AND best_grade>=? AND fish_key IN (` + ph + `)`
+	args = append(args, uid, locLevel, int64(recordTrophyGrade))
 	for _, k := range keys {
 		args = append(args, k)
 	}
-	args = append(args, locLevel, locName)
 	if err := s.DB.SQL.QueryRowContext(ctx, q, args...).Scan(&p.Done); err != nil {
 		return p, err
 	}
@@ -192,6 +190,28 @@ func (s *Server) issueWaterwayTrophy(ctx context.Context, uid int64, locLevel, i
 	s.log.Info("发放水域奖杯", "uid", uid, "water", locLevel, "item", itemID,
 		"奖杯鱼种", p.Done, "水域鱼种", p.Total, "guid", row.GUID)
 	return row, nil
+}
+
+// waterwayTrophyAfterCatch 在 14/4 结算事务提交之后判定**本尾鱼所在水域**是否集齐。
+// 返回的物品由调用方挂 801.f4 的礼物行（来源码 6「捕获了该水域的所有稀有鱼」）
+// 与 801.f8 奖励列表，客户端在结算界面当场弹卡——与稀有鱼奖座同一时机、同一表现。
+//
+// 只判本水域：一尾鱼只可能在它被钓上来的那片水里补上最后一个格子。判定数据源是
+// catch_seen（本尾鱼已在结算事务里落库，且带 loc_level），所以跨水域的同名鱼种
+// 不会互相顶进度。图鉴同样记这一尾（catch_log 同事务写入），两边永远同步。
+func (s *Server) waterwayTrophyAfterCatch(ctx context.Context, uid int64, locLevel string) []*store.Item {
+	if s == nil || s.DB == nil || locLevel == "" || locLevel == waterwayTrophyHome {
+		return nil
+	}
+	it, err := s.grantWaterwayTrophy(ctx, uid, locLevel)
+	if err != nil {
+		s.log.Warn("水域奖杯判定失败", "uid", uid, "water", locLevel, "err", err)
+		return nil
+	}
+	if it == nil {
+		return nil
+	}
+	return []*store.Item{it}
 }
 
 // ensureWaterwayTrophies 巡检所有水域，补发已经集齐但还没拿到的奖杯。登录、打开
