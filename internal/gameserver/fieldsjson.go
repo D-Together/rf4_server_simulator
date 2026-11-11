@@ -278,6 +278,10 @@ func treeFromPy(p pyTree) *proto.Value {
 		v.Items = treesFromPy(p.Items)
 	case proto.KindValList, proto.KindU32Arr, proto.KindGuidArr, proto.KindArray:
 		v.Items = treesFromPy(p.Items)
+	case proto.KindTypedArr:
+		// 类型名数组（如竿架 f1 竿位设置数组）：[0x03][类型名][u16 n] + 元素。
+		v.TypeName = p.Type
+		v.Items = treesFromPy(p.Items)
 	case proto.KindDict:
 		v.TypeName = p.Type
 		// pairs 略：dict 项以 items 二元组存，重建罕见（物品树基本不用 dict）
@@ -381,6 +385,13 @@ func treeToPy(v *proto.Value) map[string]any {
 				items = append(items, map[string]any{"t": "bytes", "hex": it.Hex})
 				continue
 			}
+			items = append(items, treeToPy(it))
+		}
+		m["items"] = items
+	case proto.KindTypedArr:
+		m["type"] = v.TypeName
+		items := make([]any, 0, len(v.Items))
+		for _, it := range v.Items {
 			items = append(items, treeToPy(it))
 		}
 		m["items"] = items
