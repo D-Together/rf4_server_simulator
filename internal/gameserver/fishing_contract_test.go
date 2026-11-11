@@ -15,8 +15,9 @@ func f32At(v *proto.Value, idx int) float64 {
 	return float64(proto.F32FromBits(f.U32()))
 }
 
-// TestFish27UsesVerifiedFightFields 验证 obj27 的体力、初始体力和拉力恢复到
-// 旧版真实服务器样本校准出的字段语义，而不是把积分/质量塞进搏鱼字段。
+// TestFish27UsesVerifiedFightFields 验证 obj27 的体力、初始体力和拉力字段语义：
+// f5/f6 沿用旧真实样本校准值；f8 = w_kg × (K0 + slope·ln(w_kg)) 逐鱼种官方口径
+// （specs/changes/fish-pull-k-table/spec.md）。
 func TestFish27UsesVerifiedFightFields(t *testing.T) {
 	srv := NewServer(config.Game{Tunnel: config.Tunnel{PSK: "contract"}}, logging.Discard(), nil)
 	f := &RolledFish{FishGUID: "11111111111111111111111111111111", Species: "c.roach", Grade: 1, WeightG: 186, LengthM: 0.1981}
@@ -36,26 +37,11 @@ func TestFish27UsesVerifiedFightFields(t *testing.T) {
 	if got := f32At(tree, 6); math.Abs(got-verifiedInitialStaminaRatio) > 1e-6 {
 		t.Fatalf("c.roach f6 初始体力=%f，期望%f", got, verifiedInitialStaminaRatio)
 	}
-	wantPull := verifiedForcePerGram * 186 * profile.ForceScale
+	// c.roach K0=16.4：f8 = 0.186kg × (16.4 + 0.35·ln(0.186)) = 2.9404N。
+	// 官方锚点：150g→2.39N、680g→11.07N、713g→11.61N（同公式 ±2%）。
+	wantPull := 0.186 * (16.4 + fishPullLnSlope*math.Log(0.186))
 	if got := f32At(tree, 8); math.Abs(got-wantPull) > 0.0001 {
 		t.Fatalf("c.roach f8 拉力=%f，期望%f", got, wantPull)
-	}
-
-	// 两条实际样本必须严格复现。
-	for _, tc := range []struct {
-		weightG float64
-		force   float64
-	}{
-		{53, 0.5197524514},
-		{63, 0.6178189516},
-	} {
-		f = &RolledFish{FishGUID: "44444444444444444444444444444444", Species: "ruffe_n", Grade: 2, WeightG: int64(tc.weightG), LengthM: 0.18}
-		profile = srv.fishFightProfileFor(f)
-		tree = srv.buildFish27(f, "", "", 24)
-		want := tc.force * profile.ForceScale
-		if got := f32At(tree, 8); math.Abs(got-want) > 1e-3 {
-			t.Fatalf("%.0fg f8 拉力=%f，期望%f", tc.weightG, got, want)
-		}
 	}
 }
 

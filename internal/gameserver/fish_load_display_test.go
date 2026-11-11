@@ -7,6 +7,9 @@ import (
 	"rf4server/internal/proto"
 )
 
+// TestFightCurvesKeepSprintTensionStages 验证曲线池是官方口径的纯 uniform 缩放：
+// 全部行 = 池原值 × (pull/池基准)，张力包络即池自身包络（crucian 池 1.414..3.677，
+// 基准 2.828 → 0.50×pull..1.30×pull；官方 crucian 293g 实测 min≈0.49×pull）。
 func TestFightCurvesKeepSprintTensionStages(t *testing.T) {
 	srv, _ := newRigTestServer(t)
 	const pull = 50.0
@@ -35,60 +38,65 @@ func TestFightCurvesKeepSprintTensionStages(t *testing.T) {
 			t.Errorf("缺少冲刺/恢复阶段 %d", stage)
 		}
 	}
-	if minTension > pull*0.75 || maxTension < pull*1.15 {
-		t.Fatalf("曲线张力范围 %.2f..%.2f，未形成可展示的冲刺差异（基准 %.2f）",
+	// uniform 缩放：min/max 比例固定为池包络，与 pull 无关。
+	if minTension < pull*0.45 || maxTension > pull*1.35 {
+		t.Fatalf("曲线张力范围 %.2f..%.2f 偏离 crucian 池 uniform 包络（基准 %.2f）",
 			minTension, maxTension, pull)
+	}
+	if minTension >= pull || maxTension <= pull {
+		t.Fatalf("张力包络未跨过基准拉力 %.2f，冲刺差异丢失", pull)
 	}
 }
 
-func TestFishFightProfilesUseSpeciesAndWeight(t *testing.T) {
+// TestFishPullScalesWithSpeciesAndWeight 验证 f8 的官方规律：
+// 同鱼种体重大→拉力大（ln 斜率）；掠食者 K0 高于静水小鲤；海水鳕科最高。
+func TestFishPullScalesWithSpeciesAndWeight(t *testing.T) {
 	srv, _ := newRigTestServer(t)
-	pikeSmall := srv.fishFightProfileFor(&RolledFish{Species: "n.pike", WeightG: 150, Grade: 1})
-	pikeLarge := srv.fishFightProfileFor(&RolledFish{Species: "n.pike", WeightG: 8000, Grade: 4})
-	roach := srv.fishFightProfileFor(&RolledFish{Species: "c.roach", WeightG: 100, Grade: 1})
-	catfish := srv.fishFightProfileFor(&RolledFish{Species: "w_catfish", WeightG: 20000, Grade: 4})
+	pikeSmall := srv.fishFightPullFor(&RolledFish{Species: "n.pike", WeightG: 150})
+	pikeLarge := srv.fishFightPullFor(&RolledFish{Species: "n.pike", WeightG: 8000})
+	roachPull := srv.fishFightPullFor(&RolledFish{Species: "c.roach", WeightG: 1000})
+	crucianPull := srv.fishFightPullFor(&RolledFish{Species: "crucian", WeightG: 1000})
 
-	if pikeLarge.ForceScale <= pikeSmall.ForceScale {
-		t.Fatalf("同鱼种大体型冲刺应更强: small=%f large=%f",
-			pikeSmall.ForceScale, pikeLarge.ForceScale)
+	if pikeLarge <= pikeSmall {
+		t.Fatalf("同鱼种大体型拉力应更强（ln 斜率）: small=%f large=%f", pikeSmall, pikeLarge)
 	}
-	if pikeLarge.StaminaScale <= pikeSmall.StaminaScale {
-		t.Fatalf("同鱼种大体型耐力应更强: small=%f large=%f",
-			pikeSmall.StaminaScale, pikeLarge.StaminaScale)
+	if roachPull <= crucianPull {
+		t.Fatalf("拟鲤族 K0 应高于静水小鲤: roach=%f crucian=%f", roachPull, crucianPull)
 	}
-	if pikeLarge.ForceScale <= roach.ForceScale {
-		t.Fatalf("伏击型掠食鱼冲刺应强于小型鱼: pike=%f roach=%f",
-			pikeLarge.ForceScale, roach.ForceScale)
-	}
-	if catfish.StaminaScale <= pikeLarge.StaminaScale {
-		t.Fatalf("鲶鱼耐力应高于梭鲈: catfish=%f pike=%f",
-			catfish.StaminaScale, pikeLarge.StaminaScale)
+	// 同重量（1kg，ln 项归零）下比 K0：海水鳕科 > 掠食者 > 拟鲤族 > 静水小鲤。
+	pikeK1 := srv.fishFightPullFor(&RolledFish{Species: "n.pike", WeightG: 1000})
+	merlangK1 := srv.fishFightPullFor(&RolledFish{Species: "merlang", WeightG: 1000})
+	if merlangK1 <= pikeK1 {
+		t.Fatalf("海水鳕科 K0 应高于掠食者: merlang(1kg)=%f pike(1kg)=%f", merlangK1, pikeK1)
 	}
 
-	curves := srv.buildFightCurvesForFish(
-		&RolledFish{Species: "n.pike", WeightG: 8000},
-		20,
-		pikeLarge,
-	)
-	minTension, maxTension, restTension, burstTension := math.Inf(1), 0.0, 0.0, 0.0
-	for _, row := range curves.Items {
-		stageField := row.Field(0)
-		stage := stageField.U32()
-		v := protoF32Field(row, 8)
-		minTension = math.Min(minTension, v)
-		maxTension = math.Max(maxTension, v)
-		if fightIsRestPhase(stage) {
-			restTension = math.Max(restTension, v)
-		}
-		if stage == 302 || stage == 101 {
-			burstTension = math.Max(burstTension, v)
-		}
+	// 未实测鱼种走习性组/fallback，不得为 0 或负。
+	fallback := srv.fishFightPullFor(&RolledFish{Species: "not_in_calib", WeightG: 500})
+	if fallback <= 0 {
+		t.Fatalf("未测种拉力=%f，应走组表/fallback", fallback)
 	}
-	if burstTension <= restTension*1.8 {
-		t.Fatalf("冲刺/休息张力差不足: burst=%f rest=%f", burstTension, restTension)
+}
+
+// TestFightCurvesUniformEnvelope 验证同一池不同拉力下曲线是纯 uniform：
+// 每行张力 / pull 恒等于池原比例（官方逐行精确成立的规律）。
+func TestFightCurvesUniformEnvelope(t *testing.T) {
+	srv, _ := newRigTestServer(t)
+	ratio := func(pull float64) []float64 {
+		curves := srv.buildFightCurves("crucian", pull)
+		var out []float64
+		for _, row := range curves.Items {
+			out = append(out, protoF32Field(row, 8)/pull)
+		}
+		return out
 	}
-	if maxTension <= minTension*2.2 {
-		t.Fatalf("完整搏鱼池张力波动不足: %.2f..%.2f", minTension, maxTension)
+	a, b := ratio(10), ratio(80)
+	if len(a) != len(b) || len(a) == 0 {
+		t.Fatalf("曲线行数不一致: %d vs %d", len(a), len(b))
+	}
+	for i := range a {
+		if math.Abs(a[i]-b[i]) > 1e-4 {
+			t.Fatalf("行 %d 非 uniform 缩放: %f vs %f", i, a[i], b[i])
+		}
 	}
 }
 

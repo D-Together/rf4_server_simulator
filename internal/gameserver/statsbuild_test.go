@@ -123,7 +123,7 @@ func TestFishStats321FromCatchLog(t *testing.T) {
 	// f8 最优竞争力：按搏鱼拉力维度（鱼种曲线×重量），不再与最重同卡。
 	pullOf := func(key string, weight int64) float64 {
 		f := &RolledFish{Species: key, WeightG: weight}
-		return srv.fishFightPullFor(f, srv.fishFightProfileFor(f))
+		return srv.fishFightPullFor(f)
 	}
 	type catchRow struct {
 		key    string

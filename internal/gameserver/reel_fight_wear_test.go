@@ -442,21 +442,21 @@ func TestFightReelBurnSecondsFollowRealGaps(t *testing.T) {
 	}
 }
 
-// TestFishFightPullKgfIsBodyWeight 钉住换算恒等式：27.f8 是牛（官方样本严格 =
-// 体重kg×g），磨损账比较的泄力是公斤，所以入账前除以 newtonPerKgf 后必须恰好
-// 等于 体重kg×冲刺倍率。期望值由量纲恒等式手算，不用实现代码复算。
-func TestFishFightPullKgfIsBodyWeight(t *testing.T) {
+// TestFishFightPullKgfMatchesKTable 钉住换算恒等式：27.f8 是牛，磨损账比较的
+// 泄力是公斤，入账前除以 newtonPerKgf。期望值由逐鱼种 K 表公式手算
+// （perch K0=17.6，f8 = 0.461kg × (17.6 + 0.35·ln(0.461)) ≈ 7.9887N ≈ 0.8146kgf），
+// 不用实现代码复算。
+func TestFishFightPullKgfMatchesKTable(t *testing.T) {
 	srv := &Server{}
 	f := &RolledFish{FishGUID: "fish0000000000000000000000000001", Species: "perch", WeightG: 461, Grade: 2}
-	profile := srv.fishFightProfileFor(f)
 	// fishFightPullFor 末尾四舍五入到万分位：牛数最大偏差 5e-5，折公斤力约 5.1e-6。
 	const tol = 1e-4
-	if got, want := srv.fishFightPullKgfFor(f, profile), 0.461*profile.ForceScale; math.Abs(got-want) > tol {
-		t.Fatalf("公斤力拉力应等于体重kg×冲刺倍率 %.6f，实得 %.6f", want, got)
+	wantN := 0.461 * (17.6 + fishPullLnSlope*math.Log(0.461))
+	if got, want := srv.fishFightPullFor(f), wantN; math.Abs(got-want) > tol {
+		t.Fatalf("27.f8 应为 K 表牛数 %.6f，实得 %.6f", want, got)
 	}
-	// 对照：f8 下发的牛数口径必须保持不变。
-	if got, want := srv.fishFightPullFor(f, profile), 0.461*newtonPerKgf*profile.ForceScale; math.Abs(got-want) > tol {
-		t.Fatalf("27.f8 拉力应保持牛 %.6f，实得 %.6f", want, got)
+	if got, want := srv.fishFightPullKgfFor(f), wantN/newtonPerKgf; math.Abs(got-want) > tol {
+		t.Fatalf("公斤力拉力应为牛数/newtonPerKgf %.6f，实得 %.6f", want, got)
 	}
 }
 
@@ -466,12 +466,11 @@ func TestFishFightPullKgfIsBodyWeight(t *testing.T) {
 func TestFightReelWearBoundaryUsesKgfNotNewton(t *testing.T) {
 	srv := &Server{}
 	f := &RolledFish{FishGUID: "fish0000000000000000000000000002", Species: "perch", WeightG: 461, Grade: 2}
-	profile := srv.fishFightProfileFor(f)
-	oldWay := newFightWearForTest(3.2, 1.87, 2.32, srv.fishFightPullFor(f, profile), 1, 1.175, false)
+	oldWay := newFightWearForTest(3.2, 1.87, 2.32, srv.fishFightPullFor(f), 1, 1.175, false)
 	if ticks, slip, _, _, _ := srv.fightReelTickWear(oldWay, defaultReelLoadTickSeconds); ticks != 1 || slip <= 0 {
 		t.Fatalf("对照失效：牛当公斤的旧口径应判打滑，实得 ticks=%d slip=%v", ticks, slip)
 	}
-	newWay := newFightWearForTest(3.2, 1.87, 2.32, srv.fishFightPullKgfFor(f, profile), 1, 1.175, false)
+	newWay := newFightWearForTest(3.2, 1.87, 2.32, srv.fishFightPullKgfFor(f), 1, 1.175, false)
 	if ticks, slip, burn, burnSecs, _ := srv.fightReelTickWear(newWay, defaultReelLoadTickSeconds); ticks != 0 || slip != 0 || burn != 0 || burnSecs != 0 {
 		t.Fatalf("461g 鱼对 1.87kg 泄力不应有任何磨损: ticks=%d slip=%v burn=%v secs=%v",
 			ticks, slip, burn, burnSecs)
@@ -506,7 +505,7 @@ func TestFightReelCachePullKgfNoSlipForSmallFish(t *testing.T) {
 		t.Fatalf("拉力不超泄力应整场零磨损: ticks=%d slip=%v burn=%v secs=%v",
 			ticks, slip, burn, burnSecs)
 	}
-	if pullN := srv.fishFightPullFor(f, srv.fishFightProfileFor(f)); pullN <= cached.dragKg {
+	if pullN := srv.fishFightPullFor(f); pullN <= cached.dragKg {
 		t.Fatalf("正控失效：f8 牛数 %.4f 应高于泄力 %.2f，否则测不出旧 bug", pullN, cached.dragKg)
 	}
 }
