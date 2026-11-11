@@ -21,7 +21,6 @@ func f32At(v *proto.Value, idx int) float64 {
 func TestFish27UsesVerifiedFightFields(t *testing.T) {
 	srv := NewServer(config.Game{Tunnel: config.Tunnel{PSK: "contract"}}, logging.Discard(), nil)
 	f := &RolledFish{FishGUID: "11111111111111111111111111111111", Species: "c.roach", Grade: 1, WeightG: 186, LengthM: 0.1981}
-	profile := srv.fishFightProfileFor(f)
 	tree := srv.buildFish27(f, "22222222222222222222222222222222", "33333333333333333333333333333333", 24)
 	if defaultFishStaminaScale != 1 {
 		t.Fatalf("默认体力倍率=%f，期望使用真实样本校准值 1", defaultFishStaminaScale)
@@ -30,12 +29,14 @@ func TestFish27UsesVerifiedFightFields(t *testing.T) {
 		t.Fatalf("默认初始体力=%f，期望真实样本校准值 %f",
 			defaultFishInitialStaminaRatio, verifiedInitialStaminaRatio)
 	}
-	wantStamina := verifiedStaminaPerGram * 186 * profile.StaminaScale
+	// c.roach 已入官方均值表（2.51/g，P2），不再走 archetype StaminaScale。
+	wantStamina := fishStaminaRatePerGram["c.roach"] * 186
 	if got := f32At(tree, 5); math.Abs(got-wantStamina) > 0.001 {
 		t.Fatalf("c.roach f5 体力池=%f，期望%f", got, wantStamina)
 	}
-	if got := f32At(tree, 6); math.Abs(got-verifiedInitialStaminaRatio) > 1e-6 {
-		t.Fatalf("c.roach f6 初始体力=%f，期望%f", got, verifiedInitialStaminaRatio)
+	// c.roach 官方 3 样本 f6 恒 0.50（0.05 量化表，specs/changes/fish-official-data-tables）。
+	if got := f32At(tree, 6); math.Abs(got-0.50) > 1e-6 {
+		t.Fatalf("c.roach f6 初始体力=%f，期望官方量化值 0.50", got)
 	}
 	// c.roach K0=16.4：f8 = 0.186kg × (16.4 + 0.35·ln(0.186)) = 2.9404N。
 	// 官方锚点：150g→2.39N、680g→11.07N、713g→11.61N（同公式 ±2%）。
