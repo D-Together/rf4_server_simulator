@@ -27,7 +27,7 @@ Status: done
 
 ## Implementation Decisions
 
-- 存储：新增迁移 `00056_craft_templates.sql`，表 `craft_template`：
+- 存储：新增迁移 `00058_craft_templates.sql`，表 `craft_template`：
   - 主键 `(uid, guid)`；`guid` 是模板实例 id（客户端保存时下发的 171.f0）。
   - 列：`uid`、`guid`、`recipe_id`、`name`、`kind`、`tools_json`、`materials_json`、`created_ts`、`updated_ts`。
   - `(uid, recipe_id, name)` 唯一索引支撑「同名覆盖」；`uid` 索引支撑列表查询。
