@@ -1,7 +1,7 @@
 package gameserver
 
-// 摩擦片/受力磨损参数的 tunable 化验证。见 specs/changes/reel-wear-tunables 与
-// specs/changes/wear-fight-time/spec.md。
+// 摩擦片/受力磨损参数的 tunable 化验证。见 specs/changes/reel-wear-tunables、
+// specs/changes/wear-fight-time/spec.md 与 specs/changes/reel-slip-rate-flat/spec.md。
 //
 // 这组测试分两半：
 //  1. 无 DB 的零值 Server：验证「未配置时行为与硬编码逐字节一致」；
@@ -19,25 +19,9 @@ import (
 func TestReelSlipWearDefaultMatchesConstants(t *testing.T) {
 	t.Parallel()
 	srv := &Server{} // 无 DB：tunableF 一律回落默认
-	cases := []struct {
-		setting int64
-		want    float64
-	}{
-		{0, reelSlipWearLow},
-		{24, reelSlipWearLow},
-		{25, 0.000025},
-		{26, 0.00005},
-		{27, 0.000075},
-		{28, 0.000095},
-		{29, reelSlipWearMax},
-	}
-	for _, tc := range cases {
-		if got := srv.reelSlipWearForSetting(tc.setting); math.Abs(got-tc.want) > 1e-12 {
-			t.Errorf("档位 %d 默认磨损率=%.9f，期望 %.9f", tc.setting, got, tc.want)
-		}
-		if got := reelSlipWearForSettingDefault(tc.setting); math.Abs(got-tc.want) > 1e-12 {
-			t.Errorf("档位 %d 包级默认口径=%.9f，期望 %.9f", tc.setting, got, tc.want)
-		}
+	// 2026-11-12 拍平：所有档位同一基准率，不再有逐档阶梯。
+	if got := srv.reelSlipWearBase(); math.Abs(got-reelSlipWear) > 1e-12 {
+		t.Errorf("默认打滑基准磨损率=%.9f，期望 %.9f", got, reelSlipWear)
 	}
 }
 
@@ -69,15 +53,14 @@ func TestReelSlipWearHalvesWithDoubledCalibration(t *testing.T) {
 	ctx := context.Background()
 
 	w := newFightWearForTest(7.7, 5, 7.5, 1)
-	w.setting = 29
 	const tick = 2.0
 
 	_, base, _, _ := srv.fightReelTickWear(w, tick)
 	if base <= 0 {
 		t.Fatalf("基准磨损应大于 0，实得 %.9f", base)
 	}
-	// 手算：0.0001 / 41.7 * 2 * 1 * 1
-	wantBase := defaultReelSlipWearMax / reelSlipCalibrationSeconds * tick
+	// 手算：0.0001 / 41.7 * 2 * 1 * 1（拍平后速率与档位无关）。
+	wantBase := reelSlipWear / reelSlipCalibrationSeconds * tick
 	if math.Abs(base-wantBase) > 1e-12 {
 		t.Fatalf("29 档打滑磨损=%.12f，手算 %.12f", base, wantBase)
 	}
@@ -123,22 +106,18 @@ func TestReelSlipDeadbandTunable(t *testing.T) {
 	}
 }
 
-// 档位率本身可调：把 29 档改小一半，磨损同步减半。
-func TestReelSlipWearHonorsSettingTunable(t *testing.T) {
+// 打滑基准率本身可调：改小一半，磨损同步减半（拍平后所有档位同一速率）。
+func TestReelSlipWearHonorsTunable(t *testing.T) {
 	t.Parallel()
 	srv, db := newEconomyTxTestServer(t)
 	ctx := context.Background()
 
-	if err := db.TunableSet(ctx, "reel_slip_wear_max", "0.00005", "test"); err != nil {
+	if err := db.TunableSet(ctx, "reel_slip_wear", "0.00005", "test"); err != nil {
 		t.Fatal(err)
 	}
 	srv.tunAt = time.Time{}
-	if got := srv.reelSlipWearForSetting(29); math.Abs(got-0.00005) > 1e-12 {
-		t.Fatalf("29 档应读 tunable 0.00005，实得 %.9f", got)
-	}
-	// 未单独配置的档位仍用各自默认
-	if got := srv.reelSlipWearForSetting(25); math.Abs(got-defaultReelSlipWear25) > 1e-12 {
-		t.Fatalf("25 档应保持默认 %.9f，实得 %.9f", defaultReelSlipWear25, got)
+	if got := srv.reelSlipWearBase(); math.Abs(got-0.00005) > 1e-12 {
+		t.Fatalf("应读 tunable 0.00005，实得 %.9f", got)
 	}
 }
 
@@ -149,12 +128,12 @@ func TestReelSlipWearFallsBackOnInvalidTunable(t *testing.T) {
 	ctx := context.Background()
 
 	for _, bad := range []string{"0", "-1", "abc"} {
-		if err := db.TunableSet(ctx, "reel_slip_wear_max", bad, "test"); err != nil {
+		if err := db.TunableSet(ctx, "reel_slip_wear", bad, "test"); err != nil {
 			t.Fatalf("写入 %q 失败: %v", bad, err)
 		}
 		srv.tunAt = time.Time{}
-		if got := srv.reelSlipWearForSetting(29); math.Abs(got-defaultReelSlipWearMax) > 1e-12 {
-			t.Fatalf("%q 应回落到默认 %.9f，实得 %.9f", bad, defaultReelSlipWearMax, got)
+		if got := srv.reelSlipWearBase(); math.Abs(got-reelSlipWear) > 1e-12 {
+			t.Fatalf("%q 应回落到默认 %.9f，实得 %.9f", bad, reelSlipWear, got)
 		}
 	}
 }
