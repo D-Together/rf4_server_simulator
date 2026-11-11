@@ -2,8 +2,8 @@
   "schema": 1,
   "stable": {
     "version": "v0.1.9",
-    "build_ts": "20261111170100",
-    "released_at": "2026-11-11T17:01:43Z",
+    "build_ts": "20261111170240",
+    "released_at": "2026-11-11T17:03:20Z",
     "notes_url": "https://github.com/glance522/rf4_server_simulator/releases/tag/v0.1.9",
     "download_url": "https://github.com/glance522/rf4_server_simulator/releases/latest",
     "download_mirror_url": "https://gh-proxy.com/https://github.com/glance522/rf4_server_simulator/releases/download/v0.1.9/rf4_server_simulator-v0.1.9-windows-amd64.zip"
