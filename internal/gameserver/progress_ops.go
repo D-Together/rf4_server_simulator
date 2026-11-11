@@ -35,24 +35,26 @@ type settleXpResult struct {
 	skillID          int64         // 310.f2 钓法大类（1 浮钓 / 2 纺车 / 3 底钓 / 11 海钓）
 	skillGain        float64       // 310.f3 本次实际熟练度增量
 	giftItems        []*store.Item // 本次结算直发的升级礼物（仅非重放；挂 801 f8 奖励列表）
-	rarityGifts      []*store.Item // 本次结算新发的「稀有鱼」族奖座（挂 801.f4 来源码 3）
+	rarityGifts      []*store.Item // 本次结算新发的「稀有鱼」族奖座（挂 801.f4 来源码 5）
 	superRarityGifts []*store.Item // 本次结算新发的「超级稀有鱼」族奖座（另起一行，同来源码）
+	waterwayGifts    []*store.Item // 本次结算集齐的水域奖杯（挂 801.f4 来源码 6）
 	// 两族判定时的鱼种数：811.f1 的「条数」参数。填 0 客户端会整枚跳过。
 	raritySpeciesCount      int64
 	superRaritySpeciesCount int64
 	qualChanges             map[int64]store.QualificationState // 本尾鱼带来的资格变化（重放时从回执还原）
 }
 
-// allGiftItems 汇总本次结算新发的全部礼物（升级礼物 + 两族奖座），
+// allGiftItems 汇总本次结算新发的全部礼物（升级礼物 + 两族奖座 + 水域奖杯），
 // 供 801.f8 奖励列表与响应后的 4/22 增量共用；返回新切片，不动原字段。
 func (r *settleXpResult) allGiftItems() []*store.Item {
 	if r == nil {
 		return nil
 	}
-	out := make([]*store.Item, 0, len(r.giftItems)+len(r.rarityGifts)+len(r.superRarityGifts))
+	out := make([]*store.Item, 0, len(r.giftItems)+len(r.rarityGifts)+len(r.superRarityGifts)+len(r.waterwayGifts))
 	out = append(out, r.giftItems...)
 	out = append(out, r.rarityGifts...)
 	out = append(out, r.superRarityGifts...)
+	out = append(out, r.waterwayGifts...)
 	return out
 }
 
@@ -466,6 +468,18 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 		if len(res.superRarityGifts) > 0 {
 			lines = append(lines, gift811Line{source: giftSourceTrophyCountReached,
 				param: res.superRaritySpeciesCount, items: res.superRarityGifts})
+		}
+		// 水域奖杯：文案「捕获了该水域的所有稀有鱼」，没有占位参数（f1 留 1 而非 0，
+		// 避免被当成「无参数行」跳过）。
+		if len(res.waterwayGifts) > 0 {
+			lines = append(lines, gift811Line{source: giftSourceTrophyTableCollected,
+				param: 1, items: res.waterwayGifts})
+		}
+		// 实机校准开关（默认关）：把 sources 里每个码都挂一行，让玩家钓任意一尾
+		// 就能在结算界面同时看到多张卡，用来确定「捕获了数条稀有鱼」到底是几号。
+		if dbg := s.debugGiftRows(cctx, uid); len(dbg) > 0 {
+			lines = append(lines, dbg...)
+			ctx.Log.Info("801.f4 附带调试礼物行", "uid", uid, "rows", len(dbg))
 		}
 		if len(lines) > 0 {
 			if rows, rerr := s.giftRows811(cctx, lines); rerr != nil {

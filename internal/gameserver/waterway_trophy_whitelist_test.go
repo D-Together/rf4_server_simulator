@@ -45,6 +45,7 @@ func TestWaterwayTrophyUsesPanelWhitelistAsDenominator(t *testing.T) {
 			key, key, grade, water, uid, "g-"+key); err != nil {
 			t.Fatal(err)
 		}
+		seedTrophySeen(t, db, uid, water, key, grade)
 	}
 	// 分母外的两种先上星——若实现退化成 loc_fish 口径，这里会误判成快满。
 	logCatch("w_catfish", 4)
@@ -106,6 +107,7 @@ func TestBuildFishTrophiesFiltersByPanelWhitelist(t *testing.T) {
 			key, key, water, uid, fmt.Sprintf("%032d", i)); err != nil {
 			t.Fatal(err)
 		}
+		seedTrophySeen(t, db, uid, water, key, 3)
 	}
 	v, err := s.buildFishTrophies323(ctx, uid)
 	if err != nil {
@@ -210,6 +212,7 @@ func TestWaterwayTrophySuraUnspawnableCellDoesNotBlock(t *testing.T) {
 			key, key, water, uid, fmt.Sprintf("%032d", i)); err != nil {
 			t.Fatal(err)
 		}
+		seedTrophySeen(t, db, uid, water, key, 3)
 	}
 	p, err := s.waterwayTrophyProgressFor(ctx, uid, water)
 	if err != nil {

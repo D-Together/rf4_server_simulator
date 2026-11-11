@@ -43,21 +43,27 @@ Status: in-progress
 
 ## Implementation Decisions
 
-- 计数：`internal/gameserver/rarity_milestones.go`，新表 `catch_seen(uid, fish_key,
-  best_grade, first_ts)` 上按鱼种去重（`best_grade>=3` 稀有鱼、`>=4` 超级稀有鱼，
-  蓝冠同时计入两族）。`catch_seen` 在 **14/4 结算事务内**写入（`recordCatchSeenTx`），
-  与结算回执同事务，失败回滚时不污染计数。
-- 迁移：`00056_catch_seen.sql` 建表 + 从 `catch_log` 按鱼种回填历史进度
-  （放生过的历史鱼无法追溯，只影响补丁上线前的进度）。`catch_seen` 登记为玩家表，
-  随存档备份。
+- 计数：`internal/gameserver/rarity_milestones.go`，新表 `catch_seen(uid, loc_level,
+  fish_key, best_grade, first_ts)`。按 `(uid, loc_level, fish_key)` 去重记「在哪片水
+  钓到过哪一尾」，鱼种数用 `COUNT(DISTINCT fish_key)` **跨水域**去重
+  （`best_grade>=3` 稀有鱼、`>=4` 超级稀有鱼，蓝冠同时计入两族）。
+  `catch_seen` 在 **14/4 结算事务内**写入（`recordCatchSeenTx`），与结算回执同事务，
+  失败回滚时不污染计数。
+- 迁移：`00056_catch_seen.sql` 建表并从 `catch_log` 回填；`00057_catch_seen_loc_level.sql`
+  补 `loc_level` 维度（重建表 + 从 `catch_log` 按水域回填，旧 `catch_seen` 里放生过的
+  行以 `loc_level=''` 保留，只服务稀有鱼计数、不参与水域判定）。
+  `catch_seen` 登记为玩家表，随存档备份。
 - 判定时机：**14/4 结算事务提交之后**，入口 `rarityMilestoneAfterCatch`；
   它返回两族各自的 `rarityMilestoneBatch{Count, Items}`。
-- 到账与弹窗：`801.f4` 挂 811 礼物行，来源码 **3**（「捕获了数条稀有鱼」），
-  `f1` = 判定时的鱼种数（填 0 客户端会整枚跳过）。稀有鱼、超级稀有鱼**各一行**；
+- 到账与弹窗：`801.f4` 挂 811 礼物行，来源码 **5**（「捕获了数条稀有鱼」），
+  `f1` = 判定时的鱼种数。稀有鱼、超级稀有鱼**各一行**；
   同一批物品同时进 `801.f8` 奖励列表，响应后推 4/22。
-- 来源码依据：809 塑封弹窗的单发扫频结论（1 新级别 / 2 游戏活动 / 3 数条稀有鱼 /
-  4 塑封卡牌合集 / 5 集齐水域），801 与 809 共用同一个客户端枚举 `plhpmhpadcg`。
-  早前 801 两次扫频把 4/5 记反过，本改动不再沿用。
+- 来源码依据（2026-11-11 反汇编 + 实机，覆盖早前所有扫频结论）：
+  客户端卡片取词函数 `GameAssembly 0x180D4BD40` 是 `cmp eax,5 / ja default` + 跳转表
+  （`0x180D4C04C`，6 项），**第 3 项落点正是 `ja` 的越界目标**，即 3 是空号、没有文案
+  分支；有效值只有 1/2/4/5/6。实测：2=为纪念此次游戏活动、5=捕获了数条稀有鱼、
+  6=捕获了该水域的所有稀有鱼、4=塑封卡牌合集、1=新级别。
+  所以「3 = 数条稀有鱼、必须带条数参数」是误判——809 单发 3 不画卡是空号，不是缺参数。
 - 兜底：登录 3/1、打开 3/17 面板、背包列表 4/1 与 4/4（每会话一次）都调
   `ensureRarityMilestones`，覆盖「结算时发放失败」和「补丁上线前的老存档」。
 - 幂等：每档一枚 kv 标记 `rarity-milestone:<uid>:<rare|super>:<档位>`，与物品发放
@@ -65,7 +71,7 @@ Status: in-progress
   回执按“这一次钓获”生成，一次结算只对应一尾鱼，而奖座按“累计鱼种数”发放、
   一次可能连跨数档，生命周期不同。
 - 已发但标记丢失（手工改库/回滚）时按 `item` 表里是否已有该 `item_id` 判断，只补标记。
-- 回滚：把判定挪回 `fishingKeep`（`keptInNet` 分支）并撤掉 `801.f4` 的来源码 3 行即可；
+- 回滚：把判定挪回 `fishingKeep`（`keptInNet` 分支）并撤掉 `801.f4` 的来源码 5 行即可；
   `catch_seen` 与 kv 标记留在库里不影响其他逻辑。
 
 ## Testing Decisions
@@ -73,7 +79,7 @@ Status: in-progress
 - 接缝：真实 SQLite（`newRigTestServer`）+ 行为链路，直接走 14/4 `fishingEndSettle`
   与 14/5 `fishingKeep` / 14/6 `fishingRelease`，不 mock 存储。
 - 期望值来自官方物品名（「3条稀有鱼」= 3 种）与档位表字面量，不由被测代码反推。
-- 覆盖：跨档结算当场发奖座且 `801.f4` 有来源码 3 的礼物行（条数=3、含 1 件物品、
+- 覆盖：跨档结算当场发奖座且 `801.f4` 有来源码 5 的礼物行（条数=3、含 1 件物品、
   `801.f8` 同步）、放生不回退已发奖座（且 `catch_log` 不落行）、同鱼种重复上星不推进、
   首冠只发超级稀有鱼那族且条数=1、两族同时跨档出两行（条数 3 与 1）、登录巡检补发
   可跨多档且幂等、档位表与 `item_def` 逐档对齐、重放不重复发。
@@ -84,7 +90,8 @@ Status: in-progress
 - 不放宽图鉴口径（放生的鱼仍然不计入 3/17 面板与 307.f16 星号）。
 - 不新增奖座档位、不改物品表与本地化文本。
 - 不做“奖座可交易/可回收”等经济玩法。
-- 水域奖杯不搬到结算：它要「面板填满」才算，只能入护后判定，因此仍然没有礼物卡。
+- 水域奖杯的判定与弹卡在同一次改动里一并搬到结算（来源码 6），见
+  `specs/changes/waterway-trophy/spec.md`；两者现在共用 `catch_seen` 的数据口径。
 
 ## Further Notes
 
@@ -95,8 +102,9 @@ Status: in-progress
   `catch_log` 插入语句。
 - `[事实]` 奖座名自带档位（`statuette_fisherman_3` = 「3条稀有鱼」），档位表由
   `TestRarityMilestoneLaddersMatchItemDefs` 对 `item_def` 逐档核对。
-- `[事实]` 811 来源码 3 是「捕获了数条稀有鱼」且必须带条数参数：809 单发 3 时
-  一个徽章都不画，参数 0 时整枚跳过（见 `docs/gameplay.md` 塑封一节）。
+- `[事实]` 811 来源码 **5** 是「捕获了数条稀有鱼」。3 是客户端空号：跳转表第 3 项指向
+  `ja` 的越界目标（`0x180D4BFA3`），没有专属文案分支，画不出卡——809 单发 3 不画卡
+  正是这个原因，与参数无关。依据见 `docs/gameplay.md` 的码表段落。
 - `[推断]` 客户端对蓝冠礼物卡使用的文案可能仍是同一句「捕获了数条稀有鱼」
   （`Localization.csv` 只有 `kDlg_Catched_GiftsTrophyCountReached` 一个 key）；
   真机若显示文案不符，属客户端资源限制，不是服务端来源码错误。

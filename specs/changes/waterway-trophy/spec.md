@@ -16,16 +16,19 @@ Status: ready
 
 按客户端面板截图反推出每个水域的**收录清单**（`trophyFishWhitelist`），判定分母只用
 清单里的格子；清单里每一格都有 `grade >= 3`（上星）或 `grade = 4`（蓝冠）的
-`catch_log` 记录即集齐，发一枚该水域奖杯，背包 + 系统播报。
+**钓到记录**即集齐，发一枚该水域奖杯，并在结算界面弹卡。
 
-判定放在 **14/5 入护落库之后**：`catch_log` 只在入护时写，放生的鱼不进图鉴，
-所以「面板填满」与「拿到奖杯」严格同时发生。
+判定放在 **14/4 结算当场**（数据源 `catch_seen`，钓到即记、带 `loc_level`）。
+官方结算界面（801）在玩家选择入护或放生**之前**就画出「捕获了该水域的所有稀有鱼」
+这张卡，说明官方的进度在「钓到」那一刻就成立；`catch_log` 要等 14/5 才写，
+用它判定必然晚一尾、结算界面永远弹不出这张卡（2026-11-11 实机回归）。
+代价与稀有鱼奖座相同：放生的鱼会拿到奖杯、图鉴不点亮 —— 这正是官方的顺序。
 
 ## User Stories
 
 1. 作为玩家，我希望把某水域面板上所有格子都钓到上星/蓝冠之后立刻拿到该水域奖杯，
    以便收齐 3/16 奖励面板里的纪念品。
-2. 作为玩家，我放生了一条鱼之后，不希望面板进度或奖杯判定被这尾鱼影响。
+2. 作为玩家，我放生了一条鱼之后，图鉴进度不被这尾鱼影响（奖杯已按官方顺序在结算时发出）。
 3. 边界：重放同一次入护、重登、连续打开面板都不会发第二枚奖杯。
 4. 边界：奖杯卖掉/丢掉/搬进小屋后不会重发（纪念品）。
 5. 边界：面板上存在本服派不出的鱼种时（苏拉河「鲑鱼」），不应该把该水域卡成永远集不齐。
@@ -34,13 +37,16 @@ Status: ready
 
 - 判定与发放：`internal/gameserver/waterway_trophy.go`
   - `waterwayTrophyProgressFor`：有白名单走 `whitelistTrophyProgress`，否则退回
-    `loc_fish ⨝ loc_alias` 左连 `catch_log`（只会晚发、不会早发）。
+    `loc_fish ⨝ loc_alias` 左连 `catch_seen`（`loc_level` 精确匹配；只会晚发、不会早发）。
   - `grantWaterwayTrophy` / `issueWaterwayTrophy`：幂等键 `kv` 的
     `waterway-trophy:<uid>:<水域>`，与物品插入同一事务提交。
   - `ensureWaterwayTrophies`：登录 3/1 与打开 3/17 时巡检补发。
-- 触发点：`internal/gameserver/econ.go` 的 `fishingKeep`，`keptInNet` 为真（本次真的写了
-  `keepnet_items` + `catch_log`）时判定；到账走 4/22 背包增量 + `pushSystemChat` 播报。
-  结算（14/4）与放生（14/6）都不判定。
+- 触发点：`internal/gameserver/catch_settlement.go` 的 14/4 结算事务提交之后，
+  `waterwayTrophyAfterCatch` 只判**本尾鱼所在水域**（一尾鱼只可能在它被钓上来的那片水
+  补上最后一格）。奖杯随 `801.f4` 的来源码 **6**（「捕获了该水域的所有稀有鱼」）下发，
+  同时进 `801.f8`，响应后推 4/22。
+  `econ.go` 的 `fishingKeep` 保留同一次调用，但只是**兜底**（结算发放失败时重试，幂等），
+  那时已经没有结算界面，才改走 4/22 + `pushSystemChat` 播报。
 - 收录清单：`internal/gameserver/fish_trophy_whitelist.go`，key 是水域 systemID，
   value 是面板格子（`catch_log.fish_key` + 客户端显示名）。
   - `trophyFishWhitelistMissing`：面板上有、但服务端 252 个鱼种里认不出 key 的格子。
@@ -50,19 +56,22 @@ Status: ready
     卡成永远集不齐。
 - 3/17 面板：`buildFishTrophies323` 同样按白名单过滤，保证「面板上看得见的格子」与
   「判定算的格子」是同一份。
-- 数据与迁移：不改表、不改 `catch_log` 结构；纯读 + 新增 `item` 行与 `kv` 标记。
-  历史已集齐的水域由 3/1 / 3/17 巡检补发。
+- 数据与迁移：`00057_catch_seen_loc_level.sql` 给 `catch_seen` 补 `loc_level` 维度
+  （重建表，按 `(uid, loc_level, fish_key)` 去重；从 `catch_log` 按水域回填）。
+  `catch_log` 结构不动，图鉴口径不变。历史已集齐的水域由 3/1 / 3/17 巡检补发。
 - 兼容与回滚：客户端基线 4.0.25034。回滚只需去掉 `fishingKeep` 里的调用与巡检调用，
   已发奖杯与 `kv` 标记留在库里不会触发任何逻辑（不会重发第二次）。
-- 协议：本改动**不**往 `801.f4`（811 礼物行）写自定义来源码。原先在结算界面弹「集齐
-  水域」礼物卡的实现已删除：结算早于入护，那时 `catch_log` 还没有这尾鱼，必然要么提前
-  发奖杯（放生后错位）、要么先展示一张还拿不到的卡。
+- 协议：`801.f4` 复用 811 礼物行，来源码 **6**「捕获了该水域的所有稀有鱼」（`f1` 给非 0
+  即可，文案没有占位符）。码表由反汇编 `GameAssembly 0x180D4BD40` 确认：跳转表 6 项中
+  3 是空号，有效值 1/2/4/5/6；6 号分支对应 `kDlg_Catched_GiftsTrophyTableCollected`，
+  并与 2026-11-11 实机弹卡表现一致。
 
 ## Testing Decisions
 
 - 存储+行为层（真实 SQLite，`newDetachTestServer` / `newRigTestServer`）：
-  - `TestWaterwayTrophyIssuedOnlyAfterKeep`：14/4 结算不发 → 14/6 放生不发且不写
-    `catch_log`、面板仍是 7/8 → 同种鱼改成 14/5 入护后发一枚 → 重放不再发。
+  - `TestWaterwayTrophyIssuedOnSettleBeforeKeep`：14/4 结算当场发 1 枚且 `801.f4` 带
+    来源码 6 的礼物行 → 14/6 放生不回退（奖杯已在包里，`catch_log` 仍不落行）→
+    同种鱼再结算 + 入护不重复发 → 重放不再发。
   - `TestWaterwayTrophyUsesPanelWhitelistAsDenominator`：清单外的鱼上星不影响分母。
   - `TestWaterwayTrophySuraUnspawnableCellDoesNotBlock`：苏拉河把 15 种可生成鱼种全部
     上星后进度即满（旧实现分母含 `k_salmon`，永远差一格）。
@@ -71,8 +80,9 @@ Status: ready
   - `TestEnsureWaterwayTrophiesBackfillsCompletedWater`：巡检只处理有奖杯定义的水域。
 - 纯逻辑层：`TestTrophyFishWhitelistStructure` 钉住数据约束——无重复 key、无空白格、
   不含家园、`unspawnable` / `missing` 只出现在有清单的水域且 key 必须真的在清单里。
-- 期望值来源：面板截图反推的格子清单 + `catch_log` 手写行，不用被测代码再算一遍。
-- 回滚后变红：把判定挪回 14/4，`TestWaterwayTrophyIssuedOnlyAfterKeep` 第 1、2 步
+- 期望值来源：面板截图反推的格子清单 + 手写的 `catch_log`/`catch_seen` 行，
+  不用被测代码再算一遍。
+- 回滚后变红：把判定挪回 14/5 入护，`TestWaterwayTrophyIssuedOnSettleBeforeKeep` 第 1 步
   立刻失败；把 `unspawnable` 去掉，苏拉河那条测试失败。
 
 ## Out of Scope
@@ -81,7 +91,7 @@ Status: ready
   对应的鱼种——需要客户端独有的鱼种数据。
 - 不给苏拉河 `k_salmon` 补派鱼规则：`loc_wiki_fish` 是从客户端静态数据反推的，
   人为加一行会污染生态与查询链路。
-- 不做结算界面的集齐水域礼物卡（原因见 Implementation Decisions 最后一条）。
+- 不改图鉴/307.f16 的 `catch_log` 口径：放生的鱼仍然不点亮面板，哪怕奖杯已发。
 
 ## Further Notes
 
@@ -93,5 +103,6 @@ Status: ready
   长吻梅花鲈=`ruffe_n`、湖鳟鱼=`gc_smelt`、魣鳕=`m_molva`……），不能只按名字猜。
 - `[推断]` 面板每格的门槛与 3/17 一致（`grade >= 3`）。依据是同一次上星既点亮面板格子，
   也让 307.f16 星号计入。
-- `[未验证]` 811 礼物行来源码表（`801.f4` / `809.f0`）本服两次实机扫频结论互相矛盾，
-  见 `docs/gameplay.md` 的说明；本改动不依赖它。
+- `[事实]` 811 礼物行来源码表已定案（2026-11-11）：反汇编 `GameAssembly 0x180D4BD40`
+  的 switch + 跳转表 `0x180D4C04C`，3 是空号（落点 = `ja` 越界目标），有效值 1/2/4/5/6；
+  实机确认 2=游戏活动、5=数条稀有鱼、6=集齐水域。见 `docs/gameplay.md` 的码表段落。

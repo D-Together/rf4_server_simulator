@@ -81,17 +81,20 @@ func (s *Server) waterwayTrophyProgressFor(ctx context.Context, uid int64, locLe
 	}
 	err := s.DB.SQL.QueryRowContext(ctx, `
 		SELECT COUNT(DISTINCT lf.fish_key),
-		       COUNT(DISTINCT CASE WHEN c.grade>=? THEN c.fish_key END)
+		       COUNT(DISTINCT CASE WHEN cs.best_grade>=? THEN cs.fish_key END)
 		FROM loc_fish lf
 		JOIN loc_alias a ON a.loc = lf.loc
-		LEFT JOIN catch_log c ON c.uid=? AND c.fish_key=lf.fish_key
-		     AND (c.loc_level=a.alias OR (COALESCE(c.loc_level,'')='' AND c.loc=a.loc))
-		WHERE a.alias=?`, recordTrophyGrade, uid, locLevel).Scan(&p.Total, &p.Done)
+		LEFT JOIN catch_seen cs ON cs.uid=? AND cs.fish_key=lf.fish_key AND cs.loc_level=?
+		WHERE a.alias=?`, recordTrophyGrade, uid, locLevel, locLevel).Scan(&p.Total, &p.Done)
 	return p, err
 }
 
 // whitelistTrophyProgress 按面板收录清单算进度：分母是清单长度，分子是清单里在该
 // 水域已上星（grade 3）或蓝冠（grade 4）的鱼种数。清单外的记录一律不参与。
+//
+// 数据源是 `catch_seen`（钓到即记），不是 `catch_log`（入护才写）：水域奖杯和稀有鱼
+// 奖座一样要随 801.f4 在结算界面弹卡（来源码 6「捕获了该水域的所有稀有鱼」），
+// 而结算发生在入护之前，catch_log 那时还没有这一尾。图鉴/307.f16 仍只认 catch_log。
 func (s *Server) whitelistTrophyProgress(ctx context.Context, uid int64, locLevel string, wl map[string]struct{}) (waterwayTrophyProgress, error) {
 	// 分母 = 认得出的格子 + 认不出的格子（后者永远不算完成，见 trophyFishWhitelistMissing）。
 	p := waterwayTrophyProgress{Total: int64(trophyFishWhitelistTotal(locLevel))}
@@ -105,19 +108,13 @@ func (s *Server) whitelistTrophyProgress(ctx context.Context, uid int64, locLeve
 	}
 	// IN 列表按 key 排序，保证 SQL 文本稳定（便于日志与 EXPLAIN 对照）。
 	sort.Strings(keys)
-	var locName string
-	if err := s.DB.SQL.QueryRowContext(ctx, `SELECT COALESCE(loc,'') FROM loc_alias WHERE alias=?`, locLevel).Scan(&locName); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return p, err
-	}
 	ph := strings.TrimSuffix(strings.Repeat("?,", len(keys)), ",")
-	q := `SELECT COUNT(DISTINCT fish_key) FROM catch_log
-		WHERE uid=? AND grade>=? AND fish_key IN (` + ph + `)
-		  AND (loc_level=? OR (COALESCE(loc_level,'')='' AND loc=?))`
-	args = append(args, uid, int64(recordTrophyGrade))
+	q := `SELECT COUNT(DISTINCT fish_key) FROM catch_seen
+		WHERE uid=? AND loc_level=? AND best_grade>=? AND fish_key IN (` + ph + `)`
+	args = append(args, uid, locLevel, int64(recordTrophyGrade))
 	for _, k := range keys {
 		args = append(args, k)
 	}
-	args = append(args, locLevel, locName)
 	if err := s.DB.SQL.QueryRowContext(ctx, q, args...).Scan(&p.Done); err != nil {
 		return p, err
 	}
@@ -192,6 +189,28 @@ func (s *Server) issueWaterwayTrophy(ctx context.Context, uid int64, locLevel, i
 	s.log.Info("发放水域奖杯", "uid", uid, "water", locLevel, "item", itemID,
 		"奖杯鱼种", p.Done, "水域鱼种", p.Total, "guid", row.GUID)
 	return row, nil
+}
+
+// waterwayTrophyAfterCatch 在 14/4 结算事务提交之后判定**本尾鱼所在水域**是否集齐。
+// 返回的物品由调用方挂 801.f4 的礼物行（来源码 6「捕获了该水域的所有稀有鱼」）
+// 与 801.f8 奖励列表，客户端在结算界面当场弹卡——与稀有鱼奖座同一时机、同一表现。
+//
+// 只判本水域：一尾鱼只可能在它被钓上来的那片水里补上最后一个格子。判定数据源是
+// catch_seen（本尾鱼已在结算事务里落库，且带 loc_level），所以跨水域的同名鱼种
+// 不会互相顶进度。图鉴（catch_log）仍然只认入护，两套口径分开记。
+func (s *Server) waterwayTrophyAfterCatch(ctx context.Context, uid int64, locLevel string) []*store.Item {
+	if s == nil || s.DB == nil || locLevel == "" || locLevel == waterwayTrophyHome {
+		return nil
+	}
+	it, err := s.grantWaterwayTrophy(ctx, uid, locLevel)
+	if err != nil {
+		s.log.Warn("水域奖杯判定失败", "uid", uid, "water", locLevel, "err", err)
+		return nil
+	}
+	if it == nil {
+		return nil
+	}
+	return []*store.Item{it}
 }
 
 // ensureWaterwayTrophies 巡检所有水域，补发已经集齐但还没拿到的奖杯。登录、打开

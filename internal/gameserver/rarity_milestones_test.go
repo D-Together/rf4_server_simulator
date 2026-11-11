@@ -21,9 +21,9 @@ func insertTrophyCatch(t *testing.T, s *Server, uid int64, water, fishKey, nameZ
 		t.Fatalf("插入 catch_log 失败: %v", err)
 	}
 	if grade >= recordTrophyGrade {
-		if _, err := s.DB.SQL.Exec(`INSERT INTO catch_seen(uid,fish_key,best_grade,first_ts) VALUES(?,?,?,1)
-			ON CONFLICT(uid,fish_key) DO UPDATE SET best_grade=MAX(catch_seen.best_grade, excluded.best_grade)`,
-			uid, fishKey, grade); err != nil {
+		if _, err := s.DB.SQL.Exec(`INSERT INTO catch_seen(uid,loc_level,fish_key,best_grade,first_ts) VALUES(?,?,?,?,1)
+			ON CONFLICT(uid,loc_level,fish_key) DO UPDATE SET best_grade=MAX(catch_seen.best_grade, excluded.best_grade)`,
+			uid, water, fishKey, grade); err != nil {
 			t.Fatalf("插入 catch_seen 失败: %v", err)
 		}
 	}

@@ -87,25 +87,26 @@ func (s *Server) raritySpeciesCounts(ctx context.Context, uid int64) (rare, supe
 		return 0, 0, nil
 	}
 	err = s.DB.SQL.QueryRowContext(ctx, `
-		SELECT COUNT(CASE WHEN best_grade>=? THEN 1 END),
-		       COUNT(CASE WHEN best_grade>=? THEN 1 END)
+		SELECT COUNT(DISTINCT CASE WHEN best_grade>=? THEN fish_key END),
+		       COUNT(DISTINCT CASE WHEN best_grade>=? THEN fish_key END)
 		FROM catch_seen WHERE uid=?`,
 		int64(recordTrophyGrade), int64(superTrophyGrade), uid).Scan(&rare, &super)
 	return rare, super, err
 }
 
-// recordCatchSeenTx 在钓获结算事务内记下本尾鱼的鱼种与最高档位。
+// recordCatchSeenTx 在钓获结算事务内记下本尾鱼的鱼种、水域与最高档位。
 //
 // 必须与结算回执同事务：结算失败回滚时这一尾不能留在计数里，重试才能重新判定。
-// 只有 grade>=3 的鱼落行（普通鱼永远不推进奖座），同鱼种重复上星只抬高档位。
-func recordCatchSeenTx(ctx context.Context, tx *sql.Tx, uid int64, species string, grade int64, ts float64) error {
+// 只有 grade>=3 的鱼落行（普通鱼永远不推进奖座），同鱼种同水域重复上星只抬高档位。
+// locLevel 是水域奖杯（来源码 6）的判定维度——它要的是「这个水域的面板是否集齐」。
+func recordCatchSeenTx(ctx context.Context, tx *sql.Tx, uid int64, species, locLevel string, grade int64, ts float64) error {
 	if tx == nil || species == "" || grade < recordTrophyGrade {
 		return nil
 	}
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO catch_seen(uid,fish_key,best_grade,first_ts) VALUES(?,?,?,?)
-		ON CONFLICT(uid,fish_key) DO UPDATE SET best_grade=MAX(catch_seen.best_grade, excluded.best_grade)`,
-		uid, species, grade, ts)
+		INSERT INTO catch_seen(uid,loc_level,fish_key,best_grade,first_ts) VALUES(?,?,?,?,?)
+		ON CONFLICT(uid,loc_level,fish_key) DO UPDATE SET best_grade=MAX(catch_seen.best_grade, excluded.best_grade)`,
+		uid, locLevel, species, grade, ts)
 	return err
 }
 

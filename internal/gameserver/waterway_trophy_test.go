@@ -4,7 +4,26 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"rf4server/internal/store"
 )
+
+// seedTrophySeen 直接往 catch_seen 写一条「钓到过」记录（带水域与档位）。
+//
+// 水域奖杯与稀有鱼奖座都从这张表判定（钓到即算，不等入护），所以测试造历史进度
+// 必须写这里；只写 catch_log 现在不推进任何进度。grade < recordTrophyGrade 的鱼
+// 不落行，与生产写入一致。
+func seedTrophySeen(t *testing.T, db *store.DB, uid int64, water, key string, grade int64) {
+	t.Helper()
+	if grade < recordTrophyGrade {
+		return
+	}
+	if _, err := db.SQL.Exec(`INSERT INTO catch_seen(uid,loc_level,fish_key,best_grade,first_ts) VALUES(?,?,?,?,1)
+		ON CONFLICT(uid,loc_level,fish_key) DO UPDATE SET best_grade=MAX(catch_seen.best_grade, excluded.best_grade)`,
+		uid, water, key, grade); err != nil {
+		t.Fatalf("插入 catch_seen 失败: %v", err)
+	}
+}
 
 // 水域奖杯的准入与发放：该水域地图鱼种列表里每一种都要有上星/蓝冠记录才发一枚
 // trophy_level_<水域>，发过就不再发（卖掉/删掉也不补）。
@@ -38,6 +57,7 @@ func TestWaterwayTrophyGrantedOnlyWhenAllTrophyFishCollected(t *testing.T) {
 			key, key, grade, water, uid, guid); err != nil {
 			t.Fatal(err)
 		}
+		seedTrophySeen(t, db, uid, water, key, grade)
 	}
 	logCatch("perch", 3, "00000000000000000000000000000001")
 	logCatch("pike", 4, "00000000000000000000000000000002")
@@ -142,6 +162,7 @@ func TestEnsureWaterwayTrophiesBackfillsCompletedWater(t *testing.T) {
 			water, uid, "guid-"+water); err != nil {
 			t.Fatal(err)
 		}
+		seedTrophySeen(t, db, uid, water, "perch", 3)
 	}
 	got := s.ensureWaterwayTrophies(ctx, uid)
 	if len(got) != 1 {

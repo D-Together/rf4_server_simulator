@@ -323,11 +323,13 @@ func (s *Server) fishingKeep(ctx *Ctx) ([]byte, bool) {
 		// 图鉴、307.f16 星号、3/17 面板都只认 catch_log，14/6 放生不写，所以
 		// 「入护即判定」才保证「面板填满」与「拿到奖杯」严格等价（review P2）。
 		if keptInNet {
+			// 水域奖杯的正式判定在 14/4 结算（waterwayTrophyAfterCatch，数据源 catch_seen，
+			// 随 801.f4 来源码 6 在结算界面弹卡）。这里只是**兜底**：结算路径若发失败
+			// （物品定义读不到、DB 抖动），入护时再试一次；幂等键保证不会重复发。
+			// 真在这里补发时已经没有结算界面了，所以改走背包增量 + 系统播报。
 			if trophy, terr := s.grantWaterwayTrophy(cctx, uid, keepLevel); terr != nil {
 				ctx.Log.Warn("水域奖杯发放失败", "water", keepLevel, "err", terr)
 			} else if trophy != nil {
-				// 结算界面（801）早于入护，已经发不出去了；改用背包增量 + 系统播报，
-				// 与稀有鱼奖座、福袋开箱同一通道。
 				ctx.Sess.pushWaterwayTrophies([]*store.Item{trophy})
 				name := s.lootItemName(cctx, trophy.ItemID)
 				if name == "" {

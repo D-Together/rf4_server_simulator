@@ -244,7 +244,7 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 	// 稀有鱼 / 超级稀有鱼的鱼种数按「钓到过」记（catch_seen），在本事务内落库：
 	// 官方结算界面在玩家选择入护/放生之前就画奖座礼物卡，判定必须在结算时成立；
 	// catch_log 要等 14/5 入护才写，用它做分母会永远差这一尾。
-	if err := recordCatchSeenTx(ctx, tx, uid, f.Species, f.Grade, now); err != nil {
+	if err := recordCatchSeenTx(ctx, tx, uid, f.Species, f.LocLevel, f.Grade, now); err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE profile SET xp=?,level=?,updated_ts=? WHERE uid=?`, newXP, level, now, uid); err != nil {
@@ -321,5 +321,9 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 		res.superRarityGifts = super.Items
 		res.superRaritySpeciesCount = super.Count
 	}
+	// 水域奖杯同一时机：本尾鱼已经把 catch_seen 里本水域的最后一种补上时当场发，
+	// 挂 801.f4 来源码 6「捕获了该水域的所有稀有鱼」——官服就是结算界面弹这张卡，
+	// 而不是等入护。放生与否不影响（奖杯是纪念品，官方顺序是先弹卡后选择）。
+	res.waterwayGifts = s.waterwayTrophyAfterCatch(ctx, uid, f.LocLevel)
 	return res, nil
 }
