@@ -1,16 +1,23 @@
 name: Release
 
-# 正式发版：推送 vX.Y.Z tag 即构建、发布 Release，并把 stable 通道
-# 回写进 version.json（客户端更新检测的真源）。
+# 正式发版有两条入口，两条都构建、都回写 version.json 的 stable 通道：
+#   1. 命令行推 tag：git push upstream v0.1.9  → push 事件
+#   2. 网页 Draft a new release 后点 Publish  → release 事件
+#      网页创建 tag 不会发 push 事件，所以历史上只配 push 时，网页发布从未触发过构建。
+# 网页路径下 release 已存在，只补传附件（--clobber），不改写人工写的正文。
 on:
   push:
     tags: ['v*']
+  release:
+    # published：网页新建 release 并点发布（含草稿转为发布）
+    # released：把预发布改为正式发布
+    types: [published, released]
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event.release.tag_name || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -18,6 +25,16 @@ jobs:
     name: Build & Publish Release
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # push 路径全跑；网页路径只处理正式版 v*：
+    #   - 排除预发布（preview 也是 release，但 prerelease=true）
+    #   - 排除非 v* tag（build-release.sh 会拒绝其它格式）
+    #   - 排除 github-actions[bot] 自己创建的 release，避免将来换成 PAT 后自激循环
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'release' &&
+       github.event.release.prerelease == false &&
+       startsWith(github.event.release.tag_name, 'v') &&
+       github.event.release.author.login != 'github-actions[bot]')
     env:
       GOOS: windows
       GOARCH: amd64
@@ -39,9 +56,11 @@ jobs:
 
       - name: Build release package
         id: package
-        run: bash .github/scripts/build-release.sh "$GITHUB_REF_NAME" "$GITHUB_SHA"
+        run: bash .github/scripts/build-release.sh "${{ github.event.release.tag_name || github.ref_name }}" "$GITHUB_SHA"
 
-      - name: Publish release
+      # 入口 1：命令行推 tag —— release 还不存在，由工作流创建。
+      - name: Publish release (tag push)
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
@@ -49,6 +68,14 @@ jobs:
           body_path: ${{ steps.package.outputs.release_notes }}
           files: ${{ steps.package.outputs.asset_path }}
           prerelease: false
+
+      # 入口 2：网页发布 —— release 已由人创建，只补传附件并覆盖同名文件。
+      - name: Upload asset to existing release (published from web)
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" "${{ steps.package.outputs.asset_path }}" --clobber
 
       # 回写 version.json（stable 通道）供客户端更新检测；[skip ci] 防回环。
       - name: Write back version.json (stable)

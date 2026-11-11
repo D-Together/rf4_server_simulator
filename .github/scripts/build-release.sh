@@ -87,6 +87,20 @@ sed \
 
 python3 tools/stage_preview.py "${STAGE}"
 
+# 制品内自带的版本描述（与仓库根 version.json 同 schema，只描述本次构建）。
+cat > "${STAGE}/version.json" <<EOF
+{
+  "schema": 1,
+  "channel": "stable",
+  "version": "${VERSION}",
+  "build_ts": "${BUILD_NUM_TS}",
+  "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "commit": "${COMMIT_SHA}",
+  "asset_name": "${ASSET_NAME}",
+  "source": "https://github.com/glance522/rf4_server_simulator"
+}
+EOF
+
 cat > "${STAGE}/快速开始.txt" <<EOF
 rf4_server_simulator ${VERSION} 快速开始
 
@@ -134,6 +148,7 @@ cat > "${RELEASE_NOTES}" <<EOF
 - certs 本地开发证书
 - README、LICENSE、docs
 - 快速开始.txt、启动服务器.cmd
+- version.json（本次构建的版本、提交与通道信息）
 
 ## 问题反馈
 
