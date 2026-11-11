@@ -166,7 +166,7 @@ cat > "${RELEASE_NOTES}" <<EOF
 
 ## 问题反馈
 
-- QQ 群：379233540
+- 交流群：1134665746
 - GitHub Issues：https://github.com/glance522/rf4_server_simulator/issues
 
 ## 最近提交
