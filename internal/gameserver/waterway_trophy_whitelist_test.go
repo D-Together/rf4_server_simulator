@@ -3,6 +3,7 @@ package gameserver
 import (
 	"context"
 	"fmt"
+	"sort"
 	"testing"
 )
 
@@ -179,10 +180,12 @@ func TestTrophyFishWhitelistStructure(t *testing.T) {
 	}
 }
 
-// 苏拉河面板上那一格「鲑鱼」在 loc_wiki_fish 里派不出来（k_salmon 只属于阿赫图巴河），
-// 旧实现把它算进分母 → 分母 16、分子最多 15，奖杯永远发不出来。修好之后分母应是
-// 「能拿到的格子数」，把 15 种真实鱼种都上星就该集齐。
-func TestWaterwayTrophySuraUnspawnableCellDoesNotBlock(t *testing.T) {
+// 苏拉河面板 16 格全部都能在本图派出来。这一条钉住两件事：
+//
+//  1. 原先按显示名认成「鲑鱼」k_salmon 的那一格，实际是「鲢鱼」s_carp——苏拉河 37 种
+//     鱼里没有任何鲑科鱼，留着旧 key 就会被当成「派不出的格子」永远差一格；
+//  2. 分母必须等于 16，15 格上星不发奖杯，16 格上星才发。
+func TestWaterwayTrophySuraAllPanelCellsReachable(t *testing.T) {
 	t.Parallel()
 	s, db := newDetachTestServer(t)
 	ctx := context.Background()
@@ -192,34 +195,59 @@ func TestWaterwayTrophySuraUnspawnableCellDoesNotBlock(t *testing.T) {
 	}
 	const water = "level_008_sura_river"
 	wl := trophyFishWhitelistSet(water)
-	if len(wl) == 0 {
-		t.Fatal("测试依赖 level_008_sura_river 的白名单")
+	if len(wl) != 16 {
+		t.Fatalf("苏拉河面板应为 16 格可生成鱼种，实得 %d", len(wl))
+	}
+	if _, ok := wl["s_carp"]; !ok {
+		t.Fatal("苏拉河面板那一格应是鲢鱼 s_carp")
 	}
 	if _, bad := wl["k_salmon"]; bad {
-		t.Fatal("k_salmon 在苏拉河派不出来，不该留在判定集合里")
+		t.Fatal("苏拉河派不出 k_salmon，不该留在判定集合里")
 	}
-	if total := trophyFishWhitelistTotal(water); total != len(wl)+trophyFishWhitelistMissing[water] {
-		t.Fatalf("分母应为「可生成格子 %d + 缺格 %d」= %d，实得 %d",
-			len(wl), trophyFishWhitelistMissing[water],
-			len(wl)+trophyFishWhitelistMissing[water], total)
+	if total := trophyFishWhitelistTotal(water); total != 16 {
+		t.Fatalf("苏拉河分母应为 16，实得 %d", total)
 	}
-	i := 0
-	for key := range wl {
-		i++
+	logCatch := func(key string) {
+		t.Helper()
 		if _, err := db.SQL.Exec(`INSERT INTO catch_log
 			(ts,loc,spot,fish_key,name_zh,weight_g,length_m,source,bait,grade,xp,silver,loc_level,uid,catch_guid)
 			VALUES(1,'loc',0,?,?,1000,0.4,'rod','worm',3,0,0,?,?,?)`,
-			key, key, water, uid, fmt.Sprintf("%032d", i)); err != nil {
+			key, key, water, uid, "sura-"+key); err != nil {
 			t.Fatal(err)
 		}
 		seedTrophySeen(t, db, uid, water, key, 3)
+	}
+	keys := make([]string, 0, len(wl))
+	for key := range wl {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys[:len(keys)-1] {
+		logCatch(key)
 	}
 	p, err := s.waterwayTrophyProgressFor(ctx, uid, water)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Done != int64(len(wl)) || p.Total != int64(len(wl)+trophyFishWhitelistMissing[water]) {
-		t.Fatalf("苏拉河可生成格子全部上星后应是 %d/%d，实得 %d/%d",
-			len(wl), len(wl)+trophyFishWhitelistMissing[water], p.Done, p.Total)
+	if p.Done != 15 || p.Total != 16 {
+		t.Fatalf("差一格时进度应为 15/16，实得 %d/%d", p.Done, p.Total)
+	}
+	if it, err := s.grantWaterwayTrophy(ctx, uid, water); err != nil {
+		t.Fatal(err)
+	} else if it != nil {
+		t.Fatalf("还差一格却发了奖杯: %+v", it)
+	}
+	logCatch(keys[len(keys)-1])
+	p, err = s.waterwayTrophyProgressFor(ctx, uid, water)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Done != 16 || p.Total != 16 {
+		t.Fatalf("全部上星后进度应为 16/16，实得 %d/%d", p.Done, p.Total)
+	}
+	if it, err := s.grantWaterwayTrophy(ctx, uid, water); err != nil {
+		t.Fatal(err)
+	} else if it == nil {
+		t.Fatal("16 格全部上星后没有发放奖杯")
 	}
 }

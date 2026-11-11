@@ -31,7 +31,8 @@ Status: ready
 2. 作为玩家，我放生了一条鱼之后，图鉴仍然点亮它（钓到即算收集），与奖杯、星号同步。
 3. 边界：重放同一次入护、重登、连续打开面板都不会发第二枚奖杯。
 4. 边界：奖杯卖掉/丢掉/搬进小屋后不会重发（纪念品）。
-5. 边界：面板上存在本服派不出的鱼种时（苏拉河「鲑鱼」），不应该把该水域卡成永远集不齐。
+5. 边界：面板上出现本服派不出的鱼种时（认错显示名、或客户端独有），不应该把该水域
+   卡成永远集不齐；机制保留（`trophyFishWhitelistUnspawnable`），当前没有条目。
 
 ## Implementation Decisions
 
@@ -51,9 +52,10 @@ Status: ready
   value 是面板格子（`catch_log.fish_key` + 客户端显示名）。
   - `trophyFishWhitelistMissing`：面板上有、但服务端 252 个鱼种里认不出 key 的格子。
     计入分母、分子永不加（宁可晚发也不误发）。
-  - `trophyFishWhitelistUnspawnable`：认得出 key、但该水域 `loc_wiki_fish` 里没有这种鱼
-    （苏拉河 `k_salmon` 只属于阿赫图巴河）。分母一并扣掉、分子也不计，避免把该水域
-    卡成永远集不齐。
+  - `trophyFishWhitelistUnspawnable`：认得出 key、但该水域 `loc_wiki_fish` 里没有这种鱼。
+    分母一并扣掉、分子也不计，避免把该水域卡成永远集不齐。**当前为空**——原条目
+    （苏拉河「鲑鱼」→`k_salmon`）在 2026-11-11 核对后确认是「鲢鱼」`s_carp`，本图能派鱼，
+    已改回真 key，苏拉河分母恢复 16 格。
 - 3/17 面板：`buildFishTrophies323` 同样按白名单过滤，保证「面板上看得见的格子」与
   「判定算的格子」是同一份。
 - 数据与迁移：`00057_catch_seen_loc_level.sql` 给 `catch_seen` 补 `loc_level` 维度
@@ -74,8 +76,9 @@ Status: ready
     来源码 6 的礼物行 → 14/6 放生不回退（奖杯在包里、`catch_log` 保留 source='catch'
     且面板满格）→ 同种鱼再结算 + 入护不重复发 → 重放不再发。
   - `TestWaterwayTrophyUsesPanelWhitelistAsDenominator`：清单外的鱼上星不影响分母。
-  - `TestWaterwayTrophySuraUnspawnableCellDoesNotBlock`：苏拉河把 15 种可生成鱼种全部
-    上星后进度即满（旧实现分母含 `k_salmon`，永远差一格）。
+  - `TestWaterwayTrophySuraAllPanelCellsReachable`：苏拉河 16 格全部可生成、分母 16；
+    15 格上星不发、16 格上星发一枚（旧实现把「鲢鱼」认成 `k_salmon` 并扣掉分母，
+    只能靠 15 格拿奖杯）。
   - `TestWaterwayTrophyGrantedOnlyWhenAllTrophyFishCollected`：未集齐不发、集齐发一枚、
     落库、`kv` 标记、卖掉不补发。
   - `TestEnsureWaterwayTrophiesBackfillsCompletedWater`：巡检只处理有奖杯定义的水域。
@@ -84,14 +87,15 @@ Status: ready
 - 期望值来源：面板截图反推的格子清单 + 手写的 `catch_log`/`catch_seen` 行，
   不用被测代码再算一遍。
 - 回滚后变红：把判定挪回 14/5 入护，`TestWaterwayTrophyIssuedOnSettleBeforeKeep` 第 1 步
-  立刻失败；把 `unspawnable` 去掉，苏拉河那条测试失败。
+  立刻失败；把苏拉河那一格改回 `k_salmon`，`TestWaterwayTrophySuraAllPanelCellsReachable`
+  立刻失败（分母变 15、`s_carp` 缺失）。
 
 ## Out of Scope
 
 - 不补 `trophyFishWhitelistMissing` 里那两格（下通古斯卡河「鲟鱼」、挪威海「鲣鱼」）
   对应的鱼种——需要客户端独有的鱼种数据。
-- 不给苏拉河 `k_salmon` 补派鱼规则：`loc_wiki_fish` 是从客户端静态数据反推的，
-  人为加一行会污染生态与查询链路。
+- 不补苏拉河任何「派不出」的派鱼规则：该图 16 格都是本图真实鱼种，不需要例外；
+  `loc_wiki_fish` 是从客户端静态数据反推的，人为加行会污染生态与查询链路。
 - 不给历史放生的鱼补 `catch_log` 行：补丁上线前的放生记录没有落库，无法追溯。
 
 ## Further Notes
@@ -100,6 +104,8 @@ Status: ready
   （`insertCatchLogSettleTx`），入护只更新 `source` 为 `'keep'`，放生保持 `'catch'`。
   3/17 面板、图鉴、307.f16 星号与 321 统计都读 `catch_log`，因此统一为「钓到即点亮」。
 - `[事实]` `loc_wiki_fish` 里 `k_salmon` 只出现在「阿赫图巴河」；苏拉河 37 种鱼里没有它。
+  2026-11-11 复核：苏拉河面板上那一格是「鲢鱼」`s_carp`（`loc_fish` 15 条记录、有完整
+  `fish_ecology`），原先按显示名认成「鲑鱼」是反推错误，已改正。
 - `[事实]` 白名单来自 18 张面板截图反推（2026-11-10），按「克重+体长」回查 `catch_log`
   锁定 `fish_key`；客户端显示名与 `loc_fish.name_zh` 并不总一致（常见鲃鱼=`c_barbel`、
   长吻梅花鲈=`ruffe_n`、湖鳟鱼=`gc_smelt`、魣鳕=`m_molva`……），不能只按名字猜。
