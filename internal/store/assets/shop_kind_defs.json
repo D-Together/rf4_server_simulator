@@ -429,7 +429,27 @@
    "brands": [
     "cafe_ukleyka"
    ],
-   "map_key": "level_018_moskitnoe"
+   "map_key": "level_018_moskitnoe",
+   "shelf": [
+    {
+     "item_id": "small_coffee",
+     "silver": 0,
+     "gold": 4,
+     "stock": 1
+    },
+    {
+     "item_id": "big_coffee",
+     "silver": 0,
+     "gold": 6,
+     "stock": 1
+    },
+    {
+     "item_id": "hd_box",
+     "silver": 0,
+     "gold": 1,
+     "stock": 1
+    }
+   ]
   },
   "craft_baits_012": {
    "kind": 0,

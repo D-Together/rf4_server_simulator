@@ -36,7 +36,7 @@ func findShopPrice(t *testing.T, rows []*ShopPrice, itemID string) *ShopPrice {
 
 func TestEmbeddedShopCatalogMatchesEvidenceAndCoversAllStores(t *testing.T) {
 	sum := sha256.Sum256(embeddedShopKindDefs)
-	const wantHash = "fc7805d74e0b267f6cdc4fe4c8761cba4cc09af1d041ed55457d8a352220a875"
+	const wantHash = "98fb9e2872d23c64559f8e1f6ec0eb2ff999f39cff96d959a0f3e6abac0e2381"
 	if got := hex.EncodeToString(sum[:]); got != wantHash {
 		t.Fatalf("商店目录 hash=%s want=%s", got, wantHash)
 	}
@@ -420,5 +420,69 @@ func TestAdminStoreBookShelvesByRegion(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// 咖啡馆（铜湖 cafestore_18）没有逐店 shop_item 实录，cafe_ukleyka 产品线的
+// 品牌落在 item_def.kind 列，通用品牌补齐（只比 brand 列）永远补不到。这里
+// 钉住逐店 shelf 解析结果，防止回退到 kind 1 食品模板。
+func TestCafeStoreShelfComesFromStoreDefinition(t *testing.T) {
+	db, err := OpenWithStatic(filepath.Join(t.TempDir(), "cafe-shelf.db"),
+		filepath.Join("..", "..", "server_data", "static.sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	catalog, err := embeddedShopKindCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := catalog.Stores["cafestore_18"]
+	if len(def.Shelf) != 3 {
+		t.Fatalf("咖啡馆逐店货架应登记 3 件: %+v", def.Shelf)
+	}
+	// 价格必须与静态价目一致（内部整数单位，4/6/1 = 界面 0.04/0.06/0.01 金币）。
+	for _, sku := range def.Shelf {
+		p, err := db.ItemPriceGet(ctx, sku.ItemID)
+		if err != nil || p == nil {
+			t.Fatalf("咖啡馆商品缺少静态价目: %s err=%v", sku.ItemID, err)
+		}
+		if p.Silver != sku.Silver || p.Gold != sku.Gold || p.Stock != sku.Stock {
+			t.Fatalf("%s 逐店货架与静态价目不一致: shelf=%+v price=%+v", sku.ItemID, sku, p)
+		}
+		if p.Silver != 0 || p.Gold <= 0 {
+			t.Fatalf("%s 应只提供金币价: %+v", sku.ItemID, p)
+		}
+	}
+
+	rows, err := db.ShopItems(ctx, "cafestore_18")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"small_coffee": true, "big_coffee": true, "hd_box": true}
+	if len(rows) != len(want) {
+		t.Fatalf("咖啡馆生效货架应只含 3 件本店商品，实际 %d 件", len(rows))
+	}
+	for _, row := range rows {
+		if !want[row.ItemID] {
+			t.Fatalf("咖啡馆不应上架非本店商品: %s", row.ItemID)
+		}
+		delete(want, row.ItemID)
+	}
+	if len(want) != 0 {
+		t.Fatalf("咖啡馆货架缺少本店商品: %v", want)
+	}
+	// 解析来源必须是本店逐店 shelf，而不是 kind 1 食品模板——后者正是
+	// “客户端能点到咖啡、22/3 却查不到价目”的成因。
+	shelf, err := db.effectiveShopShelf(ctx, "cafestore_18")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shelf.Source != shopShelfSourceStore {
+		t.Fatalf("咖啡馆货架来源=%q want=%q", shelf.Source, shopShelfSourceStore)
 	}
 }
