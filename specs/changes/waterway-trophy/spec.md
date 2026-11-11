@@ -49,7 +49,9 @@ Status: ready
   `econ.go` 的 `fishingKeep` 保留同一次调用，但只是**兜底**（结算发放失败时重试，幂等），
   那时已经没有结算界面，才改走 4/22 + `pushSystemChat` 播报。
 - 收录清单：`internal/gameserver/fish_trophy_whitelist.go`，key 是水域 systemID，
-  value 是面板格子（`catch_log.fish_key` + 客户端显示名）。
+  value 是面板格子（`catch_log.fish_key` + 客户端显示名）。18 个水域全部录入，共 322 格
+  （埃尔克湖 17 格于 2026-11-11 按面板截图补齐：本图 19 种鱼里只有斑点雀鳝 `sgar`、
+  鳄雀鳝 `agar` 不在面板上）。
   - `trophyFishWhitelistMissing`：面板上有、但服务端 252 个鱼种里认不出 key 的格子。
     计入分母、分子永不加（宁可晚发也不误发）。
   - `trophyFishWhitelistUnspawnable`：认得出 key、但该水域 `loc_wiki_fish` 里没有这种鱼。
@@ -79,9 +81,13 @@ Status: ready
   - `TestWaterwayTrophySuraAllPanelCellsReachable`：苏拉河 16 格全部可生成、分母 16；
     15 格上星不发、16 格上星发一枚（旧实现把「鲢鱼」认成 `k_salmon` 并扣掉分母，
     只能靠 15 格拿奖杯）。
-  - `TestWaterwayTrophyGrantedOnlyWhenAllTrophyFishCollected`：未集齐不发、集齐发一枚、
-    落库、`kv` 标记、卖掉不补发。
-  - `TestEnsureWaterwayTrophiesBackfillsCompletedWater`：巡检只处理有奖杯定义的水域。
+  - `TestWaterwayTrophyGrantedOnlyWhenAllTrophyFishCollected`：口径 17 格（埃尔克湖），
+    差一格（最后一格只到 grade 2）不发、补上星发一枚、落库、`kv` 标记、卖掉不补发。
+  - `TestWaterwayTrophyFallsBackToLocFishWhenNoWhitelist`：18 个水域都录了清单之后，
+    「没有清单退回 `loc_fish`」这条兜底仍要覆盖，用一个没有面板也没有奖杯定义的
+    合成水域（`level_099_no_panel`）跑 2/3 → 3/3，集齐也不发物品、不报错。
+  - `TestEnsureWaterwayTrophiesBackfillsCompletedWater`：巡检只处理有奖杯定义的水域
+    （家园有 loc_fish 记录也被跳过），已集齐的埃尔克湖补发一枚。
 - 纯逻辑层：`TestTrophyFishWhitelistStructure` 钉住数据约束——无重复 key、无空白格、
   不含家园、`unspawnable` / `missing` 只出现在有清单的水域且 key 必须真的在清单里。
 - 期望值来源：面板截图反推的格子清单 + 手写的 `catch_log`/`catch_seen` 行，
@@ -106,9 +112,12 @@ Status: ready
 - `[事实]` `loc_wiki_fish` 里 `k_salmon` 只出现在「阿赫图巴河」；苏拉河 37 种鱼里没有它。
   2026-11-11 复核：苏拉河面板上那一格是「鲢鱼」`s_carp`（`loc_fish` 15 条记录、有完整
   `fish_ecology`），原先按显示名认成「鲑鱼」是反推错误，已改正。
-- `[事实]` 白名单来自 18 张面板截图反推（2026-11-10），按「克重+体长」回查 `catch_log`
-  锁定 `fish_key`；客户端显示名与 `loc_fish.name_zh` 并不总一致（常见鲃鱼=`c_barbel`、
-  长吻梅花鲈=`ruffe_n`、湖鳟鱼=`gc_smelt`、魣鳕=`m_molva`……），不能只按名字猜。
+- `[事实]` 白名单来自面板截图反推（2026-11-10 的 18 张，以及 2026-11-11 补的埃尔克湖），
+  按「克重+体长」回查 `catch_log` 锁定 `fish_key`；客户端显示名与 `loc_fish.name_zh`
+  并不总一致（常见鲃鱼=`c_barbel`、长吻梅花鲈=`ruffe_n`、湖鳟鱼=`gc_smelt`、
+  魣鳕=`m_molva`……），不能只按名字猜。
+- `[事实]` 埃尔克湖 19 种鱼、面板 17 格，未收录的是斑点雀鳝 `sgar` 与鳄雀鳝 `agar`；
+  补上之后 18 个水域全部有清单，`loc_fish` 兜底只剩「将来新增水域」会用。
 - `[推断]` 面板每格的门槛与 3/17 一致（`grade >= 3`）。依据是同一次上星既点亮面板格子，
   也让 307.f16 星号计入。
 - `[事实]` 811 礼物行来源码表已定案（2026-11-11）：反汇编 `GameAssembly 0x180D4BD40`

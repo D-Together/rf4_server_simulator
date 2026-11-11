@@ -11,7 +11,7 @@ package gameserver
 // vs 10，阿赫图巴 54 vs 37）。拿它们当分母永远不会集齐——这就是「面板看着满了却拿不
 // 到奖杯」的根因。
 //
-// 清单来源：玩家逐图截图反推（2026-11-10，18 张面板截图）。反推方法：面板卡片显示的
+// 清单来源：玩家逐图截图反推（2026-11-10 的 18 张，外加 2026-11-11 补录的埃尔克湖）。反推方法：面板卡片显示的
 // 是玩家自己的纪录，用**克重+体长**回查 catch_log 即可锁定 fish_key；对不上重量的
 // （未钓到）按该水域鱼种池 + 客户端的显示名比对。注意客户端显示名与 loc_fish.name_zh
 // 并不总一致（常见鲃鱼=c_barbel、长吻梅花鲈=ruffe_n、河螯虾=crawfish、鳟鱼=
@@ -378,6 +378,27 @@ var trophyFishWhitelist = map[string][]trophyFishCell{
 		{key: "crucian", zh: "银鲫"},
 		{key: "m_carp", zh: "镜鲤"},
 		{key: "karasekarp", zh: "鲢鲤"},
+	},
+	// level_019_american_pond（埃尔克湖）17 格：本图 19 种鱼里只有斑点雀鳝 sgar 与
+	// 鳄雀鳝 agar 不在面板上，其余全收（2026-11-11 面板截图核对）。
+	"level_019_american_pond": {
+		{key: "lm_b_bass", zh: "大口黑鲈"},
+		{key: "warm", zh: "太阳鱼"},
+		{key: "resfish", zh: "小冠太阳鱼"},
+		{key: "sm_bass", zh: "小口黑鲈"},
+		{key: "ch_catfish", zh: "斑点叉尾鮰"},
+		{key: "sp_bass", zh: "斑点黑鲈"},
+		{key: "hs_bass", zh: "杂交条纹狼鲈"},
+		{key: "s_bass", zh: "条纹狼鲈"},
+		{key: "fwdrum", zh: "淡水石首鱼"},
+		{key: "walleye", zh: "玻璃梭鲈"},
+		{key: "white_crappie", zh: "白刺盖太阳鱼"},
+		{key: "bp_bass", zh: "眼点丽鱼"},
+		{key: "g_shad", zh: "美洲真鰶"},
+		{key: "b_gill", zh: "蓝鳃太阳鱼"},
+		{key: "wh_bass", zh: "金眼狼鲈"},
+		{key: "fhcatfish", zh: "铲鮰"},
+		{key: "black_crappie", zh: "黑斑刺盖太阳鱼"},
 	},
 }
 

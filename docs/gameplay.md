@@ -303,7 +303,7 @@ medium/large 槽，模型与槽位对不上，客户端**渔护列表的缩略�
 不发奖杯」的真正根因。
 
 所以清单是**逐图截图反推**出来的，写在 `fish_trophy_whitelist.go` 的
-`trophyFishWhitelist`（18 个水域里已录 17 个，共 305 格）。反推两步：
+`trophyFishWhitelist`（18 个水域全部录完，共 322 格）。反推两步：
 
 1. 面板卡片显示的是玩家自己的纪录，用**克重 + 体长**回查 `catch_log` 直接锁定
    `fish_key`——比读名字可靠得多；
