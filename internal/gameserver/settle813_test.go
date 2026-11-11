@@ -20,12 +20,20 @@ func TestSettle813ReportsActualSkillGain(t *testing.T) {
 	if math.Abs(got-0.1) > 1e-6 {
 		t.Fatalf("310.f3=%v, want 0.1", got)
 	}
+	if got := u32Of(obj.Field(8).Val.Field(2).Num); got != 3 {
+		t.Fatalf("有增量时 310.f2=%d, want 3", got)
+	}
 
+	// 满级钳到 0 后无熟练度可报：310.f2 必须随 f3 一起归零（官服「无技能
+	// 大类」语义），否则客户端渲染出「+0 = 100%」技能加成行。
 	r.skillGain = 0
 	obj = srv.buildSettle813(ctx, 1000001, f, r)
 	got = float64(proto.F32FromBits(u32Of(obj.Field(8).Val.Field(3).Num)))
 	if got != 0 {
 		t.Fatalf("未增长时 310.f3=%v, want 0", got)
+	}
+	if got := u32Of(obj.Field(8).Val.Field(2).Num); got != 0 {
+		t.Fatalf("未增长时 310.f2=%d, want 0（隐藏技能加成行）", got)
 	}
 }
 
@@ -34,12 +42,20 @@ func TestSettle813SuppressesReplayedSkillGain(t *testing.T) {
 	ctx := context.Background()
 	f := &RolledFish{FishGUID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Species: "c.roach", Grade: 1, WeightG: 186, LengthM: 0.1981}
 	r := &settleXpResult{totalXP: 35, skillID: 2, skillGain: 0.2, replayed: true}
-	if got := float64(proto.F32FromBits(u32Of(srv.buildSettle813(ctx, 1000001, f, r).Field(8).Val.Field(3).Num))); got != 0 {
+	replayObj := srv.buildSettle813(ctx, 1000001, f, r)
+	if got := float64(proto.F32FromBits(u32Of(replayObj.Field(8).Val.Field(3).Num))); got != 0 {
 		t.Fatalf("重放 310.f3=%v, want 0", got)
 	}
+	if got := u32Of(replayObj.Field(8).Val.Field(2).Num); got != 0 {
+		t.Fatalf("重放 310.f2=%d, want 0（重放不得再触发熟练度行）", got)
+	}
 	r.replayed = false
-	if got := float64(proto.F32FromBits(u32Of(srv.buildSettle813(ctx, 1000001, f, r).Field(8).Val.Field(3).Num))); math.Abs(got-0.2) > 1e-6 {
+	firstObj := srv.buildSettle813(ctx, 1000001, f, r)
+	if got := float64(proto.F32FromBits(u32Of(firstObj.Field(8).Val.Field(3).Num))); math.Abs(got-0.2) > 1e-6 {
 		t.Fatalf("首次结算 310.f3=%v, want 0.2", got)
+	}
+	if got := u32Of(firstObj.Field(8).Val.Field(2).Num); got != 2 {
+		t.Fatalf("首次结算 310.f2=%d, want 2", got)
 	}
 }
 
