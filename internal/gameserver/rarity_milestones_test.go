@@ -158,8 +158,9 @@ func TestRarityMilestoneGrantsOnSettleWithGiftCard(t *testing.T) {
 	}
 }
 
-// 放生不影响奖座：官方是结算时弹卡、玩家随后才决定放生。
-// 图鉴（catch_log）仍然只认入护，所以放生的鱼不写 catch_log，但计数已经记过。
+// 放生不影响奖座，也不影响图鉴：官方是结算时弹卡、玩家随后才决定放生，
+// 收集口径就是「钓到过」。catch_log 在结算事务里已写下这一尾（source='catch'），
+// 放生不回收——3/17 面板与 307.f16 星号因此和奖座同步。
 func TestRarityMilestoneCountsReleasedCatch(t *testing.T) {
 	t.Parallel()
 	s, db := newRigTestServer(t)
@@ -185,12 +186,22 @@ func TestRarityMilestoneCountsReleasedCatch(t *testing.T) {
 		t.Fatalf("放生不该回收已发的奖座，实得 %d 枚", n)
 	}
 	var logged int
-	if err := db.SQL.QueryRow(`SELECT COUNT(*) FROM catch_log WHERE uid=? AND fish_key='zander'`,
-		uid).Scan(&logged); err != nil {
+	var source string
+	if err := db.SQL.QueryRow(`SELECT COUNT(*), COALESCE(MAX(source),'') FROM catch_log
+		WHERE uid=? AND fish_key='zander'`, uid).Scan(&logged, &source); err != nil {
 		t.Fatal(err)
 	}
-	if logged != 0 {
-		t.Fatalf("放生不该写 catch_log（图鉴仍只认入护），实得 %d 行", logged)
+	if logged != 1 {
+		t.Fatalf("放生的鱼也应留下一条钓获记录（图鉴点亮），实得 %d 行", logged)
+	}
+	if source != "catch" {
+		t.Fatalf("放生后 catch_log.source 应为 catch，实得 %q", source)
+	}
+	// 307.f16（奖杯鱼种数）与 24/19.f5 共用这个口径：3 种都该点亮。
+	if n, err := db.RareSpeciesCount(t.Context(), uid, recordTrophyGrade); err != nil {
+		t.Fatal(err)
+	} else if n != 3 {
+		t.Fatalf("放生后奖杯鱼种数应为 3，实得 %d", n)
 	}
 }
 

@@ -21,10 +21,11 @@ import (
 // 判定口径与 3/17 面板完全一致（同一份 trophyFishWhitelist 收录清单、同一条
 // recordTrophyGrade 准入门槛）。
 //
-// 判定时机是 **14/5 入护落库之后**，不是 14/4 结算：`catch_log` 只在入护时写入，
-// 14/6 放生不写；图鉴、307.f16 星号、3/17 面板全从 `catch_log` 统计。若在结算时
-// 就发，「发奖杯 → 随后放生」会留下「有奖杯、面板没满」的错位（2026-11-10 review P2）。
-// 入护之后再判定，放生的鱼自然不计数，「面板填满」与「拿到奖杯」严格等价。
+// 判定时机是 **14/4 结算当场**，与稀有鱼奖座同一时刻：官方结算界面在玩家选择入护
+// 或放生之前就画出「捕获了该水域的所有稀有鱼」这张卡，说明官方的收集进度在
+// 「钓到」那一刻就成立。catch_log 现在也在 14/4 结算事务里写入（source='catch'），
+// 入护只把它抬成 'keep'、放生保持 'catch'——图鉴、307.f16 星号、3/17 面板、
+// 321 统计与这里的水域进度因此都读同一套「钓到过」的记录，不再有两套口径。
 //
 // 奖杯是纪念品：卖掉、丢掉、转到小屋之后都不会重发，因此发放记录单独写在 kv 里，
 // 不能依赖「现在背包里有没有这枚奖杯」来判断是否发过。
@@ -92,9 +93,9 @@ func (s *Server) waterwayTrophyProgressFor(ctx context.Context, uid int64, locLe
 // whitelistTrophyProgress 按面板收录清单算进度：分母是清单长度，分子是清单里在该
 // 水域已上星（grade 3）或蓝冠（grade 4）的鱼种数。清单外的记录一律不参与。
 //
-// 数据源是 `catch_seen`（钓到即记），不是 `catch_log`（入护才写）：水域奖杯和稀有鱼
-// 奖座一样要随 801.f4 在结算界面弹卡（来源码 6「捕获了该水域的所有稀有鱼」），
-// 而结算发生在入护之前，catch_log 那时还没有这一尾。图鉴/307.f16 仍只认 catch_log。
+// 数据源是 `catch_seen`（钓到即记，带 loc_level）。结算发生在入护之前，
+// 所以不能等 catch_log 的 source 变成 'keep' 才判——那时结算界面早就发出去了。
+// catch_seen 与 catch_log 在同一结算事务里落库，两者对「钓到过」的认定一致。
 func (s *Server) whitelistTrophyProgress(ctx context.Context, uid int64, locLevel string, wl map[string]struct{}) (waterwayTrophyProgress, error) {
 	// 分母 = 认得出的格子 + 认不出的格子（后者永远不算完成，见 trophyFishWhitelistMissing）。
 	p := waterwayTrophyProgress{Total: int64(trophyFishWhitelistTotal(locLevel))}
@@ -197,7 +198,7 @@ func (s *Server) issueWaterwayTrophy(ctx context.Context, uid int64, locLevel, i
 //
 // 只判本水域：一尾鱼只可能在它被钓上来的那片水里补上最后一个格子。判定数据源是
 // catch_seen（本尾鱼已在结算事务里落库，且带 loc_level），所以跨水域的同名鱼种
-// 不会互相顶进度。图鉴（catch_log）仍然只认入护，两套口径分开记。
+// 不会互相顶进度。图鉴同样记这一尾（catch_log 同事务写入），两边永远同步。
 func (s *Server) waterwayTrophyAfterCatch(ctx context.Context, uid int64, locLevel string) []*store.Item {
 	if s == nil || s.DB == nil || locLevel == "" || locLevel == waterwayTrophyHome {
 		return nil

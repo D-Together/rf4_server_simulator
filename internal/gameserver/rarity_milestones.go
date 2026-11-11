@@ -77,11 +77,10 @@ type rarityMilestoneBatch struct {
 
 // raritySpeciesCounts 统计玩家**钓到过**的上星 / 蓝冠鱼种数（catch_seen）。
 //
-// 为什么不用 catch_log：官方结算界面（801）在玩家选择入护或放生之前就把奖座礼物
-// 画出来了，所以官方的鱼种数在「钓到」那一刻就成立。catch_log 只在 14/5 入护时写，
-// 拿它做分母会永远差这一尾，结算界面也就永远发不出礼物卡（2026-11-11 回归）。
-// catch_seen 在 14/4 结算事务里落库，与图鉴（catch_log）分开记，
-// 图鉴仍然只认入护 —— 放生的鱼不点亮图鉴，但奖座已按官方口径记过。
+// 官方结算界面（801）在玩家选择入护或放生之前就把奖座礼物画出来了，所以鱼种数在
+// 「钓到」那一刻就成立（2026-11-11 回归）。catch_seen 在 14/4 结算事务里落库，
+// 与同一事务里写下的 catch_log 行一一对应；图鉴、307.f16 星号、3/17 面板读的是
+// catch_log，放生同样保留那一行，因此图鉴与奖座始终同步。
 func (s *Server) raritySpeciesCounts(ctx context.Context, uid int64) (rare, super int64, err error) {
 	if s == nil || s.DB == nil {
 		return 0, 0, nil

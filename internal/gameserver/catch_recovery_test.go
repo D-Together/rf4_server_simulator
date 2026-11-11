@@ -207,7 +207,13 @@ func TestCompletedCatchRecoveryFailurePreservesPendingAndRetries(t *testing.T) {
 	srv, db := newDetachTestServer(t)
 	sess := recoveryLogin(t, srv, 831)
 	saved, xp := completedRecoveryFish(t, srv, sess)
-	if _, err := db.SQL.Exec(`CREATE TRIGGER fail_recovered_catch BEFORE INSERT ON catch_log
+	if _, err := db.SQL.Exec(`CREATE TRIGGER fail_recovered_catch_insert BEFORE INSERT ON catch_log
+		BEGIN SELECT RAISE(ABORT,'catch log unavailable'); END`); err != nil {
+		t.Fatal(err)
+	}
+	// 14/4 结算已把这一尾以 source='catch' 写进 catch_log，入护走的是 UPDATE，
+	// 所以只拦 INSERT 拦不住入护落库，还得拦 UPDATE 才能复现「入护写库失败」。
+	if _, err := db.SQL.Exec(`CREATE TRIGGER fail_recovered_catch_update BEFORE UPDATE ON catch_log
 		BEGIN SELECT RAISE(ABORT,'catch log unavailable'); END`); err != nil {
 		t.Fatal(err)
 	}
@@ -218,8 +224,10 @@ func TestCompletedCatchRecoveryFailurePreservesPendingAndRetries(t *testing.T) {
 	if persisted.Pending == nil || *persisted.Pending != *saved.Pending || len(list) != 0 {
 		t.Fatal("failed recovery lost the original fish or partially kept it")
 	}
-	if _, err := db.SQL.Exec(`DROP TRIGGER fail_recovered_catch`); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"fail_recovered_catch_insert", "fail_recovered_catch_update"} {
+		if _, err := db.SQL.Exec(`DROP TRIGGER ` + name); err != nil {
+			t.Fatal(err)
+		}
 	}
 	hItemCount(&Ctx{Sess: next, Tree: proto.Args524(proto.U32(5))})
 	assertRecoveredCatch(t, srv, saved.Pending, xp, 1)

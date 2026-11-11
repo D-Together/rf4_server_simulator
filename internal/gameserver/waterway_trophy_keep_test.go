@@ -68,8 +68,8 @@ func wlRelease(t *testing.T, s *Server, sess *Session, fish *RolledFish, call in
 //
 // 官方结算界面（801）在玩家选择入护或放生之前就画出「捕获了该水域的所有稀有鱼」
 // 这张卡，说明官方的水域进度在「钓到」那一刻就成立。判定数据源是 catch_seen
-// （钓到即记、带水域），不是 catch_log（入护才写）。图鉴/307.f16 仍只认 catch_log，
-// 所以放生的鱼会出现「奖杯已发、图鉴不亮」——这正是官方的顺序，不是错位。
+// （钓到即记、带水域），catch_log 也在同一个结算事务里落库（source='catch'），
+// 所以图鉴、307.f16 与这块面板和奖杯永远同步：放生也点亮。
 func TestWaterwayTrophyIssuedOnSettleBeforeKeep(t *testing.T) {
 	t.Parallel()
 	s, db := newRigTestServer(t)
@@ -125,18 +125,28 @@ func TestWaterwayTrophyIssuedOnSettleBeforeKeep(t *testing.T) {
 		t.Fatalf("801.f4 没有来源码 %d 的礼物行：%+v", giftSourceTrophyTableCollected, dec.Field(4).Val)
 	}
 
-	// 2) 放生不回退：奖杯是纪念品，官方顺序就是先发卡后选择；图鉴仍不点亮。
+	// 2) 放生不回退：奖杯是纪念品，官方顺序是先发卡后选择。
+	// 图鉴同口径——这一尾在结算时已落 catch_log，放生不回收，面板仍是满格。
 	wlRelease(t, s, sess, fish, 2)
 	if n := owned(); n != 1 {
 		t.Fatalf("放生不该回收奖杯，实得 %d 枚", n)
 	}
 	var logged int64
-	if err := db.SQL.QueryRow(`SELECT COUNT(*) FROM catch_log WHERE uid=? AND fish_key=? AND loc_level=?`,
-		uid, last, water).Scan(&logged); err != nil {
+	var source string
+	if err := db.SQL.QueryRow(`SELECT COUNT(*), COALESCE(MAX(source),'') FROM catch_log
+		WHERE uid=? AND fish_key=? AND loc_level=?`, uid, last, water).Scan(&logged, &source); err != nil {
 		t.Fatal(err)
 	}
-	if logged != 0 {
-		t.Fatalf("放生不该写 catch_log，实得 %d 行", logged)
+	if logged != 1 {
+		t.Fatalf("放生的鱼也该留下一条钓获记录（图鉴点亮），实得 %d 行", logged)
+	}
+	if source != "catch" {
+		t.Fatalf("放生后 catch_log.source 应为 catch，实得 %q", source)
+	}
+	if p, err := s.waterwayTrophyProgressFor(t.Context(), uid, water); err != nil {
+		t.Fatal(err)
+	} else if p.Done != p.Total {
+		t.Fatalf("放生后水域面板应为满格 %d/%d，实得 %d/%d", p.Total, p.Total, p.Done, p.Total)
 	}
 
 	// 3) 同一种鱼改成入护：入护补写 catch_log，但奖杯已在结算时发过，不重复发。
