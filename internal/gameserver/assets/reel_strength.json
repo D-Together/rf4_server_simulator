@@ -1,0 +1,3461 @@
+{
+ "comment": "轮根规格表：来源 E:/RF4/cs/轮表.xlsx（精确锁轮表列），root_spec=出厂满耐久轮根(nlmnpekipjc 标称值)，运行时轮根=root_spec×轴承子件耐久",
+ "reels": {
+  "bclp_5004": {
+   "base_drag": 9.0,
+   "model": "Jet-Series JSX-R",
+   "root_spec": 36.69,
+   "tier": "exact"
+  },
+  "bclp_5005": {
+   "base_drag": 6.3,
+   "model": "Ice Bolt SIB-HSR",
+   "root_spec": 31.5,
+   "tier": "exact"
+  },
+  "bclp_5006": {
+   "base_drag": 5.5,
+   "model": "Charger TC-R",
+   "root_spec": 27.5,
+   "tier": "exact"
+  },
+  "bclp_5013": {
+   "base_drag": 4.0,
+   "model": "Optima",
+   "root_spec": 20.0,
+   "tier": "exact"
+  },
+  "bclp_5014": {
+   "base_drag": 6.3,
+   "model": "Riva SRB-R",
+   "root_spec": 31.5,
+   "tier": "exact"
+  },
+  "bclp_5015": {
+   "base_drag": 4.0,
+   "model": "Starter",
+   "root_spec": 20.0,
+   "tier": "exact"
+  },
+  "bclp_5016": {
+   "base_drag": 7.0,
+   "model": "Winner LP",
+   "root_spec": 35.0,
+   "tier": "exact"
+  },
+  "bclp_5031": {
+   "base_drag": 4.1,
+   "model": "Energy SNB-R",
+   "root_spec": 12.29,
+   "tier": "exact"
+  },
+  "bclp_5032": {
+   "base_drag": 6.3,
+   "model": "SportPro SSP-R",
+   "root_spec": 31.5,
+   "tier": "exact"
+  },
+  "bclp_5033": {
+   "base_drag": 6.3,
+   "model": "T-Tech STT-R",
+   "root_spec": 29.68,
+   "tier": "exact"
+  },
+  "bclp_5046": {
+   "base_drag": 5.5,
+   "model": "Nitro TN-R",
+   "root_spec": 27.5,
+   "tier": "exact"
+  },
+  "bclp_5047": {
+   "base_drag": 8.2,
+   "model": "Shuttle TSH-R",
+   "root_spec": 41.0,
+   "tier": "exact"
+  },
+  "bclp_5049": {
+   "base_drag": 8.2,
+   "model": "Pillar TPC-R",
+   "root_spec": 41.0,
+   "tier": "exact"
+  },
+  "bclp_5050": {
+   "base_drag": 8.2,
+   "model": "Mayor TMC-R",
+   "root_spec": 41.0,
+   "tier": "exact"
+  },
+  "bclp_5067": {
+   "base_drag": 6.3,
+   "model": "T-Tech STT-HSR",
+   "root_spec": 30.21,
+   "tier": "exact"
+  },
+  "bclp_5083": {
+   "base_drag": 6.4,
+   "model": "Black Bird BB-R",
+   "root_spec": 32.0,
+   "tier": "exact"
+  },
+  "bclp_5084": {
+   "base_drag": 6.4,
+   "model": "Silver Bird SB-R",
+   "root_spec": 32.0,
+   "tier": "exact"
+  },
+  "bclp_5085": {
+   "base_drag": 7.3,
+   "model": "Pro Bird PB-R",
+   "root_spec": 36.5,
+   "tier": "exact"
+  },
+  "bclp_5086": {
+   "base_drag": 8.6,
+   "model": "Zero Z-R",
+   "root_spec": 43.0,
+   "tier": "exact"
+  },
+  "bclp_5087": {
+   "base_drag": 8.6,
+   "model": "Zero ZHS-R",
+   "root_spec": 43.0,
+   "tier": "exact"
+  },
+  "bclp_5088": {
+   "base_drag": 9.0,
+   "model": "Zero GS ZG-R",
+   "root_spec": 56.56,
+   "tier": "exact"
+  },
+  "bclp_5089": {
+   "base_drag": 7.3,
+   "model": "Jet-Series JS-R",
+   "root_spec": 38.72,
+   "tier": "exact"
+  },
+  "bclp_5089_be": {
+   "base_drag": 7.3,
+   "model": "Jet系列 JS-R 白河款",
+   "root_spec": 9.913,
+   "tier": "estimate"
+  },
+  "bclp_5090": {
+   "base_drag": 8.6,
+   "model": "Jet-Series JSG-R",
+   "root_spec": 34.56,
+   "tier": "exact"
+  },
+  "bclp_5091": {
+   "base_drag": 8.6,
+   "model": "Jet-Series JSGHS-R",
+   "root_spec": 31.91,
+   "tier": "exact"
+  },
+  "bclp_5102": {
+   "base_drag": 8.2,
+   "model": "Pillar TPC-R-HS",
+   "root_spec": 41.0,
+   "tier": "exact"
+  },
+  "bclp_5103": {
+   "base_drag": 9.0,
+   "model": "Jet-Series JSXHS-R",
+   "root_spec": 34.92,
+   "tier": "exact"
+  },
+  "bclp_5327": {
+   "base_drag": 5.7,
+   "model": "Nitro 2 TN-R",
+   "root_spec": 21.49,
+   "tier": "exact"
+  },
+  "bclp_5328": {
+   "base_drag": 6.8,
+   "model": "Charger 2 TC-R",
+   "root_spec": 28.93,
+   "tier": "exact"
+  },
+  "bclp_5329": {
+   "base_drag": 7.3,
+   "model": "Spectrum TSH-R",
+   "root_spec": 31.93,
+   "tier": "exact"
+  },
+  "bclp_5330": {
+   "base_drag": 8.2,
+   "model": "Pillar 2 TPC-R",
+   "root_spec": 38.9,
+   "tier": "exact"
+  },
+  "bclp_5331": {
+   "base_drag": 8.2,
+   "model": "Pillar 2 TPC-R-HS",
+   "root_spec": 36.74,
+   "tier": "exact"
+  },
+  "bclp_5332": {
+   "base_drag": 5.0,
+   "model": "Black Bird 2 LS-R",
+   "root_spec": 25.81,
+   "tier": "exact"
+  },
+  "bclp_5333": {
+   "base_drag": 7.3,
+   "model": "Silver Bird 2 LS-R",
+   "root_spec": 26.68,
+   "tier": "exact"
+  },
+  "bclp_5334": {
+   "base_drag": 7.7,
+   "model": "Pro Bird 2 MS-R",
+   "root_spec": 34.54,
+   "tier": "exact"
+  },
+  "bclp_5335": {
+   "base_drag": 7.7,
+   "model": "Zero 2 Z-R",
+   "root_spec": 44.59,
+   "tier": "exact"
+  },
+  "bclp_5336": {
+   "base_drag": 7.7,
+   "model": "Zero 2 ZHS-R",
+   "root_spec": 43.41,
+   "tier": "exact"
+  },
+  "bclp_5338": {
+   "base_drag": 3.2,
+   "model": "Profisher",
+   "root_spec": 8.03,
+   "tier": "exact"
+  },
+  "bclp_5339": {
+   "base_drag": 3.6,
+   "model": "Optimus",
+   "root_spec": 6.16,
+   "tier": "exact"
+  },
+  "bclp_5340": {
+   "base_drag": 4.5,
+   "model": "Winner 2 LP",
+   "root_spec": 13.04,
+   "tier": "exact"
+  },
+  "bclp_5341": {
+   "base_drag": 4.8,
+   "model": "Riva 2 MS-R",
+   "root_spec": 19.51,
+   "tier": "exact"
+  },
+  "bclp_5342": {
+   "base_drag": 5.2,
+   "model": "SportPro X2 MS-R",
+   "root_spec": 23.02,
+   "tier": "exact"
+  },
+  "bclp_5343": {
+   "base_drag": 5.4,
+   "model": "Thunderbolt SSP HS-R",
+   "root_spec": 21.76,
+   "tier": "exact"
+  },
+  "bclp_5357": {
+   "base_drag": 8.15,
+   "model": "Jet-Bullet LP HS-R",
+   "root_spec": 31.91,
+   "tier": "exact"
+  },
+  "bclp_5358": {
+   "base_drag": 9.5,
+   "model": "JSX Inferno LP-R",
+   "root_spec": 31.38,
+   "tier": "exact"
+  },
+  "bclp_5379": {
+   "base_drag": 8.6,
+   "model": "Polestar ELT LP-R",
+   "root_spec": 40.51,
+   "tier": "exact"
+  },
+  "bclp_5380": {
+   "base_drag": 9.5,
+   "model": "Jet-Series ULX LP-R",
+   "root_spec": 36.59,
+   "tier": "exact"
+  },
+  "bclp_5381": {
+   "base_drag": 9.0,
+   "model": "Admiral LP-R PG",
+   "root_spec": 44.45,
+   "tier": "exact"
+  },
+  "bclp_5406": {
+   "base_drag": 7.3,
+   "model": "Mayor 2 TMC-R",
+   "root_spec": 27.9,
+   "tier": "exact"
+  },
+  "bclp_5670": {
+   "base_drag": 7.71,
+   "model": "Alfa Pro LP",
+   "root_spec": 33.49,
+   "tier": "exact"
+  },
+  "bclp_5671": {
+   "base_drag": 7.71,
+   "model": "Alfa Pro LP Red",
+   "root_spec": 33.49,
+   "tier": "exact"
+  },
+  "bclp_5672": {
+   "base_drag": 7.71,
+   "model": "Alfa Pro LP Orange",
+   "root_spec": 33.49,
+   "tier": "exact"
+  },
+  "bclp_5673": {
+   "base_drag": 7.71,
+   "model": "Alfa Pro LP Acid",
+   "root_spec": 33.49,
+   "tier": "exact"
+  },
+  "bclp_5674": {
+   "base_drag": 7.71,
+   "model": "Alfa Pro LP White",
+   "root_spec": 33.49,
+   "tier": "exact"
+  },
+  "bclp_5675": {
+   "base_drag": 9.0,
+   "model": "Skipper LP-R HS",
+   "root_spec": 43.0,
+   "tier": "exact"
+  },
+  "bclp_5700": {
+   "base_drag": 8.6,
+   "model": "Olaf HS-LP",
+   "root_spec": 34.65,
+   "tier": "exact"
+  },
+  "bclp_5701": {
+   "base_drag": 8.85,
+   "model": "Magma XHS-LP",
+   "root_spec": 32.0,
+   "tier": "exact"
+  },
+  "bclp_6100": {
+   "base_drag": 4.5,
+   "model": "Winner NG LP-HS",
+   "root_spec": 13.56,
+   "tier": "exact"
+  },
+  "bclp_7007": {
+   "base_drag": 9.0,
+   "model": "Magma XHS-LP 9-Years",
+   "root_spec": 35.0,
+   "tier": "exact"
+  },
+  "bcr_5007": {
+   "base_drag": 12.7,
+   "model": "ZM-4 Z40",
+   "root_spec": 75.0,
+   "tier": "exact"
+  },
+  "bcr_5008": {
+   "base_drag": 11.0,
+   "model": "Billionaire 50R",
+   "root_spec": 56.82,
+   "tier": "exact"
+  },
+  "bcr_5009": {
+   "base_drag": 6.8,
+   "model": "Zodiac 500-R",
+   "root_spec": 34.0,
+   "tier": "exact"
+  },
+  "bcr_5010": {
+   "base_drag": 23.5,
+   "model": "Classic ZC70",
+   "root_spec": 117.5,
+   "tier": "exact"
+  },
+  "bcr_5011": {
+   "base_drag": 12.5,
+   "model": "SteelHead 500-R",
+   "root_spec": 39.75,
+   "tier": "exact"
+  },
+  "bcr_5012": {
+   "base_drag": 27.2,
+   "model": "Rocket Jet RJ7",
+   "root_spec": 136.0,
+   "tier": "exact"
+  },
+  "bcr_5017": {
+   "base_drag": 4.0,
+   "model": "Winner Round",
+   "root_spec": 20.0,
+   "tier": "exact"
+  },
+  "bcr_5034": {
+   "base_drag": 6.3,
+   "model": "Magellan 400",
+   "root_spec": 13.84,
+   "tier": "exact"
+  },
+  "bcr_5035": {
+   "base_drag": 6.8,
+   "model": "Spider 400-R",
+   "root_spec": 34.0,
+   "tier": "exact"
+  },
+  "bcr_5048": {
+   "base_drag": 18.0,
+   "model": "Billionaire H-Version 60R",
+   "root_spec": 79.0,
+   "tier": "exact"
+  },
+  "bcr_5048_nye": {
+   "base_drag": 18.0,
+   "model": "Billionaire 60R-H款-新年版",
+   "root_spec": 24.066,
+   "tier": "estimate"
+  },
+  "bcr_5062": {
+   "base_drag": 16.0,
+   "model": "SteelHead 600-R",
+   "root_spec": 56.0,
+   "tier": "exact"
+  },
+  "bcr_5070": {
+   "base_drag": 13.6,
+   "model": "Billionaire 60R",
+   "root_spec": 71.05,
+   "tier": "exact"
+  },
+  "bcr_5071": {
+   "base_drag": 15.0,
+   "model": "ZM-4 Z50",
+   "root_spec": 69.0,
+   "tier": "exact"
+  },
+  "bcr_5072": {
+   "base_drag": 15.0,
+   "model": "ZM-4 Z60",
+   "root_spec": 74.19,
+   "tier": "exact"
+  },
+  "bcr_5073": {
+   "base_drag": 11.0,
+   "model": "ZM-3 Z40",
+   "root_spec": 49.58,
+   "tier": "exact"
+  },
+  "bcr_5074": {
+   "base_drag": 12.7,
+   "model": "ZM-3 Z50",
+   "root_spec": 51.97,
+   "tier": "exact"
+  },
+  "bcr_5075": {
+   "base_drag": 12.7,
+   "model": "ZM-3 Z60",
+   "root_spec": 56.19,
+   "tier": "exact"
+  },
+  "bcr_5076": {
+   "base_drag": 17.2,
+   "model": "ZM-Steelness ZMS50",
+   "root_spec": 82.99,
+   "tier": "exact"
+  },
+  "bcr_5077": {
+   "base_drag": 17.2,
+   "model": "ZM-Steelness ZMS60",
+   "root_spec": 91.84,
+   "tier": "exact"
+  },
+  "bcr_5078": {
+   "base_drag": 20.4,
+   "model": "Centauri ZC70",
+   "root_spec": 117.4,
+   "tier": "exact"
+  },
+  "bcr_5079": {
+   "base_drag": 23.5,
+   "model": "Centauri ZC80",
+   "root_spec": 125.85,
+   "tier": "exact"
+  },
+  "bcr_5080": {
+   "base_drag": 9.0,
+   "model": "Black Box ZBB50",
+   "root_spec": 37.14,
+   "tier": "exact"
+  },
+  "bcr_5081": {
+   "base_drag": 11.0,
+   "model": "Black Box ZBB60",
+   "root_spec": 41.0,
+   "tier": "exact"
+  },
+  "bcr_5082": {
+   "base_drag": 8.6,
+   "model": "Compact ZC50",
+   "root_spec": 33.42,
+   "tier": "exact"
+  },
+  "bcr_5115": {
+   "base_drag": 6.8,
+   "model": "Zodiac 500-R L-CTR",
+   "root_spec": 34.0,
+   "tier": "exact"
+  },
+  "bcr_5116": {
+   "base_drag": 18.0,
+   "model": "Billionaire H-Version 60R LCTR",
+   "root_spec": 79.0,
+   "tier": "exact"
+  },
+  "bcr_5117": {
+   "base_drag": 11.0,
+   "model": "Black Box ZBB60 LCTR",
+   "root_spec": 41.0,
+   "tier": "exact"
+  },
+  "bcr_5118": {
+   "base_drag": 23.5,
+   "model": "Centauri ZC80 LCTR",
+   "root_spec": 125.85,
+   "tier": "exact"
+  },
+  "bcr_5119": {
+   "base_drag": 8.6,
+   "model": "Compact ZC40",
+   "root_spec": 30.67,
+   "tier": "exact"
+  },
+  "bcr_5120": {
+   "base_drag": 9.0,
+   "model": "Compact ZC60",
+   "root_spec": 35.08,
+   "tier": "exact"
+  },
+  "bcr_5141": {
+   "base_drag": 16.3,
+   "model": "Imperial R600",
+   "root_spec": 81.5,
+   "tier": "exact"
+  },
+  "bcr_5196": {
+   "base_drag": 5.5,
+   "model": "Winner Round II",
+   "root_spec": 10.2,
+   "tier": "exact"
+  },
+  "bcr_5197": {
+   "base_drag": 7.5,
+   "model": "Spider 400-R2",
+   "root_spec": 17.51,
+   "tier": "exact"
+  },
+  "bcr_5198": {
+   "base_drag": 8.0,
+   "model": "Zodiac 500-R2",
+   "root_spec": 29.0,
+   "tier": "exact"
+  },
+  "bcr_5199": {
+   "base_drag": 8.0,
+   "model": "Zodiac 500-R2 L-CTR",
+   "root_spec": 29.0,
+   "tier": "exact"
+  },
+  "bcr_5360": {
+   "base_drag": 15.9,
+   "model": "ZM Ranger Z60",
+   "root_spec": 78.0,
+   "tier": "exact"
+  },
+  "bcr_5361": {
+   "base_drag": 18.1,
+   "model": "ZM Ranger Z70",
+   "root_spec": 88.19,
+   "tier": "exact"
+  },
+  "bcr_5362": {
+   "base_drag": 19.0,
+   "model": "ZM-3 Spear SG70",
+   "root_spec": 97.45,
+   "tier": "exact"
+  },
+  "bcr_5364": {
+   "base_drag": 19.0,
+   "model": "Minister NGT LD50",
+   "root_spec": 92.0,
+   "tier": "exact"
+  },
+  "bcr_5365": {
+   "base_drag": 20.0,
+   "model": "Minister NGT LD60",
+   "root_spec": 97.75,
+   "tier": "exact"
+  },
+  "bcr_5366": {
+   "base_drag": 20.9,
+   "model": "ZM Monster LD60",
+   "root_spec": 90.17,
+   "tier": "exact"
+  },
+  "bcr_5367": {
+   "base_drag": 11.0,
+   "model": "Minister Phantom LWC20",
+   "root_spec": 55.0,
+   "tier": "exact"
+  },
+  "bcr_5389": {
+   "base_drag": 8.6,
+   "model": "Minister 2000",
+   "root_spec": 54.54,
+   "tier": "exact"
+  },
+  "bcr_5452": {
+   "base_drag": 18.14,
+   "model": "SAL5000",
+   "root_spec": 106.1,
+   "tier": "exact"
+  },
+  "bcr_5455": {
+   "base_drag": 17.2,
+   "model": "Minister CS 60",
+   "root_spec": 99.68,
+   "tier": "exact"
+  },
+  "bcr_5456": {
+   "base_drag": 18.1,
+   "model": "Minister CS SG60 Red",
+   "root_spec": 111.0,
+   "tier": "exact"
+  },
+  "bcr_5457": {
+   "base_drag": 18.1,
+   "model": "Minister CS SG60 Purple",
+   "root_spec": 111.0,
+   "tier": "exact"
+  },
+  "bcr_5458": {
+   "base_drag": 19.0,
+   "model": "Minister CS PG60 Orange",
+   "root_spec": 116.64,
+   "tier": "exact"
+  },
+  "bcr_5459": {
+   "base_drag": 19.0,
+   "model": "Minister CS SR60 Green",
+   "root_spec": 103.5,
+   "tier": "exact"
+  },
+  "bcr_5460": {
+   "base_drag": 20.0,
+   "model": "Minister CS LD60 Blue",
+   "root_spec": 116.64,
+   "tier": "exact"
+  },
+  "bcr_5461": {
+   "base_drag": 26.3,
+   "model": "Minister CS ES60 Yellow",
+   "root_spec": 143.56,
+   "tier": "exact"
+  },
+  "bcr_5462": {
+   "base_drag": 26.3,
+   "model": "Minister CS ES60 Pearl",
+   "root_spec": 143.56,
+   "tier": "exact"
+  },
+  "bcr_5717": {
+   "base_drag": 12.7,
+   "model": "ZM-4 40 8-Years",
+   "root_spec": 63.65,
+   "tier": "exact"
+  },
+  "bcr_5723": {
+   "base_drag": 15.0,
+   "model": "ZM-4 60 8-Years",
+   "root_spec": 76.08,
+   "tier": "exact"
+  },
+  "bcr_5763": {
+   "base_drag": 15.4,
+   "model": "Castmaster LGR1973 MC",
+   "root_spec": 75.42,
+   "tier": "exact"
+  },
+  "bcr_5764": {
+   "base_drag": 15.4,
+   "model": "Castmaster LGR1973 ME",
+   "root_spec": 75.42,
+   "tier": "exact"
+  },
+  "bcr_5775": {
+   "base_drag": 16.3,
+   "model": "Imperial MMXXII R600",
+   "root_spec": 22.478,
+   "tier": "estimate"
+  },
+  "bcr_5860": {
+   "base_drag": 16.3,
+   "model": "Imperial MMXXIII R600",
+   "root_spec": 22.478,
+   "tier": "estimate"
+  },
+  "bcr_5923": {
+   "base_drag": 16.3,
+   "model": "Imperial R605",
+   "root_spec": 99.41,
+   "tier": "exact"
+  },
+  "bcr_5924": {
+   "base_drag": 18.1,
+   "model": "Imperial R605 Magnesium",
+   "root_spec": 105.35,
+   "tier": "exact"
+  },
+  "bcr_5925": {
+   "base_drag": 18.1,
+   "model": "Imperial R605 Electrum",
+   "root_spec": 105.35,
+   "tier": "exact"
+  },
+  "bcr_5926": {
+   "base_drag": 18.1,
+   "model": "Imperial R605 Rose gold",
+   "root_spec": 105.35,
+   "tier": "exact"
+  },
+  "bcr_5927": {
+   "base_drag": 18.1,
+   "model": "Imperial R605 6-Anniversary",
+   "root_spec": 90.5,
+   "tier": "exact"
+  },
+  "bcr_5970": {
+   "base_drag": 17.2,
+   "model": "Minister CS 60 6 Years",
+   "root_spec": 86.0,
+   "tier": "exact"
+  },
+  "bcr_5971": {
+   "base_drag": 23.5,
+   "model": "Classic SG70 6 Years",
+   "root_spec": 117.5,
+   "tier": "exact"
+  },
+  "bcr_5975": {
+   "base_drag": 23.5,
+   "model": "Classic SG70",
+   "root_spec": 114.77,
+   "tier": "exact"
+  },
+  "bcr_5996": {
+   "base_drag": 16.3,
+   "model": "Imperial MMXXIV R605",
+   "root_spec": 22.478,
+   "tier": "estimate"
+  },
+  "bcr_6009": {
+   "base_drag": 27.2,
+   "model": "Rocket Jet SG70",
+   "root_spec": 136.0,
+   "tier": "exact"
+  },
+  "bcr_6010": {
+   "base_drag": 30.8,
+   "model": "Rocket Jet SG80",
+   "root_spec": 147.5,
+   "tier": "exact"
+  },
+  "bcr_6011": {
+   "base_drag": 30.8,
+   "model": "Rocket Jet SG80 Desert sand",
+   "root_spec": 147.5,
+   "tier": "exact"
+  },
+  "bcr_6012": {
+   "base_drag": 30.8,
+   "model": "Rocket Jet SG80 7-Years",
+   "root_spec": 147.0,
+   "tier": "exact"
+  },
+  "bcr_6013": {
+   "base_drag": 11.0,
+   "model": "Phantom Super LWC20",
+   "root_spec": 63.74,
+   "tier": "exact"
+  },
+  "bcr_6014": {
+   "base_drag": 11.0,
+   "model": "Phantom Super LWC20 7-Years",
+   "root_spec": 63.7,
+   "tier": "exact"
+  },
+  "bcr_6049": {
+   "base_drag": 17.2,
+   "model": "Minister CS 60 NY26",
+   "root_spec": 23.358,
+   "tier": "estimate"
+  },
+  "c_spin_5382": {
+   "base_drag": 25.4,
+   "model": "Megara 8000",
+   "root_spec": 71.76,
+   "tier": "exact"
+  },
+  "c_spin_5383": {
+   "base_drag": 18.1,
+   "model": "Evia 8000",
+   "root_spec": 41.7,
+   "tier": "exact"
+  },
+  "c_spin_5384": {
+   "base_drag": 8.2,
+   "model": "Super Cast 6000s",
+   "root_spec": 17.0,
+   "tier": "exact"
+  },
+  "c_spin_5385": {
+   "base_drag": 12.7,
+   "model": "Titan 8000",
+   "root_spec": 27.5,
+   "tier": "exact"
+  },
+  "c_spin_5386": {
+   "base_drag": 15.4,
+   "model": "Caliber HSV 80 SLC",
+   "root_spec": 30.24,
+   "tier": "exact"
+  },
+  "c_spin_5387": {
+   "base_drag": 17.2,
+   "model": "Caliber 80 SLC",
+   "root_spec": 37.74,
+   "tier": "exact"
+  },
+  "conv_5142": {
+   "base_drag": 8.2,
+   "model": "Narga С-LW 10",
+   "root_spec": 27.65,
+   "tier": "exact"
+  },
+  "conv_5143": {
+   "base_drag": 9.0,
+   "model": "Narga С-LW 20",
+   "root_spec": 29.6,
+   "tier": "exact"
+  },
+  "conv_5144": {
+   "base_drag": 10.0,
+   "model": "Narga С-LW 30",
+   "root_spec": 33.22,
+   "tier": "exact"
+  },
+  "conv_5145": {
+   "base_drag": 10.9,
+   "model": "Hamra С-LW 10",
+   "root_spec": 38.75,
+   "tier": "exact"
+  },
+  "conv_5146": {
+   "base_drag": 11.8,
+   "model": "Hamra С-LW 20",
+   "root_spec": 45.93,
+   "tier": "exact"
+  },
+  "conv_5147": {
+   "base_drag": 11.8,
+   "model": "Hamra С-LW 20LC",
+   "root_spec": 45.93,
+   "tier": "exact"
+  },
+  "conv_5148": {
+   "base_drag": 12.7,
+   "model": "Hamra С-LW 30",
+   "root_spec": 52.0,
+   "tier": "exact"
+  },
+  "conv_5153": {
+   "base_drag": 11.8,
+   "model": "Isinga C-LW 10",
+   "root_spec": 48.11,
+   "tier": "exact"
+  },
+  "conv_5154": {
+   "base_drag": 11.8,
+   "model": "Isinga C-LW 10LC",
+   "root_spec": 48.11,
+   "tier": "exact"
+  },
+  "conv_5155": {
+   "base_drag": 12.7,
+   "model": "Isinga C-LW 20",
+   "root_spec": 55.0,
+   "tier": "exact"
+  },
+  "conv_5156": {
+   "base_drag": 12.7,
+   "model": "Isinga C-LW 20LC",
+   "root_spec": 55.0,
+   "tier": "exact"
+  },
+  "conv_5157": {
+   "base_drag": 14.5,
+   "model": "Isinga C-LW 30",
+   "root_spec": 63.83,
+   "tier": "exact"
+  },
+  "conv_5158": {
+   "base_drag": 14.5,
+   "model": "Isinga C-LW 30LC",
+   "root_spec": 63.83,
+   "tier": "exact"
+  },
+  "conv_5159": {
+   "base_drag": 15.4,
+   "model": "Taiga C 20",
+   "root_spec": 94.44,
+   "tier": "exact"
+  },
+  "conv_5160": {
+   "base_drag": 15.4,
+   "model": "Taiga C 30",
+   "root_spec": 109.46,
+   "tier": "exact"
+  },
+  "conv_5161": {
+   "base_drag": 17.2,
+   "model": "Taiga C 40",
+   "root_spec": 136.0,
+   "tier": "exact"
+  },
+  "conv_5162": {
+   "base_drag": 18.1,
+   "model": "Tera С-LW 20",
+   "root_spec": 104.7,
+   "tier": "exact"
+  },
+  "conv_5163": {
+   "base_drag": 19.0,
+   "model": "Tera С-LW 30",
+   "root_spec": 131.0,
+   "tier": "exact"
+  },
+  "conv_5164": {
+   "base_drag": 19.0,
+   "model": "Tera С-LW 30LC",
+   "root_spec": 131.0,
+   "tier": "exact"
+  },
+  "conv_5165": {
+   "base_drag": 20.9,
+   "model": "Tera С-LW 40",
+   "root_spec": 147.61,
+   "tier": "exact"
+  },
+  "conv_5166": {
+   "base_drag": 19.0,
+   "model": "Tera L-LD 20",
+   "root_spec": 121.9,
+   "tier": "exact"
+  },
+  "conv_5167": {
+   "base_drag": 20.9,
+   "model": "Tera L-LD 30",
+   "root_spec": 142.77,
+   "tier": "exact"
+  },
+  "conv_5168": {
+   "base_drag": 21.8,
+   "model": "Tera L-LD 40",
+   "root_spec": 157.72,
+   "tier": "exact"
+  },
+  "conv_5169": {
+   "base_drag": 22.7,
+   "model": "Taiga LTD C 20 2S",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_5170": {
+   "base_drag": 24.5,
+   "model": "Taiga LTD C 40 2S",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_5171": {
+   "base_drag": 29.0,
+   "model": "Venga C 20 2S",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_5172": {
+   "base_drag": 29.0,
+   "model": "Venga C 30 2S",
+   "root_spec": 310.0,
+   "tier": "exact"
+  },
+  "conv_5173": {
+   "base_drag": 30.8,
+   "model": "Venga C 40 2S",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_5174": {
+   "base_drag": 32.6,
+   "model": "Imperial C 40 2S",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_5208": {
+   "base_drag": 5.5,
+   "model": "Winner Trolling 10",
+   "root_spec": 10.84,
+   "tier": "exact"
+  },
+  "conv_5209": {
+   "base_drag": 6.4,
+   "model": "Winner Trolling 20",
+   "root_spec": 12.52,
+   "tier": "exact"
+  },
+  "conv_5210": {
+   "base_drag": 7.3,
+   "model": "Winner Trolling 30",
+   "root_spec": 15.0,
+   "tier": "exact"
+  },
+  "conv_5211": {
+   "base_drag": 7.3,
+   "model": "Winner Trolling 30LC",
+   "root_spec": 15.0,
+   "tier": "exact"
+  },
+  "conv_5228": {
+   "base_drag": 11.0,
+   "model": "Altitude 10 DLC",
+   "root_spec": 46.0,
+   "tier": "exact"
+  },
+  "conv_5229": {
+   "base_drag": 12.7,
+   "model": "Altitude 20 DLC",
+   "root_spec": 53.37,
+   "tier": "exact"
+  },
+  "conv_5296": {
+   "base_drag": 10.9,
+   "model": "Argus 10",
+   "root_spec": 61.96,
+   "tier": "exact"
+  },
+  "conv_5297": {
+   "base_drag": 11.8,
+   "model": "Argus 20",
+   "root_spec": 64.49,
+   "tier": "exact"
+  },
+  "conv_5298": {
+   "base_drag": 11.8,
+   "model": "Argus 20LC",
+   "root_spec": 64.49,
+   "tier": "exact"
+  },
+  "conv_5299": {
+   "base_drag": 12.7,
+   "model": "Argus 30",
+   "root_spec": 64.97,
+   "tier": "exact"
+  },
+  "conv_5300": {
+   "base_drag": 14.5,
+   "model": "Oriental 20",
+   "root_spec": 87.1,
+   "tier": "exact"
+  },
+  "conv_5301": {
+   "base_drag": 15.9,
+   "model": "Oriental 30",
+   "root_spec": 87.1,
+   "tier": "exact"
+  },
+  "conv_5302": {
+   "base_drag": 17.2,
+   "model": "Palomar 10",
+   "root_spec": 122.37,
+   "tier": "exact"
+  },
+  "conv_5303": {
+   "base_drag": 18.1,
+   "model": "Palomar 20",
+   "root_spec": 133.3,
+   "tier": "exact"
+  },
+  "conv_5304": {
+   "base_drag": 19.0,
+   "model": "Palomar 30",
+   "root_spec": 133.6,
+   "tier": "exact"
+  },
+  "conv_5305": {
+   "base_drag": 19.0,
+   "model": "Tongar 20",
+   "root_spec": 173.25,
+   "tier": "exact"
+  },
+  "conv_5306": {
+   "base_drag": 19.0,
+   "model": "Tongar 20 DS",
+   "root_spec": 173.25,
+   "tier": "exact"
+  },
+  "conv_5307": {
+   "base_drag": 21.8,
+   "model": "Tongar 30 DS",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_5309": {
+   "base_drag": 23.6,
+   "model": "Albacore 20",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_5310": {
+   "base_drag": 30.8,
+   "model": "Albacore 40 DS",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_5312": {
+   "base_drag": 30.8,
+   "model": "Borealica 20 DS",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_5313": {
+   "base_drag": 34.0,
+   "model": "Borealica 30 DS",
+   "root_spec": 450.0,
+   "tier": "exact"
+  },
+  "conv_5366": {
+   "base_drag": 8.2,
+   "model": "Simplex 200",
+   "root_spec": 28.77,
+   "tier": "exact"
+  },
+  "conv_5367": {
+   "base_drag": 9.0,
+   "model": "Simplex 300",
+   "root_spec": 31.98,
+   "tier": "exact"
+  },
+  "conv_5368": {
+   "base_drag": 9.0,
+   "model": "Simplex 300LC",
+   "root_spec": 31.98,
+   "tier": "exact"
+  },
+  "conv_5369": {
+   "base_drag": 10.0,
+   "model": "Simplex 400",
+   "root_spec": 33.75,
+   "tier": "exact"
+  },
+  "conv_5370": {
+   "base_drag": 10.0,
+   "model": "Seagull 20",
+   "root_spec": 36.54,
+   "tier": "exact"
+  },
+  "conv_5371": {
+   "base_drag": 11.8,
+   "model": "Seagull 30",
+   "root_spec": 37.22,
+   "tier": "exact"
+  },
+  "conv_5372": {
+   "base_drag": 12.7,
+   "model": "Torius 30LC",
+   "root_spec": 27.94,
+   "tier": "exact"
+  },
+  "conv_5373": {
+   "base_drag": 12.7,
+   "model": "Torius 40LC",
+   "root_spec": 27.94,
+   "tier": "exact"
+  },
+  "conv_5375": {
+   "base_drag": 12.7,
+   "model": "Halibut 20",
+   "root_spec": 41.59,
+   "tier": "exact"
+  },
+  "conv_5376": {
+   "base_drag": 12.7,
+   "model": "Halibut 20 2S",
+   "root_spec": 40.71,
+   "tier": "exact"
+  },
+  "conv_5377": {
+   "base_drag": 16.3,
+   "model": "Rigal 20 2S",
+   "root_spec": 74.0,
+   "tier": "exact"
+  },
+  "conv_5378": {
+   "base_drag": 20.0,
+   "model": "Cardinal 10",
+   "root_spec": 104.39,
+   "tier": "exact"
+  },
+  "conv_5379": {
+   "base_drag": 21.8,
+   "model": "Cardinal 20",
+   "root_spec": 133.84,
+   "tier": "exact"
+  },
+  "conv_5380": {
+   "base_drag": 21.8,
+   "model": "Cardinal 20 2S",
+   "root_spec": 130.23,
+   "tier": "exact"
+  },
+  "conv_5381": {
+   "base_drag": 22.7,
+   "model": "Cardinal 30",
+   "root_spec": 167.89,
+   "tier": "exact"
+  },
+  "conv_5382": {
+   "base_drag": 22.7,
+   "model": "Cardinal 30 2S",
+   "root_spec": 152.5,
+   "tier": "exact"
+  },
+  "conv_5385": {
+   "base_drag": 30.8,
+   "model": "Triumph Silver 10 2S",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_5386": {
+   "base_drag": 31.8,
+   "model": "Triumph Silver 20 2S",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_5387": {
+   "base_drag": 33.6,
+   "model": "Triumph Silver 30 2S",
+   "root_spec": 415.0,
+   "tier": "exact"
+  },
+  "conv_5390": {
+   "base_drag": 18.0,
+   "model": "Billionaire CNV 10",
+   "root_spec": 78.86,
+   "tier": "exact"
+  },
+  "conv_5391": {
+   "base_drag": 20.0,
+   "model": "Billionaire CNV 20",
+   "root_spec": 79.54,
+   "tier": "exact"
+  },
+  "conv_5392": {
+   "base_drag": 21.7,
+   "model": "Billionaire CNV 30 MS",
+   "root_spec": 86.51,
+   "tier": "exact"
+  },
+  "conv_5393": {
+   "base_drag": 8.0,
+   "model": "Zodiac C-10",
+   "root_spec": 26.7,
+   "tier": "exact"
+  },
+  "conv_5394": {
+   "base_drag": 9.0,
+   "model": "Zodiac C-20",
+   "root_spec": 25.32,
+   "tier": "exact"
+  },
+  "conv_5395": {
+   "base_drag": 14.5,
+   "model": "SteelHead C-10",
+   "root_spec": 47.42,
+   "tier": "exact"
+  },
+  "conv_5396": {
+   "base_drag": 16.0,
+   "model": "SteelHead C-20",
+   "root_spec": 49.67,
+   "tier": "exact"
+  },
+  "conv_5397": {
+   "base_drag": 17.2,
+   "model": "SteelHead C-30",
+   "root_spec": 54.12,
+   "tier": "exact"
+  },
+  "conv_5409": {
+   "base_drag": 30.8,
+   "model": "Triumph 10 2S",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_5410": {
+   "base_drag": 31.8,
+   "model": "Triumph 20 2S",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_5411": {
+   "base_drag": 33.6,
+   "model": "Triumph 30 2S",
+   "root_spec": 415.0,
+   "tier": "exact"
+  },
+  "conv_5706": {
+   "base_drag": 15.9,
+   "model": "Oriental Noble F20",
+   "root_spec": 90.38,
+   "tier": "exact"
+  },
+  "conv_5708": {
+   "base_drag": 17.2,
+   "model": "Oriental Noble F30",
+   "root_spec": 100.8,
+   "tier": "exact"
+  },
+  "conv_5710": {
+   "base_drag": 31.7,
+   "model": "Electro Raptor 20 FT",
+   "root_spec": 378.0,
+   "tier": "exact"
+  },
+  "conv_5711": {
+   "base_drag": 31.7,
+   "model": "Electro Raptor 20 Dragon Edition",
+   "root_spec": 378.0,
+   "tier": "exact"
+  },
+  "conv_5712": {
+   "base_drag": 38.1,
+   "model": "Electro Raptor 40 FT",
+   "root_spec": 411.79,
+   "tier": "exact"
+  },
+  "conv_5713": {
+   "base_drag": 38.1,
+   "model": "Electro Raptor 40 Dragon Edition",
+   "root_spec": 411.79,
+   "tier": "exact"
+  },
+  "conv_5718": {
+   "base_drag": 33.6,
+   "model": "Triumph 30 2S 8-Anniversary",
+   "root_spec": 400.0,
+   "tier": "exact"
+  },
+  "conv_5972": {
+   "base_drag": 35.4,
+   "model": "Borealica 40 DS",
+   "root_spec": 450.0,
+   "tier": "exact"
+  },
+  "conv_5973": {
+   "base_drag": 35.4,
+   "model": "Borealica 40 DS 6-Anniversary",
+   "root_spec": 177.0,
+   "tier": "exact"
+  },
+  "conv_5974": {
+   "base_drag": 32.6,
+   "model": "Imperial C 40 2S 6-Anniversary",
+   "root_spec": 163.0,
+   "tier": "exact"
+  },
+  "conv_5975": {
+   "base_drag": 34.0,
+   "model": "Borealica 30 DS 6-Anniversary",
+   "root_spec": 170.0,
+   "tier": "exact"
+  },
+  "conv_5993": {
+   "base_drag": 26.3,
+   "model": "California 40",
+   "root_spec": 290.0,
+   "tier": "exact"
+  },
+  "conv_5994": {
+   "base_drag": 34.0,
+   "model": "Borealica MMXXIV 30DS",
+   "root_spec": 45.934,
+   "tier": "estimate"
+  },
+  "conv_6015": {
+   "base_drag": 15.4,
+   "model": "Taiga C 30 2S 7-Anniversary",
+   "root_spec": 109.5,
+   "tier": "exact"
+  },
+  "conv_6103": {
+   "base_drag": 19.0,
+   "model": "Tongar 2Gen 20",
+   "root_spec": 163.24,
+   "tier": "exact"
+  },
+  "conv_6104": {
+   "base_drag": 19.0,
+   "model": "Tongar 2Gen 20 DS",
+   "root_spec": 166.25,
+   "tier": "exact"
+  },
+  "conv_6105": {
+   "base_drag": 21.8,
+   "model": "Tongar 2Gen 30 DS",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_7008": {
+   "base_drag": 32.6,
+   "model": "Venga C 40 2S 9-Anniversary",
+   "root_spec": 205.0,
+   "tier": "exact"
+  },
+  "conv_7009": {
+   "base_drag": 31.7,
+   "model": "Electro Raptor 20 9-Years",
+   "root_spec": 378.0,
+   "tier": "exact"
+  },
+  "conv_7010": {
+   "base_drag": 38.1,
+   "model": "Electro Raptor 40 9-Years",
+   "root_spec": 411.79,
+   "tier": "exact"
+  },
+  "elcon_5968": {
+   "base_drag": 31.7,
+   "model": "Electro Raptor 20",
+   "root_spec": 378.0,
+   "tier": "exact"
+  },
+  "elcon_5969": {
+   "base_drag": 38.1,
+   "model": "Electro Raptor 40",
+   "root_spec": 411.0,
+   "tier": "exact"
+  },
+  "elcon_5997": {
+   "base_drag": 31.7,
+   "model": "Electro Raptor 20 Emperor",
+   "root_spec": 378.0,
+   "tier": "exact"
+  },
+  "elcon_5998": {
+   "base_drag": 31.7,
+   "model": "Electro Raptor 20 Gold",
+   "root_spec": 378.0,
+   "tier": "exact"
+  },
+  "elcon_5999": {
+   "base_drag": 31.7,
+   "model": "Electro Raptor 20 Amethyst",
+   "root_spec": 378.0,
+   "tier": "exact"
+  },
+  "elcon_6000": {
+   "base_drag": 31.7,
+   "model": "Electro Raptor 20 Emerald",
+   "root_spec": 378.0,
+   "tier": "exact"
+  },
+  "elcon_6001": {
+   "base_drag": 38.1,
+   "model": "Electro Raptor 40 Emperor",
+   "root_spec": 411.0,
+   "tier": "exact"
+  },
+  "elcon_6002": {
+   "base_drag": 38.1,
+   "model": "Electro Raptor 40 Gold",
+   "root_spec": 411.0,
+   "tier": "exact"
+  },
+  "elcon_6003": {
+   "base_drag": 38.1,
+   "model": "Electro Raptor 40 Amethyst",
+   "root_spec": 411.0,
+   "tier": "exact"
+  },
+  "elcon_6004": {
+   "base_drag": 38.1,
+   "model": "Electro Raptor 40 Emerald",
+   "root_spec": 411.0,
+   "tier": "exact"
+  },
+  "elcon_6016": {
+   "base_drag": 31.7,
+   "model": "Electro Raptor 20 7-Years",
+   "root_spec": 378.0,
+   "tier": "exact"
+  },
+  "elcon_6017": {
+   "base_drag": 38.1,
+   "model": "Electro Raptor 40 7-Years",
+   "root_spec": 411.0,
+   "tier": "exact"
+  },
+  "fly_5426": {
+   "base_drag": 16.3,
+   "model": "Comet 4/6",
+   "root_spec": 22.478,
+   "tier": "estimate"
+  },
+  "spin_5001": {
+   "base_drag": 3.2,
+   "model": "Horizon 2000s",
+   "root_spec": 16.0,
+   "tier": "exact"
+  },
+  "spin_5001_2": {
+   "base_drag": 3.8,
+   "model": "Horizon 2 2000s",
+   "root_spec": 12.51,
+   "tier": "exact"
+  },
+  "spin_5002": {
+   "base_drag": 2.7,
+   "model": "Hydra Smart 25S",
+   "root_spec": 13.5,
+   "tier": "exact"
+  },
+  "spin_5003": {
+   "base_drag": 8.6,
+   "model": "Commandor 30S",
+   "root_spec": 43.0,
+   "tier": "exact"
+  },
+  "spin_5018": {
+   "base_drag": 2.7,
+   "model": "Spark 3000S",
+   "root_spec": 4.86,
+   "tier": "exact"
+  },
+  "spin_5019": {
+   "base_drag": 2.7,
+   "model": "Libra 3000S",
+   "root_spec": 4.86,
+   "tier": "exact"
+  },
+  "spin_5020": {
+   "base_drag": 5.4,
+   "model": "Lacerti 4000S",
+   "root_spec": 9.72,
+   "tier": "exact"
+  },
+  "spin_5021": {
+   "base_drag": 5.4,
+   "model": "Lacerti-S 4000S",
+   "root_spec": 27.0,
+   "tier": "exact"
+  },
+  "spin_5022": {
+   "base_drag": 5.4,
+   "model": "Lagoon 3000S",
+   "root_spec": 5.44,
+   "tier": "exact"
+  },
+  "spin_5023": {
+   "base_drag": 1.8,
+   "model": "Lagoon 1000S",
+   "root_spec": 3.8,
+   "tier": "exact"
+  },
+  "spin_5024": {
+   "base_drag": 2.7,
+   "model": "Lagoon-HP 2000S",
+   "root_spec": 13.5,
+   "tier": "exact"
+  },
+  "spin_5025": {
+   "base_drag": 5.4,
+   "model": "Lagoon-HP 4000S",
+   "root_spec": 27.0,
+   "tier": "exact"
+  },
+  "spin_5026": {
+   "base_drag": 5.4,
+   "model": "Adriatica 3000S",
+   "root_spec": 6.87,
+   "tier": "exact"
+  },
+  "spin_5027": {
+   "base_drag": 7.5,
+   "model": "Adriatica 5000S",
+   "root_spec": 15.0,
+   "tier": "exact"
+  },
+  "spin_5028": {
+   "base_drag": 4.0,
+   "model": "Pride 2000S",
+   "root_spec": 7.2,
+   "tier": "exact"
+  },
+  "spin_5029": {
+   "base_drag": 7.5,
+   "model": "Pride 4000S",
+   "root_spec": 9.43,
+   "tier": "exact"
+  },
+  "spin_5030": {
+   "base_drag": 7.5,
+   "model": "Pride 6000S",
+   "root_spec": 17.26,
+   "tier": "exact"
+  },
+  "spin_5036": {
+   "base_drag": 2.7,
+   "model": "Hydra 35s",
+   "root_spec": 13.5,
+   "tier": "exact"
+  },
+  "spin_5037": {
+   "base_drag": 5.8,
+   "model": "Dragon 30s",
+   "root_spec": 6.72,
+   "tier": "exact"
+  },
+  "spin_5038": {
+   "base_drag": 4.5,
+   "model": "Hercules 20s",
+   "root_spec": 22.5,
+   "tier": "exact"
+  },
+  "spin_5039": {
+   "base_drag": 2.3,
+   "model": "Pegasus 10s",
+   "root_spec": 4.97,
+   "tier": "exact"
+  },
+  "spin_5040": {
+   "base_drag": 3.6,
+   "model": "Sirius 20s",
+   "root_spec": 8.15,
+   "tier": "exact"
+  },
+  "spin_5041": {
+   "base_drag": 9.0,
+   "model": "Sabre 40s",
+   "root_spec": 13.0,
+   "tier": "exact"
+  },
+  "spin_5042": {
+   "base_drag": 5.8,
+   "model": "Ignition 30s",
+   "root_spec": 29.0,
+   "tier": "exact"
+  },
+  "spin_5043": {
+   "base_drag": 8.0,
+   "model": "Gold 30s",
+   "root_spec": 16.82,
+   "tier": "exact"
+  },
+  "spin_5044": {
+   "base_drag": 14.0,
+   "model": "Gold 60s",
+   "root_spec": 28.35,
+   "tier": "exact"
+  },
+  "spin_5045": {
+   "base_drag": 14.0,
+   "model": "Gold 80s",
+   "root_spec": 34.58,
+   "tier": "exact"
+  },
+  "spin_5051": {
+   "base_drag": 3.2,
+   "model": "EasySpin 1000s",
+   "root_spec": 5.12,
+   "tier": "exact"
+  },
+  "spin_5052": {
+   "base_drag": 5.5,
+   "model": "Mosquito 3000s",
+   "root_spec": 27.5,
+   "tier": "exact"
+  },
+  "spin_5052_2": {
+   "base_drag": 8.6,
+   "model": "Mosquito 2 3000s",
+   "root_spec": 17.06,
+   "tier": "exact"
+  },
+  "spin_5053": {
+   "base_drag": 8.2,
+   "model": "Conquest 2500s",
+   "root_spec": 41.0,
+   "tier": "exact"
+  },
+  "spin_5054": {
+   "base_drag": 12.7,
+   "model": "Conquest 4500s",
+   "root_spec": 63.5,
+   "tier": "exact"
+  },
+  "spin_5055": {
+   "base_drag": 13.0,
+   "model": "Everest 4000s",
+   "root_spec": 65.0,
+   "tier": "exact"
+  },
+  "spin_5056": {
+   "base_drag": 16.3,
+   "model": "Everest 6000s",
+   "root_spec": 81.5,
+   "tier": "exact"
+  },
+  "spin_5057": {
+   "base_drag": 10.0,
+   "model": "Mayor 2500s",
+   "root_spec": 50.0,
+   "tier": "exact"
+  },
+  "spin_5058": {
+   "base_drag": 10.0,
+   "model": "Mayor ltd 2500s",
+   "root_spec": 50.0,
+   "tier": "exact"
+  },
+  "spin_5059": {
+   "base_drag": 12.7,
+   "model": "Mayor ltd 4000s",
+   "root_spec": 63.5,
+   "tier": "exact"
+  },
+  "spin_5060": {
+   "base_drag": 10.0,
+   "model": "Pillar 2500s",
+   "root_spec": 50.0,
+   "tier": "exact"
+  },
+  "spin_5061": {
+   "base_drag": 12.7,
+   "model": "Pillar 3500s",
+   "root_spec": 63.5,
+   "tier": "exact"
+  },
+  "spin_5063": {
+   "base_drag": 5.8,
+   "model": "Dragon 40s",
+   "root_spec": 9.95,
+   "tier": "exact"
+  },
+  "spin_5064": {
+   "base_drag": 6.8,
+   "model": "Hercules 40s",
+   "root_spec": 34.0,
+   "tier": "exact"
+  },
+  "spin_5065": {
+   "base_drag": 5.8,
+   "model": "Pegasus 30s",
+   "root_spec": 8.81,
+   "tier": "exact"
+  },
+  "spin_5066": {
+   "base_drag": 9.9,
+   "model": "Sabre 60s",
+   "root_spec": 21.68,
+   "tier": "exact"
+  },
+  "spin_5068": {
+   "base_drag": 5.5,
+   "model": "Horizon 3000s",
+   "root_spec": 27.5,
+   "tier": "exact"
+  },
+  "spin_5068_2": {
+   "base_drag": 7.7,
+   "model": "Horizon 2 3000s",
+   "root_spec": 18.8,
+   "tier": "exact"
+  },
+  "spin_5069": {
+   "base_drag": 8.2,
+   "model": "Horizon 4000s",
+   "root_spec": 41.0,
+   "tier": "exact"
+  },
+  "spin_5069_2": {
+   "base_drag": 8.2,
+   "model": "Horizon 2 4000s",
+   "root_spec": 17.91,
+   "tier": "exact"
+  },
+  "spin_5078": {
+   "base_drag": 16.5,
+   "model": "型号 827",
+   "root_spec": 44.36,
+   "tier": "exact"
+  },
+  "spin_5093": {
+   "base_drag": 6.0,
+   "model": "Z-Series 10S",
+   "root_spec": 30.0,
+   "tier": "exact"
+  },
+  "spin_5094": {
+   "base_drag": 8.2,
+   "model": "Z-Series 20S",
+   "root_spec": 41.0,
+   "tier": "exact"
+  },
+  "spin_5095": {
+   "base_drag": 10.8,
+   "model": "Z-Series 30S",
+   "root_spec": 54.0,
+   "tier": "exact"
+  },
+  "spin_5096": {
+   "base_drag": 14.5,
+   "model": "Z-Series 40S",
+   "root_spec": 72.5,
+   "tier": "exact"
+  },
+  "spin_5097": {
+   "base_drag": 6.0,
+   "model": "Commandor 20S",
+   "root_spec": 30.0,
+   "tier": "exact"
+  },
+  "spin_5098": {
+   "base_drag": 10.8,
+   "model": "Commandor 40S",
+   "root_spec": 54.0,
+   "tier": "exact"
+  },
+  "spin_5099": {
+   "base_drag": 12.7,
+   "model": "Commandor GS 40S",
+   "root_spec": 23.71,
+   "tier": "exact"
+  },
+  "spin_5100": {
+   "base_drag": 14.5,
+   "model": "Commandor GS 60S",
+   "root_spec": 36.31,
+   "tier": "exact"
+  },
+  "spin_5101": {
+   "base_drag": 22.0,
+   "model": "Everest 8000s",
+   "root_spec": 110.0,
+   "tier": "exact"
+  },
+  "spin_5103": {
+   "base_drag": 2.7,
+   "model": "Bird 20S",
+   "root_spec": 13.5,
+   "tier": "exact"
+  },
+  "spin_5103_2": {
+   "base_drag": 3.6,
+   "model": "Bird 2 20S",
+   "root_spec": 13.24,
+   "tier": "exact"
+  },
+  "spin_5104": {
+   "base_drag": 2.7,
+   "model": "Bird GS 10S",
+   "root_spec": 13.5,
+   "tier": "exact"
+  },
+  "spin_5105": {
+   "base_drag": 6.0,
+   "model": "Bird GS 30S",
+   "root_spec": 30.0,
+   "tier": "exact"
+  },
+  "spin_5106": {
+   "base_drag": 4.0,
+   "model": "Bird GSX 10S",
+   "root_spec": 20.0,
+   "tier": "exact"
+  },
+  "spin_5107": {
+   "base_drag": 6.0,
+   "model": "Bird GSX 30S",
+   "root_spec": 30.0,
+   "tier": "exact"
+  },
+  "spin_5108": {
+   "base_drag": 8.2,
+   "model": "Bird GSX 40S",
+   "root_spec": 41.0,
+   "tier": "exact"
+  },
+  "spin_5109": {
+   "base_drag": 19.0,
+   "model": "Mayor ltd 6000s",
+   "root_spec": 95.0,
+   "tier": "exact"
+  },
+  "spin_5110": {
+   "base_drag": 6.5,
+   "model": "P-Series GS 10S",
+   "root_spec": 32.5,
+   "tier": "exact"
+  },
+  "spin_5111": {
+   "base_drag": 8.6,
+   "model": "P-Series GS 20S",
+   "root_spec": 43.0,
+   "tier": "exact"
+  },
+  "spin_5112": {
+   "base_drag": 12.7,
+   "model": "P-Series GS 30S",
+   "root_spec": 63.5,
+   "tier": "exact"
+  },
+  "spin_5113": {
+   "base_drag": 14.5,
+   "model": "P-Series GS 40S",
+   "root_spec": 72.5,
+   "tier": "exact"
+  },
+  "spin_5114": {
+   "base_drag": 17.2,
+   "model": "P-Series GS 60S",
+   "root_spec": 86.0,
+   "tier": "exact"
+  },
+  "spin_5115": {
+   "base_drag": 16.3,
+   "model": "Z-Series 60S",
+   "root_spec": 81.5,
+   "tier": "exact"
+  },
+  "spin_5116": {
+   "base_drag": 13.0,
+   "model": "Everest II 4000s",
+   "root_spec": 30.16,
+   "tier": "exact"
+  },
+  "spin_5117": {
+   "base_drag": 16.3,
+   "model": "Everest II 6000s",
+   "root_spec": 35.16,
+   "tier": "exact"
+  },
+  "spin_5118": {
+   "base_drag": 22.0,
+   "model": "Everest II 8000s",
+   "root_spec": 44.62,
+   "tier": "exact"
+  },
+  "spin_5119": {
+   "base_drag": 11.7,
+   "model": "Narga 4000",
+   "root_spec": 27.33,
+   "tier": "exact"
+  },
+  "spin_5120": {
+   "base_drag": 13.6,
+   "model": "Narga 6000",
+   "root_spec": 35.86,
+   "tier": "exact"
+  },
+  "spin_5121": {
+   "base_drag": 14.5,
+   "model": "Narga 8000",
+   "root_spec": 42.38,
+   "tier": "exact"
+  },
+  "spin_5122": {
+   "base_drag": 5.0,
+   "model": "Natora 1000",
+   "root_spec": 5.8,
+   "tier": "exact"
+  },
+  "spin_5123": {
+   "base_drag": 6.3,
+   "model": "Natora 2000",
+   "root_spec": 16.24,
+   "tier": "exact"
+  },
+  "spin_5124": {
+   "base_drag": 11.3,
+   "model": "Natora 3000",
+   "root_spec": 28.58,
+   "tier": "exact"
+  },
+  "spin_5125": {
+   "base_drag": 12.7,
+   "model": "Natora 4000",
+   "root_spec": 35.49,
+   "tier": "exact"
+  },
+  "spin_5126": {
+   "base_drag": 15.0,
+   "model": "Natora 6000",
+   "root_spec": 37.43,
+   "tier": "exact"
+  },
+  "spin_5127": {
+   "base_drag": 18.1,
+   "model": "Natora 8000",
+   "root_spec": 43.76,
+   "tier": "exact"
+  },
+  "spin_5132": {
+   "base_drag": 7.2,
+   "model": "Bestia 1000",
+   "root_spec": 10.0,
+   "tier": "exact"
+  },
+  "spin_5133": {
+   "base_drag": 9.0,
+   "model": "Bestia 2000",
+   "root_spec": 22.49,
+   "tier": "exact"
+  },
+  "spin_5134": {
+   "base_drag": 17.2,
+   "model": "Bestia 3000",
+   "root_spec": 42.44,
+   "tier": "exact"
+  },
+  "spin_5135": {
+   "base_drag": 18.1,
+   "model": "Bestia 4000",
+   "root_spec": 45.9,
+   "tier": "exact"
+  },
+  "spin_5136": {
+   "base_drag": 19.0,
+   "model": "Bestia 6000",
+   "root_spec": 55.5,
+   "tier": "exact"
+  },
+  "spin_5137": {
+   "base_drag": 24.5,
+   "model": "Bestia 8000",
+   "root_spec": 68.0,
+   "tier": "exact"
+  },
+  "spin_5138": {
+   "base_drag": 22.6,
+   "model": "Venga 6000",
+   "root_spec": 69.66,
+   "tier": "exact"
+  },
+  "spin_5139": {
+   "base_drag": 27.2,
+   "model": "Venga 8000",
+   "root_spec": 83.98,
+   "tier": "exact"
+  },
+  "spin_5140": {
+   "base_drag": 31.7,
+   "model": "Venga 10000",
+   "root_spec": 99.0,
+   "tier": "exact"
+  },
+  "spin_5140_sbtn": {
+   "base_drag": 31.7,
+   "model": "Venga SBH 10000",
+   "root_spec": 44.38,
+   "tier": "estimate"
+  },
+  "spin_5149": {
+   "base_drag": 16.3,
+   "model": "Tagara 4000",
+   "root_spec": 39.64,
+   "tier": "exact"
+  },
+  "spin_5150": {
+   "base_drag": 18.1,
+   "model": "Tagara 6000",
+   "root_spec": 45.1,
+   "tier": "exact"
+  },
+  "spin_5150_S8": {
+   "base_drag": 18.1,
+   "model": "Tagara 6000 Super 8",
+   "root_spec": 24.833,
+   "tier": "estimate"
+  },
+  "spin_5151": {
+   "base_drag": 22.6,
+   "model": "Tagara 8000",
+   "root_spec": 53.87,
+   "tier": "exact"
+  },
+  "spin_5152": {
+   "base_drag": 26.3,
+   "model": "Tagara 10000",
+   "root_spec": 62.0,
+   "tier": "exact"
+  },
+  "spin_5177": {
+   "base_drag": 2.0,
+   "model": "Element 1000",
+   "root_spec": 4.0,
+   "tier": "exact"
+  },
+  "spin_5178": {
+   "base_drag": 3.6,
+   "model": "Element 2000",
+   "root_spec": 5.79,
+   "tier": "exact"
+  },
+  "spin_5179": {
+   "base_drag": 5.4,
+   "model": "Element 3000",
+   "root_spec": 7.96,
+   "tier": "exact"
+  },
+  "spin_5180": {
+   "base_drag": 5.4,
+   "model": "Element 4000",
+   "root_spec": 9.53,
+   "tier": "exact"
+  },
+  "spin_5181": {
+   "base_drag": 2.0,
+   "model": "Element PRO 1000",
+   "root_spec": 4.92,
+   "tier": "exact"
+  },
+  "spin_5182": {
+   "base_drag": 3.6,
+   "model": "Element PRO 2000",
+   "root_spec": 7.48,
+   "tier": "exact"
+  },
+  "spin_5183": {
+   "base_drag": 5.4,
+   "model": "Element PRO 3000",
+   "root_spec": 9.93,
+   "tier": "exact"
+  },
+  "spin_5184": {
+   "base_drag": 6.4,
+   "model": "Element PRO 4000",
+   "root_spec": 11.0,
+   "tier": "exact"
+  },
+  "spin_5185": {
+   "base_drag": 3.6,
+   "model": "Proton 2000",
+   "root_spec": 9.55,
+   "tier": "exact"
+  },
+  "spin_5186": {
+   "base_drag": 7.2,
+   "model": "Proton 4000",
+   "root_spec": 13.8,
+   "tier": "exact"
+  },
+  "spin_5187": {
+   "base_drag": 8.1,
+   "model": "Proton 6000",
+   "root_spec": 17.0,
+   "tier": "exact"
+  },
+  "spin_5188": {
+   "base_drag": 3.6,
+   "model": "Proton PRO 2000",
+   "root_spec": 18.0,
+   "tier": "exact"
+  },
+  "spin_5189": {
+   "base_drag": 8.6,
+   "model": "Proton PRO 4000",
+   "root_spec": 43.0,
+   "tier": "exact"
+  },
+  "spin_5190": {
+   "base_drag": 9.5,
+   "model": "Proton PRO 6000",
+   "root_spec": 47.5,
+   "tier": "exact"
+  },
+  "spin_5191": {
+   "base_drag": 3.6,
+   "model": "Alfa 1000",
+   "root_spec": 5.77,
+   "tier": "exact"
+  },
+  "spin_5192": {
+   "base_drag": 4.0,
+   "model": "Alfa 2000",
+   "root_spec": 11.87,
+   "tier": "exact"
+  },
+  "spin_5193": {
+   "base_drag": 9.0,
+   "model": "Alfa 4000",
+   "root_spec": 16.96,
+   "tier": "exact"
+  },
+  "spin_5194": {
+   "base_drag": 13.5,
+   "model": "Alfa 6000",
+   "root_spec": 31.56,
+   "tier": "exact"
+  },
+  "spin_5195": {
+   "base_drag": 14.5,
+   "model": "Alfa 8000",
+   "root_spec": 38.0,
+   "tier": "exact"
+  },
+  "spin_5200": {
+   "base_drag": 2.7,
+   "model": "Libra 2000S",
+   "root_spec": 4.86,
+   "tier": "exact"
+  },
+  "spin_5201": {
+   "base_drag": 2.7,
+   "model": "Spark 2000S",
+   "root_spec": 4.86,
+   "tier": "exact"
+  },
+  "spin_5212": {
+   "base_drag": 7.2,
+   "model": "Mayor 2 2000s",
+   "root_spec": 17.95,
+   "tier": "exact"
+  },
+  "spin_5213": {
+   "base_drag": 14.0,
+   "model": "Mayor 2 4000s",
+   "root_spec": 31.6,
+   "tier": "exact"
+  },
+  "spin_5214": {
+   "base_drag": 13.6,
+   "model": "Mayor LTD 2 3000s",
+   "root_spec": 31.38,
+   "tier": "exact"
+  },
+  "spin_5215": {
+   "base_drag": 15.4,
+   "model": "Mayor LTD 2 4000s",
+   "root_spec": 34.03,
+   "tier": "exact"
+  },
+  "spin_5216": {
+   "base_drag": 19.0,
+   "model": "Mayor LTD 2 6000s",
+   "root_spec": 43.52,
+   "tier": "exact"
+  },
+  "spin_5217": {
+   "base_drag": 7.7,
+   "model": "Meteor 30s",
+   "root_spec": 16.0,
+   "tier": "exact"
+  },
+  "spin_5218": {
+   "base_drag": 6.3,
+   "model": "Admiral 1000s",
+   "root_spec": 9.0,
+   "tier": "exact"
+  },
+  "spin_5219": {
+   "base_drag": 8.2,
+   "model": "Admiral 2000s",
+   "root_spec": 17.7,
+   "tier": "exact"
+  },
+  "spin_5220": {
+   "base_drag": 17.2,
+   "model": "Admiral 4000s",
+   "root_spec": 42.86,
+   "tier": "exact"
+  },
+  "spin_5221": {
+   "base_drag": 20.8,
+   "model": "Admiral 6000s",
+   "root_spec": 47.86,
+   "tier": "exact"
+  },
+  "spin_5222": {
+   "base_drag": 23.5,
+   "model": "Admiral 8000s",
+   "root_spec": 58.48,
+   "tier": "exact"
+  },
+  "spin_5223": {
+   "base_drag": 4.0,
+   "model": "Bird 2 GSX 10S",
+   "root_spec": 5.91,
+   "tier": "exact"
+  },
+  "spin_5224": {
+   "base_drag": 8.6,
+   "model": "Bird 2 GSX 30S",
+   "root_spec": 16.57,
+   "tier": "exact"
+  },
+  "spin_5225": {
+   "base_drag": 9.5,
+   "model": "Bird 2 GSX 40S",
+   "root_spec": 17.94,
+   "tier": "exact"
+  },
+  "spin_5226": {
+   "base_drag": 3.4,
+   "model": "Bird 2 GS 10S",
+   "root_spec": 5.52,
+   "tier": "exact"
+  },
+  "spin_5227": {
+   "base_drag": 8.2,
+   "model": "Bird 2 GS 30S",
+   "root_spec": 18.5,
+   "tier": "exact"
+  },
+  "spin_5267": {
+   "base_drag": 23.6,
+   "model": "Agile SW 6000",
+   "root_spec": 110.92,
+   "tier": "exact"
+  },
+  "spin_5268": {
+   "base_drag": 5.45,
+   "model": "Narga 2000",
+   "root_spec": 16.66,
+   "tier": "exact"
+  },
+  "spin_5269": {
+   "base_drag": 30.8,
+   "model": "Agile SW 10000",
+   "root_spec": 271.04,
+   "tier": "exact"
+  },
+  "spin_5270": {
+   "base_drag": 33.6,
+   "model": "Agile SW 20000",
+   "root_spec": 295.68,
+   "tier": "exact"
+  },
+  "spin_5271": {
+   "base_drag": 30.8,
+   "model": "Turion SW 8000",
+   "root_spec": 110.68,
+   "tier": "exact"
+  },
+  "spin_5272": {
+   "base_drag": 34.5,
+   "model": "Turion SW 10000",
+   "root_spec": 114.29,
+   "tier": "exact"
+  },
+  "spin_5273": {
+   "base_drag": 35.4,
+   "model": "Turion SW 20000",
+   "root_spec": 120.19,
+   "tier": "exact"
+  },
+  "spin_5274": {
+   "base_drag": 36.3,
+   "model": "Turion SW 30000",
+   "root_spec": 127.94,
+   "tier": "exact"
+  },
+  "spin_5275": {
+   "base_drag": 36.3,
+   "model": "Stellar SW 10000",
+   "root_spec": 49.549,
+   "tier": "estimate"
+  },
+  "spin_5277": {
+   "base_drag": 37.2,
+   "model": "Stellar SW 20000",
+   "root_spec": 50.778,
+   "tier": "estimate"
+  },
+  "spin_5278": {
+   "base_drag": 38.1,
+   "model": "Stellar SW 30000",
+   "root_spec": 52.006,
+   "tier": "estimate"
+  },
+  "spin_5297": {
+   "base_drag": 26.3,
+   "model": "Agile SW 8000",
+   "root_spec": 231.44,
+   "tier": "exact"
+  },
+  "spin_5316": {
+   "base_drag": 5.5,
+   "model": "Conquest II 2000s",
+   "root_spec": 13.54,
+   "tier": "exact"
+  },
+  "spin_5317": {
+   "base_drag": 12.7,
+   "model": "Conquest II 4000s",
+   "root_spec": 29.9,
+   "tier": "exact"
+  },
+  "spin_5318": {
+   "base_drag": 23.6,
+   "model": "Azimut 8000",
+   "root_spec": 49.63,
+   "tier": "exact"
+  },
+  "spin_5319": {
+   "base_drag": 27.2,
+   "model": "Azimut 10000",
+   "root_spec": 55.0,
+   "tier": "exact"
+  },
+  "spin_5324": {
+   "base_drag": 30.8,
+   "model": "Goliaf 10000",
+   "root_spec": 112.0,
+   "tier": "exact"
+  },
+  "spin_5325": {
+   "base_drag": 31.8,
+   "model": "Goliaf 20000",
+   "root_spec": 106.0,
+   "tier": "exact"
+  },
+  "spin_5326": {
+   "base_drag": 33.6,
+   "model": "Goliaf 30000",
+   "root_spec": 120.0,
+   "tier": "exact"
+  },
+  "spin_5344": {
+   "base_drag": 17.7,
+   "model": "Z-Series 2 60S",
+   "root_spec": 45.1,
+   "tier": "exact"
+  },
+  "spin_5345": {
+   "base_drag": 15.7,
+   "model": "Z-Series 2 40S",
+   "root_spec": 28.18,
+   "tier": "exact"
+  },
+  "spin_5346": {
+   "base_drag": 15.7,
+   "model": "Z-Series 2 30S",
+   "root_spec": 22.97,
+   "tier": "exact"
+  },
+  "spin_5347": {
+   "base_drag": 8.2,
+   "model": "Z-Series 2 20S",
+   "root_spec": 16.45,
+   "tier": "exact"
+  },
+  "spin_5348": {
+   "base_drag": 6.0,
+   "model": "Z-Series 2 10S",
+   "root_spec": 7.88,
+   "tier": "exact"
+  },
+  "spin_5349": {
+   "base_drag": 5.0,
+   "model": "Bird 2 GSX 20S",
+   "root_spec": 13.13,
+   "tier": "exact"
+  },
+  "spin_5350": {
+   "base_drag": 4.75,
+   "model": "Corsair 10S",
+   "root_spec": 7.29,
+   "tier": "exact"
+  },
+  "spin_5351": {
+   "base_drag": 6.1,
+   "model": "Corsair 20S",
+   "root_spec": 17.62,
+   "tier": "exact"
+  },
+  "spin_5352": {
+   "base_drag": 10.8,
+   "model": "Corsair 30S",
+   "root_spec": 22.04,
+   "tier": "exact"
+  },
+  "spin_5353": {
+   "base_drag": 7.7,
+   "model": "JSX 10S",
+   "root_spec": 9.0,
+   "tier": "exact"
+  },
+  "spin_5354": {
+   "base_drag": 9.5,
+   "model": "JSX 20S",
+   "root_spec": 20.84,
+   "tier": "exact"
+  },
+  "spin_5355": {
+   "base_drag": 8.15,
+   "model": "JSX Inferno 10S",
+   "root_spec": 11.04,
+   "tier": "exact"
+  },
+  "spin_5356": {
+   "base_drag": 10.0,
+   "model": "JSX Inferno 20S",
+   "root_spec": 22.45,
+   "tier": "exact"
+  },
+  "spin_5357": {
+   "base_drag": 4.2,
+   "model": "Lacerti-S 2 4000S",
+   "root_spec": 4.95,
+   "tier": "exact"
+  },
+  "spin_5358": {
+   "base_drag": 3.8,
+   "model": "Lacerti 2 4000S",
+   "root_spec": 4.95,
+   "tier": "exact"
+  },
+  "spin_5359": {
+   "base_drag": 5.2,
+   "model": "Hydra G2 30s",
+   "root_spec": 5.88,
+   "tier": "exact"
+  },
+  "spin_5360": {
+   "base_drag": 6.8,
+   "model": "Hercules G2 40s",
+   "root_spec": 10.15,
+   "tier": "exact"
+  },
+  "spin_5361": {
+   "base_drag": 3.7,
+   "model": "Hercules G2 20s",
+   "root_spec": 6.94,
+   "tier": "exact"
+  },
+  "spin_5362": {
+   "base_drag": 13.4,
+   "model": "Commandor 2 60S",
+   "root_spec": 30.12,
+   "tier": "exact"
+  },
+  "spin_5363": {
+   "base_drag": 12.0,
+   "model": "Commandor 2 40S",
+   "root_spec": 30.12,
+   "tier": "exact"
+  },
+  "spin_5364": {
+   "base_drag": 10.8,
+   "model": "Commandor 2 30S",
+   "root_spec": 18.6,
+   "tier": "exact"
+  },
+  "spin_5365": {
+   "base_drag": 6.0,
+   "model": "Commandor 2 20S",
+   "root_spec": 10.0,
+   "tier": "exact"
+  },
+  "spin_5369": {
+   "base_drag": 19.0,
+   "model": "Chronica 6000",
+   "root_spec": 72.1,
+   "tier": "exact"
+  },
+  "spin_5370": {
+   "base_drag": 22.6,
+   "model": "Venga Platinum 6000",
+   "root_spec": 69.66,
+   "tier": "exact"
+  },
+  "spin_5371": {
+   "base_drag": 27.2,
+   "model": "Venga Platinum 8000",
+   "root_spec": 83.98,
+   "tier": "exact"
+  },
+  "spin_5372": {
+   "base_drag": 31.7,
+   "model": "Venga Platinum 10000",
+   "root_spec": 99.0,
+   "tier": "exact"
+  },
+  "spin_5373": {
+   "base_drag": 22.6,
+   "model": "Venga Black 6000",
+   "root_spec": 69.66,
+   "tier": "exact"
+  },
+  "spin_5374": {
+   "base_drag": 27.2,
+   "model": "Venga Black 8000",
+   "root_spec": 83.98,
+   "tier": "exact"
+  },
+  "spin_5375": {
+   "base_drag": 31.7,
+   "model": "Venga Black 10000",
+   "root_spec": 99.0,
+   "tier": "exact"
+  },
+  "spin_5388": {
+   "base_drag": 24.5,
+   "model": "Overlord 87",
+   "root_spec": 34.3,
+   "tier": "estimate"
+  },
+  "spin_5390": {
+   "base_drag": 9.0,
+   "model": "Model De Luxe 430S",
+   "root_spec": 24.24,
+   "tier": "exact"
+  },
+  "spin_5398": {
+   "base_drag": 9.5,
+   "model": "Pulsar 6000",
+   "root_spec": 24.0,
+   "tier": "exact"
+  },
+  "spin_5399": {
+   "base_drag": 8.6,
+   "model": "Pulsar 4000",
+   "root_spec": 15.0,
+   "tier": "exact"
+  },
+  "spin_5400": {
+   "base_drag": 3.8,
+   "model": "Pulsar 2000",
+   "root_spec": 11.05,
+   "tier": "exact"
+  },
+  "spin_5401": {
+   "base_drag": 18.4,
+   "model": "P-Series 2 GS 60S",
+   "root_spec": 47.0,
+   "tier": "exact"
+  },
+  "spin_5402": {
+   "base_drag": 16.3,
+   "model": "P-Series 2 GS 40S",
+   "root_spec": 29.95,
+   "tier": "exact"
+  },
+  "spin_5403": {
+   "base_drag": 16.3,
+   "model": "P-Series 2 GS 30S",
+   "root_spec": 25.32,
+   "tier": "exact"
+  },
+  "spin_5404": {
+   "base_drag": 8.6,
+   "model": "P-Series 2 GS 20S",
+   "root_spec": 17.05,
+   "tier": "exact"
+  },
+  "spin_5405": {
+   "base_drag": 6.5,
+   "model": "P-Series 2 GS 10S",
+   "root_spec": 7.19,
+   "tier": "exact"
+  },
+  "spin_5414": {
+   "base_drag": 5.0,
+   "model": "Overlord 3 10S",
+   "root_spec": 8.51,
+   "tier": "exact"
+  },
+  "spin_5415": {
+   "base_drag": 6.35,
+   "model": "Overlord 3 20S",
+   "root_spec": 18.66,
+   "tier": "exact"
+  },
+  "spin_5416": {
+   "base_drag": 5.45,
+   "model": "Overlord 3B 10S",
+   "root_spec": 8.49,
+   "tier": "exact"
+  },
+  "spin_5417": {
+   "base_drag": 7.0,
+   "model": "Overlord 3B 20S",
+   "root_spec": 19.6,
+   "tier": "exact"
+  },
+  "spin_5418": {
+   "base_drag": 6.35,
+   "model": "Overlord 3E 10S",
+   "root_spec": 8.49,
+   "tier": "exact"
+  },
+  "spin_5419": {
+   "base_drag": 8.4,
+   "model": "Overlord 3E 20S",
+   "root_spec": 20.36,
+   "tier": "exact"
+  },
+  "spin_5420": {
+   "base_drag": 7.3,
+   "model": "Overlord 3BS 10S",
+   "root_spec": 9.55,
+   "tier": "exact"
+  },
+  "spin_5421": {
+   "base_drag": 9.1,
+   "model": "Overlord 3BS 20S",
+   "root_spec": 20.95,
+   "tier": "exact"
+  },
+  "spin_5422": {
+   "base_drag": 7.7,
+   "model": "Overlord 3GS 10S",
+   "root_spec": 10.02,
+   "tier": "exact"
+  },
+  "spin_5423": {
+   "base_drag": 9.5,
+   "model": "Overlord 3GS 20S",
+   "root_spec": 23.06,
+   "tier": "exact"
+  },
+  "spin_5424": {
+   "base_drag": 8.15,
+   "model": "Overlord 3RS 10S",
+   "root_spec": 12.02,
+   "tier": "exact"
+  },
+  "spin_5425": {
+   "base_drag": 10.0,
+   "model": "Overlord 3RS 20S",
+   "root_spec": 25.95,
+   "tier": "exact"
+  },
+  "spin_5451": {
+   "base_drag": 23.6,
+   "model": "Silver 80",
+   "root_spec": 67.04,
+   "tier": "exact"
+  },
+  "spin_5453": {
+   "base_drag": 18.14,
+   "model": "Full Metal 60",
+   "root_spec": 49.15,
+   "tier": "exact"
+  },
+  "spin_5454": {
+   "base_drag": 31.7,
+   "model": "Venga MMXXI 10000",
+   "root_spec": 44.38,
+   "tier": "estimate"
+  },
+  "spin_5520": {
+   "base_drag": 15.4,
+   "model": "Azimut Blue 4000",
+   "root_spec": 37.56,
+   "tier": "exact"
+  },
+  "spin_5521": {
+   "base_drag": 19.0,
+   "model": "Azimut Blue 6000",
+   "root_spec": 43.68,
+   "tier": "exact"
+  },
+  "spin_5522": {
+   "base_drag": 23.6,
+   "model": "Azimut Blue 8000",
+   "root_spec": 49.63,
+   "tier": "exact"
+  },
+  "spin_5523": {
+   "base_drag": 27.2,
+   "model": "Azimut Blue 10000",
+   "root_spec": 55.0,
+   "tier": "exact"
+  },
+  "spin_5524": {
+   "base_drag": 26.3,
+   "model": "Tagara TE 10000",
+   "root_spec": 36.084,
+   "tier": "estimate"
+  },
+  "spin_5525": {
+   "base_drag": 31.7,
+   "model": "Venga TE 10000",
+   "root_spec": 44.38,
+   "tier": "estimate"
+  },
+  "spin_5676": {
+   "base_drag": 16.3,
+   "model": "Tagara II 3000 SHS",
+   "root_spec": 39.76,
+   "tier": "exact"
+  },
+  "spin_5677": {
+   "base_drag": 18.1,
+   "model": "Tagara II 6000",
+   "root_spec": 45.89,
+   "tier": "exact"
+  },
+  "spin_5678": {
+   "base_drag": 22.6,
+   "model": "Tagara II 8000",
+   "root_spec": 57.06,
+   "tier": "exact"
+  },
+  "spin_5679": {
+   "base_drag": 26.3,
+   "model": "Tagara II 10000",
+   "root_spec": 62.45,
+   "tier": "exact"
+  },
+  "spin_5680": {
+   "base_drag": 20.4,
+   "model": "Chronica II 6000",
+   "root_spec": 72.63,
+   "tier": "exact"
+  },
+  "spin_5681": {
+   "base_drag": 20.4,
+   "model": "Chronica II 6000 LE-G",
+   "root_spec": 72.63,
+   "tier": "exact"
+  },
+  "spin_5682": {
+   "base_drag": 20.4,
+   "model": "Chronica II 6000 LE-B",
+   "root_spec": 72.63,
+   "tier": "exact"
+  },
+  "spin_5683": {
+   "base_drag": 8.6,
+   "model": "Bestia II 1000 SHS",
+   "root_spec": 11.41,
+   "tier": "exact"
+  },
+  "spin_5684": {
+   "base_drag": 10.8,
+   "model": "Bestia II 2000 SHS",
+   "root_spec": 24.25,
+   "tier": "exact"
+  },
+  "spin_5685": {
+   "base_drag": 17.2,
+   "model": "Bestia II 3000 SHS",
+   "root_spec": 43.84,
+   "tier": "exact"
+  },
+  "spin_5686": {
+   "base_drag": 19.9,
+   "model": "Bestia II 6000 SHS",
+   "root_spec": 54.6,
+   "tier": "exact"
+  },
+  "spin_5687": {
+   "base_drag": 24.5,
+   "model": "Bestia II 8000 SHS",
+   "root_spec": 66.7,
+   "tier": "exact"
+  },
+  "spin_5688": {
+   "base_drag": 34.0,
+   "model": "Furia 10000 SHS",
+   "root_spec": 104.74,
+   "tier": "exact"
+  },
+  "spin_5689": {
+   "base_drag": 34.9,
+   "model": "Furia 10000",
+   "root_spec": 118.27,
+   "tier": "exact"
+  },
+  "spin_5690": {
+   "base_drag": 36.7,
+   "model": "Furia 20000",
+   "root_spec": 128.53,
+   "tier": "exact"
+  },
+  "spin_5691": {
+   "base_drag": 38.55,
+   "model": "Furia 30000",
+   "root_spec": 132.79,
+   "tier": "exact"
+  },
+  "spin_5695": {
+   "base_drag": 6.7,
+   "model": "Olaf SP 10",
+   "root_spec": 16.98,
+   "tier": "exact"
+  },
+  "spin_5696": {
+   "base_drag": 8.85,
+   "model": "Olaf SP 20",
+   "root_spec": 24.78,
+   "tier": "exact"
+  },
+  "spin_5697": {
+   "base_drag": 17.6,
+   "model": "Olaf SP 30",
+   "root_spec": 40.9,
+   "tier": "exact"
+  },
+  "spin_5698": {
+   "base_drag": 18.6,
+   "model": "Olaf SP 60",
+   "root_spec": 51.5,
+   "tier": "exact"
+  },
+  "spin_5699": {
+   "base_drag": 28.2,
+   "model": "Olaf Stark SP-SWG 100",
+   "root_spec": 71.78,
+   "tier": "exact"
+  },
+  "spin_5700": {
+   "base_drag": 19.5,
+   "model": "SG8000 Ultra Power",
+   "root_spec": 51.14,
+   "tier": "exact"
+  },
+  "spin_5701": {
+   "base_drag": 19.5,
+   "model": "SG8000 Ultra Power Emerald",
+   "root_spec": 51.14,
+   "tier": "exact"
+  },
+  "spin_5702": {
+   "base_drag": 14.5,
+   "model": "Alfa 8000 Celestia",
+   "root_spec": 38.2,
+   "tier": "exact"
+  },
+  "spin_5703": {
+   "base_drag": 15.9,
+   "model": "Caliber HSV 80 SLC Raven",
+   "root_spec": 32.0,
+   "tier": "exact"
+  },
+  "spin_5705": {
+   "base_drag": 31.7,
+   "model": "Venga MMXXV 10000",
+   "root_spec": 111.1,
+   "tier": "exact"
+  },
+  "spin_5719": {
+   "base_drag": 27.2,
+   "model": "Tagara II 10000 8-Anniversary",
+   "root_spec": 136.0,
+   "tier": "exact"
+  },
+  "spin_5720": {
+   "base_drag": 5.0,
+   "model": "Overlord 3 10S 8-Years",
+   "root_spec": 25.0,
+   "tier": "exact"
+  },
+  "spin_5721": {
+   "base_drag": 38.55,
+   "model": "Furia 30000 8-Anniversary",
+   "root_spec": 132.79,
+   "tier": "exact"
+  },
+  "spin_5722": {
+   "base_drag": 20.4,
+   "model": "Chronica II 6000 Super 8",
+   "root_spec": 72.63,
+   "tier": "exact"
+  },
+  "spin_5724": {
+   "base_drag": 6.35,
+   "model": "Overlord 3 20S 8-Years",
+   "root_spec": 31.75,
+   "tier": "exact"
+  },
+  "spin_5765": {
+   "base_drag": 5.2,
+   "model": "Fisher MT10",
+   "root_spec": 7.89,
+   "tier": "exact"
+  },
+  "spin_5776": {
+   "base_drag": 31.7,
+   "model": "Venga MMXXII 10000",
+   "root_spec": 44.38,
+   "tier": "estimate"
+  },
+  "spin_5792": {
+   "base_drag": 22.6,
+   "model": "Tagara TE 8000",
+   "root_spec": 31.007,
+   "tier": "estimate"
+  },
+  "spin_5793": {
+   "base_drag": 18.1,
+   "model": "Tagara TE 6000",
+   "root_spec": 24.833,
+   "tier": "estimate"
+  },
+  "spin_5794": {
+   "base_drag": 27.2,
+   "model": "Venga TE 8000",
+   "root_spec": 38.08,
+   "tier": "estimate"
+  },
+  "spin_5795": {
+   "base_drag": 22.6,
+   "model": "Venga TE 6000",
+   "root_spec": 31.64,
+   "tier": "estimate"
+  },
+  "spin_5817": {
+   "base_drag": 24.5,
+   "model": "Overlord 88",
+   "root_spec": 81.46,
+   "tier": "exact"
+  },
+  "spin_5818": {
+   "base_drag": 15.4,
+   "model": "Azimut 4000",
+   "root_spec": 37.56,
+   "tier": "exact"
+  },
+  "spin_5819": {
+   "base_drag": 19.0,
+   "model": "Azimut 6000",
+   "root_spec": 43.68,
+   "tier": "exact"
+  },
+  "spin_5820": {
+   "base_drag": 3.2,
+   "model": "Spark 2 2000S",
+   "root_spec": 3.4,
+   "tier": "exact"
+  },
+  "spin_5821": {
+   "base_drag": 3.2,
+   "model": "Spark 2 3000S",
+   "root_spec": 3.77,
+   "tier": "exact"
+  },
+  "spin_5822": {
+   "base_drag": 3.3,
+   "model": "Libra 2 2000S",
+   "root_spec": 4.1,
+   "tier": "exact"
+  },
+  "spin_5823": {
+   "base_drag": 3.3,
+   "model": "Libra 2 3000S",
+   "root_spec": 4.5,
+   "tier": "exact"
+  },
+  "spin_5824": {
+   "base_drag": 3.5,
+   "model": "Lagoon-HP 2 2000S",
+   "root_spec": 5.0,
+   "tier": "exact"
+  },
+  "spin_5825": {
+   "base_drag": 5.4,
+   "model": "Lagoon-HP 2 4000S",
+   "root_spec": 8.04,
+   "tier": "exact"
+  },
+  "spin_5826": {
+   "base_drag": 3.4,
+   "model": "Hydra Smart 2 25S",
+   "root_spec": 5.4,
+   "tier": "exact"
+  },
+  "spin_5861": {
+   "base_drag": 31.7,
+   "model": "Venga MMXXIII 10000",
+   "root_spec": 44.38,
+   "tier": "estimate"
+  },
+  "spin_5928": {
+   "base_drag": 31.7,
+   "model": "Venga 10000 6-Anniversary",
+   "root_spec": 158.5,
+   "tier": "exact"
+  },
+  "spin_5995": {
+   "base_drag": 31.7,
+   "model": "Venga MMXXIV 10000",
+   "root_spec": 44.38,
+   "tier": "estimate"
+  },
+  "spin_6005": {
+   "base_drag": 15.4,
+   "model": "Narga 8000 Super 7",
+   "root_spec": 47.0,
+   "tier": "exact"
+  },
+  "spin_6006": {
+   "base_drag": 22.7,
+   "model": "Everest-24 8000s",
+   "root_spec": 52.0,
+   "tier": "exact"
+  },
+  "spin_6007": {
+   "base_drag": 27.2,
+   "model": "Azimut 10K-7Y",
+   "root_spec": 55.7,
+   "tier": "exact"
+  },
+  "spin_6008": {
+   "base_drag": 36.3,
+   "model": "Turion SW 30000 7-Years",
+   "root_spec": 128.5,
+   "tier": "exact"
+  },
+  "spin_6018": {
+   "base_drag": 17.2,
+   "model": "Evia 6000 Copper Lake",
+   "root_spec": 23.478,
+   "tier": "estimate"
+  },
+  "spin_6019": {
+   "base_drag": 17.2,
+   "model": "Evia 6000",
+   "root_spec": 38.3,
+   "tier": "exact"
+  },
+  "spin_6020": {
+   "base_drag": 18.1,
+   "model": "Natora 8000 Super Seven",
+   "root_spec": 24.707,
+   "tier": "estimate"
+  },
+  "spin_6024": {
+   "base_drag": 4.8,
+   "model": "Velara 1000",
+   "root_spec": 7.74,
+   "tier": "exact"
+  },
+  "spin_6025": {
+   "base_drag": 12.7,
+   "model": "Velara 3000",
+   "root_spec": 30.55,
+   "tier": "exact"
+  },
+  "spin_6026": {
+   "base_drag": 14.5,
+   "model": "Velara 6000",
+   "root_spec": 38.98,
+   "tier": "exact"
+  },
+  "spin_6027": {
+   "base_drag": 17.5,
+   "model": "Velara 8000",
+   "root_spec": 41.89,
+   "tier": "exact"
+  },
+  "spin_6028": {
+   "base_drag": 14.5,
+   "model": "Velara 6000 Mystique",
+   "root_spec": 38.98,
+   "tier": "exact"
+  },
+  "spin_6029": {
+   "base_drag": 17.5,
+   "model": "Velara 8000 Mystique",
+   "root_spec": 41.78,
+   "tier": "exact"
+  },
+  "spin_6037": {
+   "base_drag": 22.0,
+   "model": "Admiral II 6000S Superior",
+   "root_spec": 59.23,
+   "tier": "exact"
+  },
+  "spin_6038": {
+   "base_drag": 30.0,
+   "model": "Admiral II 10000S Superior",
+   "root_spec": 79.87,
+   "tier": "exact"
+  },
+  "spin_6039": {
+   "base_drag": 15.0,
+   "model": "Natora 6000 Supercarp",
+   "root_spec": 36.96,
+   "tier": "exact"
+  },
+  "spin_6040": {
+   "base_drag": 22.6,
+   "model": "Venga Classic 6000",
+   "root_spec": 69.66,
+   "tier": "exact"
+  },
+  "spin_6041": {
+   "base_drag": 31.7,
+   "model": "Venga Classic 10000",
+   "root_spec": 100.0,
+   "tier": "exact"
+  },
+  "spin_6042": {
+   "base_drag": 31.7,
+   "model": "Venga 10000 Final",
+   "root_spec": 100.0,
+   "tier": "exact"
+  },
+  "spin_6043": {
+   "base_drag": 22.7,
+   "model": "Venga II 6000",
+   "root_spec": 71.2,
+   "tier": "exact"
+  },
+  "spin_6044": {
+   "base_drag": 30.0,
+   "model": "Venga II 8000 SHS",
+   "root_spec": 80.25,
+   "tier": "exact"
+  },
+  "spin_6045": {
+   "base_drag": 32.7,
+   "model": "Venga II 10000",
+   "root_spec": 108.31,
+   "tier": "exact"
+  },
+  "spin_6046": {
+   "base_drag": 34.9,
+   "model": "Venga II 30000",
+   "root_spec": 144.12,
+   "tier": "exact"
+  },
+  "spin_6047": {
+   "base_drag": 34.9,
+   "model": "Venga II 30000 First Edition",
+   "root_spec": 158.06,
+   "tier": "exact"
+  },
+  "spin_6048": {
+   "base_drag": 18.7,
+   "model": "Overlord 656",
+   "root_spec": 58.7,
+   "tier": "exact"
+  },
+  "spin_6084": {
+   "base_drag": 4.55,
+   "model": "Horizon III 1000S",
+   "root_spec": 8.27,
+   "tier": "exact"
+  },
+  "spin_6085": {
+   "base_drag": 5.4,
+   "model": "Horizon III 2000S",
+   "root_spec": 12.0,
+   "tier": "exact"
+  },
+  "spin_6086": {
+   "base_drag": 12.0,
+   "model": "Horizon III 3000S",
+   "root_spec": 28.92,
+   "tier": "exact"
+  },
+  "spin_6087": {
+   "base_drag": 15.6,
+   "model": "Horizon III 6000S",
+   "root_spec": 38.22,
+   "tier": "exact"
+  },
+  "spin_6088": {
+   "base_drag": 14.5,
+   "model": "Everest III 4000S",
+   "root_spec": 30.55,
+   "tier": "exact"
+  },
+  "spin_6089": {
+   "base_drag": 17.0,
+   "model": "Everest III 6000S",
+   "root_spec": 39.27,
+   "tier": "exact"
+  },
+  "spin_6090": {
+   "base_drag": 22.0,
+   "model": "Everest III 8000S",
+   "root_spec": 48.66,
+   "tier": "exact"
+  },
+  "spin_6091": {
+   "base_drag": 9.1,
+   "model": "Aviator SP 1000 XHS",
+   "root_spec": 27.0,
+   "tier": "exact"
+  },
+  "spin_6092": {
+   "base_drag": 11.3,
+   "model": "Aviator SP 2000 XHS",
+   "root_spec": 36.0,
+   "tier": "exact"
+  },
+  "spin_6093": {
+   "base_drag": 18.15,
+   "model": "Aviator SP 3000 XHS",
+   "root_spec": 47.0,
+   "tier": "exact"
+  },
+  "spin_6101": {
+   "base_drag": 3.8,
+   "model": "Lacerti NG 4000",
+   "root_spec": 5.39,
+   "tier": "exact"
+  },
+  "spin_6102": {
+   "base_drag": 4.2,
+   "model": "Lacerti-SX NG 4000",
+   "root_spec": 6.07,
+   "tier": "exact"
+  },
+  "spin_6110": {
+   "base_drag": 17.7,
+   "model": "Admiral II 4000S",
+   "root_spec": 43.16,
+   "tier": "exact"
+  },
+  "spin_6111": {
+   "base_drag": 21.1,
+   "model": "Admiral II 6000S",
+   "root_spec": 57.45,
+   "tier": "exact"
+  },
+  "spin_6112": {
+   "base_drag": 23.6,
+   "model": "Admiral II 8000S",
+   "root_spec": 66.95,
+   "tier": "exact"
+  },
+  "spin_6113": {
+   "base_drag": 7.5,
+   "model": "Mayor III 1000S",
+   "root_spec": 9.65,
+   "tier": "exact"
+  },
+  "spin_6114": {
+   "base_drag": 9.3,
+   "model": "Mayor III 2000S",
+   "root_spec": 19.7,
+   "tier": "exact"
+  },
+  "spin_6115": {
+   "base_drag": 15.9,
+   "model": "Mayor III 3000S",
+   "root_spec": 35.0,
+   "tier": "exact"
+  },
+  "spin_6115_g": {
+   "base_drag": 15.9,
+   "model": "市长（Mayor）III 3000S 九周年纪念版",
+   "root_spec": 21.481,
+   "tier": "estimate"
+  },
+  "spin_6118": {
+   "base_drag": 29.0,
+   "model": "Admiral II 10000S",
+   "root_spec": 76.42,
+   "tier": "exact"
+  },
+  "spin_7001": {
+   "base_drag": 34.0,
+   "model": "Venga II 10000 Super 9",
+   "root_spec": 108.3,
+   "tier": "exact"
+  },
+  "spin_7002": {
+   "base_drag": 36.7,
+   "model": "Venga II 30000 Super 9",
+   "root_spec": 144.0,
+   "tier": "exact"
+  },
+  "spin_7003": {
+   "base_drag": 9.5,
+   "model": "Aviator SP 1000 XHS 9-Years",
+   "root_spec": 28.9,
+   "tier": "exact"
+  },
+  "spin_7004": {
+   "base_drag": 16.0,
+   "model": "Hunter 60S 9-Years",
+   "root_spec": 43.55,
+   "tier": "exact"
+  },
+  "spin_7005": {
+   "base_drag": 18.5,
+   "model": "Hunter 80S 9-Years",
+   "root_spec": 49.13,
+   "tier": "exact"
+  },
+  "spin_7006": {
+   "base_drag": 12.0,
+   "model": "Horizon III 3000S 9-Anniversary",
+   "root_spec": 28.9,
+   "tier": "exact"
+  },
+  "spin_7014": {
+   "base_drag": 14.2,
+   "model": "Hunter 40S HS",
+   "root_spec": 32.45,
+   "tier": "exact"
+  },
+  "spin_7015": {
+   "base_drag": 16.0,
+   "model": "Hunter 60S",
+   "root_spec": 43.55,
+   "tier": "exact"
+  },
+  "spin_7016": {
+   "base_drag": 18.5,
+   "model": "Hunter 80S",
+   "root_spec": 49.13,
+   "tier": "exact"
+  },
+  "spinreel_pelengas": {
+   "base_drag": 5.5,
+   "model": "Pelengas",
+   "root_spec": 11.71,
+   "tier": "exact"
+  },
+  "spinreel_pelengas_2017": {
+   "base_drag": 5.9,
+   "model": "佩伦(Pelengas )加斯 2017",
+   "root_spec": 7.682,
+   "tier": "estimate"
+  },
+  "spinreel_pelengas_2025": {
+   "base_drag": 5.9,
+   "model": "Pelengas（佩伦加斯）-2025",
+   "root_spec": 7.682,
+   "tier": "estimate"
+  },
+  "spinreel_pelengas_2026": {
+   "base_drag": 5.9,
+   "model": "Pelengas （佩伦加斯）26",
+   "root_spec": 7.682,
+   "tier": "estimate"
+  }
+ }
+}

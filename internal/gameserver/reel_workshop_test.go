@@ -131,8 +131,10 @@ func TestWorkshopOrderRefreshesDragVersionAndPerformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, gearQuality, gearDurability := srv.reelPartStateFromRow(ctx, fresh, reelPartCatGear)
-	wantLocked := 3.5 * reelLockMultiplier(1) * reelBearingFactor(10, 1) * reelGearFactor(gearQuality, gearDurability)
+	// 统一口径：base=换装摩擦片的 3.5（1~29 档泄力）；locked=机构强度（spin_5820 规格 3.4）
+	// × 轴承子件耐久（满耐久=1），不再吃轴承品质/齿轮倍率。
+	_, _, bearingDur := srv.reelPartStateFromRow(ctx, fresh, reelPartCatBearing)
+	wantLocked := 3.4 * clampUnit(bearingDur)
 	if math.Abs(perf.BaseDragKg-3.5) > 0.001 || math.Abs(perf.LockedDragKg-wantLocked) > 0.001 {
 		t.Fatalf("轮子物理参数=%+v，期望 base=3.5 locked=%f", perf, wantLocked)
 	}
@@ -205,9 +207,14 @@ func TestReelWorkshopStatsSurviveRelogTreeBuild(t *testing.T) {
 	if !ok || gearDef == nil || gearDef.ItemID != "rgm_zmn_jet_jsg-r" {
 		t.Fatalf("重登后齿轮=%v ok=%v，期望保留JSG-R", gearDef, ok)
 	}
-	wantStrength := srv.reelBaseDragFromRow(ctx, fresh)
+	// 统一口径：重登后轮根=出厂规格×轴承耐久（spin_5354 规格 20.84），
+	// 不能是传动比，也不再跟随摩擦片值。
+	wantStrength, ok := reelRootSpec("spin_5354")
+	if !ok {
+		t.Fatal("规格表缺 spin_5354")
+	}
 	if math.Abs(gotRatio-wantStrength) > 0.001 {
-		t.Fatalf("重登后轮子力度上限=%f，期望当前摩擦片制动力%f，不能是传动比%f", gotRatio, wantStrength, itemDefF32(gearDef, gearAttrRatio)*fresh.Workmanship)
+		t.Fatalf("重登后轮子力度上限=%f，期望规格%f，不能是传动比%f", gotRatio, wantStrength, itemDefF32(gearDef, gearAttrRatio)*fresh.Workmanship)
 	}
 
 	drag, dragDef, _, ok := srv.selectedReelPart(ctx, tree.Fields, 9)

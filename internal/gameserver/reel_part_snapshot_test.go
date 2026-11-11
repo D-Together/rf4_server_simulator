@@ -63,8 +63,15 @@ func assertReelSnapshot(t *testing.T, srv *Server, guid, gearID string, drag flo
 	if math.IsNaN(expected) || math.IsInf(expected, 0) {
 		t.Fatal("invalid root")
 	}
-	if math.Abs(expected-drag) > 1e-5 {
-		t.Fatalf("root does not use installed washer: got %g want %g", expected, drag)
+	// 新口径：轮根=出厂规格×轴承耐久（规格表收录的轮子），与摩擦片值解耦；
+	// 未收录轮子保持旧语义（轮根=摩擦片值）。drag 参数只断言摩擦片状态。
+	wantRoot := drag
+	if spec, ok := reelRootSpec(row.ItemID); ok {
+		_, _, bearingDur := srv.reelPartStateFromRow(ctx, row, reelPartCatBearing)
+		wantRoot = spec * clampUnit(bearingDur)
+	}
+	if math.Abs(expected-wantRoot) > 1e-5 {
+		t.Fatalf("root=%g want %g (washer=%g)", expected, wantRoot, drag)
 	}
 	if got := snapshotFloat(fields, row.WireClass, csStrength); math.IsNaN(got) || math.IsInf(got, 0) || math.Abs(got-expected) > 1e-5 {
 		t.Fatalf("stored root=%g, normalized=%g", got, expected)
@@ -497,8 +504,10 @@ func TestReelPartSnapshotBatchAndUnrelatedParts(t *testing.T) {
 			if err != nil || end != len(body) {
 				t.Fatalf("response decode: %v", err)
 			}
-			if snapshotFloat(reply.Fields, reply.Class, csStrength) != 3.5 {
-				t.Fatal("response uses old washer")
+			// 新口径：响应里的轮根=规格×轴承耐久（与摩擦片值解耦）。
+			// 本夹具轴承耐久被置 0（受保护状态），轮根按公式应为 0。
+			if got := snapshotFloat(reply.Fields, reply.Class, csStrength); got != 0 {
+				t.Fatalf("response root=%g, want 0（夹具轴承耐久=0）", got)
 			}
 			_, replyGear := snapshotPart(t, srv, reply.Fields, 52)
 			if replyGear.ItemID != "rgm_ef_spark10021" {
@@ -571,18 +580,23 @@ func TestReelZeroDragRootPaths(t *testing.T) {
 				}
 			}
 			row := mustItem(t, db, reel.GUID)
+			// 新口径：轮根=出厂规格×轴承耐久，摩擦片磨穿只写摩擦片字段，轮根保持规格。
+			wantRoot, ok := reelRootSpec("spin_5354")
+			if !ok {
+				t.Fatal("规格表缺 spin_5354")
+			}
 			if path != "tree" {
 				stored := snapshotFields(t, row.FieldsJSON)
-				if got := snapshotFloat(stored, row.WireClass, csStrength); got != 0 {
-					t.Fatalf("stored zero-drag root=%g, want 0", got)
+				if got := snapshotFloat(stored, row.WireClass, csStrength); math.Abs(got-wantRoot) > 1e-5 {
+					t.Fatalf("stored zero-drag root=%g, want %g", got, wantRoot)
 				}
 			}
 			tree, err := srv.ItemToTree(ctx, row)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := snapshotFloat(tree.Fields, tree.Class, csStrength); got != 0 {
-				t.Fatalf("wire zero-drag root=%g, want 0", got)
+			if got := snapshotFloat(tree.Fields, tree.Class, csStrength); math.Abs(got-wantRoot) > 1e-5 {
+				t.Fatalf("wire zero-drag root=%g, want %g", got, wantRoot)
 			}
 			child, _ := snapshotPart(t, srv, tree.Fields, 9)
 			value, present, _ := frictionWasherDrag(child)
@@ -643,8 +657,14 @@ func TestReelDragFieldPresenceAndFallback(t *testing.T) {
 			}
 			childBefore := snapshotJSON(t, washer.Fields)
 			srv.canonicalizeReelStrength(ctx, row, fields)
-			if value := snapshotFloat(fields, row.WireClass, csStrength); math.Abs(value-tc.want) > 1e-5 {
-				t.Fatalf("root=%g want %g", value, tc.want)
+			// spin_5354 已入规格表：canon 后轮根=规格×轴承耐久（与 washer 状态无关）；
+			// washer 存在性/回退语义由 readers（上方）与 old_spinreel 回退用例覆盖。
+			wantRoot, ok := reelRootSpec("spin_5354")
+			if !ok {
+				t.Fatal("规格表缺 spin_5354")
+			}
+			if value := snapshotFloat(fields, row.WireClass, csStrength); math.Abs(value-wantRoot) > 1e-5 {
+				t.Fatalf("root=%g want %g", value, wantRoot)
 			}
 			if snapshotJSON(t, washer.Fields) != childBefore {
 				t.Fatal("root normalization changed washer")
@@ -655,14 +675,14 @@ func TestReelDragFieldPresenceAndFallback(t *testing.T) {
 			}
 			fresh := mustItem(t, db, row.GUID)
 			stored := snapshotFields(t, fresh.FieldsJSON)
-			if value := snapshotFloat(stored, fresh.WireClass, csStrength); math.Abs(value-tc.want) > 1e-5 {
+			if value := snapshotFloat(stored, fresh.WireClass, csStrength); math.Abs(value-wantRoot) > 1e-5 {
 				t.Fatal("stored root mismatch")
 			}
 			tree, err := srv.ItemToTree(ctx, fresh)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if value := snapshotFloat(tree.Fields, tree.Class, csStrength); math.Abs(value-tc.want) > 1e-5 {
+			if value := snapshotFloat(tree.Fields, tree.Class, csStrength); math.Abs(value-wantRoot) > 1e-5 {
 				t.Fatal("wire root mismatch")
 			}
 		})
@@ -682,6 +702,10 @@ func TestReelDegradePersistsRoot(t *testing.T) {
 				reel, err := srv.CreateItem(ctx, uid, "spin_5354", "backpack", 1)
 				if err != nil {
 					t.Fatal(err)
+				}
+				specRoot, ok := reelRootSpec("spin_5354")
+				if !ok {
+					t.Fatal("规格表缺 spin_5354")
 				}
 				initial := snapshotFields(t, reel.FieldsJSON)
 				if snapshotFloat(initial, reel.WireClass, csStrength) <= 0 {
@@ -738,15 +762,16 @@ func TestReelDegradePersistsRoot(t *testing.T) {
 				if !wearOut && (force <= 0 || force >= current) {
 					t.Fatalf("intermediate wear missing: %g", force)
 				}
-				if root := snapshotFloat(fields, fresh.WireClass, csStrength); root != force {
-					t.Errorf("immediate stored root=%g washer=%g", root, force)
+				// 新口径：轮根=规格×轴承耐久，恒为规格（轴承未动），不跟随摩擦片。
+				if root := snapshotFloat(fields, fresh.WireClass, csStrength); math.Abs(root-specRoot) > 1e-5 {
+					t.Errorf("immediate stored root=%g washer=%g want=%g", root, force, specRoot)
 				}
 				tree, err := srv.ItemToTree(ctx, fresh)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if root := snapshotFloat(tree.Fields, tree.Class, csStrength); root != force {
-					t.Errorf("wire root=%g washer=%g", root, force)
+				if root := snapshotFloat(tree.Fields, tree.Class, csStrength); math.Abs(root-specRoot) > 1e-5 {
+					t.Errorf("wire root=%g washer=%g want=%g", root, force, specRoot)
 				}
 				encoded, err := proto.EncodeValue(tree, srv.Table())
 				if err != nil {
@@ -756,7 +781,7 @@ func TestReelDegradePersistsRoot(t *testing.T) {
 				if err != nil || end != len(encoded) {
 					t.Fatalf("worn reel codec: %v", err)
 				}
-				if snapshotFloat(decoded.Fields, decoded.Class, csStrength) != force {
+				if math.Abs(snapshotFloat(decoded.Fields, decoded.Class, csStrength)-specRoot) > 1e-5 {
 					t.Fatal("encoded worn root mismatch")
 				}
 				// 本体耐久是轮内零件的综合：磨薄摩擦片它就得降（只降不升），
@@ -780,8 +805,8 @@ func TestReelDegradePersistsRoot(t *testing.T) {
 					t.Fatal("performance mismatch")
 				}
 				storedAgain := snapshotFields(t, mustItem(t, db, reel.GUID).FieldsJSON)
-				if root := snapshotFloat(storedAgain, fresh.WireClass, csStrength); root != force {
-					t.Errorf("after performance sync root=%g washer=%g", root, force)
+				if root := snapshotFloat(storedAgain, fresh.WireClass, csStrength); math.Abs(root-specRoot) > 1e-5 {
+					t.Errorf("after performance sync root=%g washer=%g want=%g", root, force, specRoot)
 				}
 			})
 		}

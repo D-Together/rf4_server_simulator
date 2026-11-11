@@ -638,8 +638,9 @@ func (s *Server) loadGearSpec(ctx context.Context, ids rigGearIDs) gearPhysicsSp
 }
 
 // reelLockedDragForSpec 给搏鱼与抛投裁决取渔轮此刻的锁轮承力：优先读实例（已磨损的摩擦片
-// 与当前零件耐久），读不到才退回定义制动力 x 本体耐久倍率。定义值不反映磨损，直接用它
-// 会留下"摩擦片磨了但力度上限不动"的两套数字，满红不爆只修好一半。
+// 与当前零件耐久），读不到才退回定义口径。规格表收录的轮子按 机构强度 × 本体耐久
+// （实例缺失时拿不到轴承子件耐久，用本体耐久作代理）；未收录轮子回退旧公式。
+// 定义值不反映磨损，直接用它会留下"摩擦片磨了但力度上限不动"的两套数字，满红不爆只修好一半。
 func (s *Server) reelLockedDragForSpec(ctx context.Context, ids rigGearIDs, def *store.ItemDef) float64 {
 	if strings.TrimSpace(ids.Reel) == "" {
 		return 0
@@ -650,6 +651,9 @@ func (s *Server) reelLockedDragForSpec(ctx context.Context, ids rigGearIDs, def 
 				return locked
 			}
 		}
+	}
+	if spec := reelMechStrengthKg(def); spec > 0 {
+		return spec * clampUnit(ids.ReelDurability)
 	}
 	return reelDragMaxKg(def) * reelLockMultiplier(ids.ReelDurability)
 }
