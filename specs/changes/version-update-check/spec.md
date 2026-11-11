@@ -124,6 +124,12 @@ raw.githubusercontent，均为同一仓库文件的只读镜像）拉取 version
     tag、prerelease=false），发布 Release 后同样回写 `stable` 字段。
   - 两个 workflow 调 `update-version-json.sh <channel> <version>
     <build_ts> <asset_name>`，asset_name 来自构建步骤输出。
+  - 制品（zip 根）也带一份 `version.json`，**结构与仓库根逐字段一致**
+    （`schema` / `stable` / `preview`，entry 六个字段与顺序不变），只把本次
+    构建写进对应通道，根文件里另一个通道原样带过去；由各 build 脚本
+    内联生成（不从根文件直接拷贝，否则包内记的是上一个已发布版本）。
+    回写 main 仍只走 `update-version-json.sh`，两条路径互不依赖。
+    包内的 commit 信息仍由 `快速开始.txt` 的 `Commit:` 行提供。
 - **隐私**：检测只是对 CDN 的匿名 GET，不带任何机器标识。
 - 数据与迁移：无表结构改动；`update_state.json` 加进 `.gitignore`。
 - 兼容与回滚：不改任何协议命令与现有 API 字段（只新增字段/端点）；
