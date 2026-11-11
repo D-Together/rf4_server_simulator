@@ -142,11 +142,17 @@ type gift811Line struct {
 const giftSourceNewLevel = 1
 
 // giftSourceTrophyCountReached 是「捕获了数条稀有鱼」的来源码（结算弹窗上下文）：
-// 稀有鱼 / 超级稀有鱼的**鱼种数**跨档时用它把奖座挂进结算礼物卡
+// 稀有鱼 / 超级稀有鱼的**鱼种数**跨档时用它把奖座挂进 801.f4 的礼物卡
 // （kDlg_Catched_GiftsTrophyCountReached）。
-// 目前服务端不再往 801.f4 塞该来源：稀有鱼奖座改为入护后静默到账
-// （见 rarity_milestones.go 的 pushRarityStatuettesOnKeep），保留常量仅供协议对齐。
-const giftSourceTrophyCountReached = 5
+//
+// 码值 3 来自 809 塑封弹窗的实机扫频（见 docs/gameplay.md）：单发 3 时**一枚徽章都不画**
+// ——因为它要「条数」参数，参数 0 时整枚跳过；补上参数就画出「捕获了数条稀有鱼」。
+// 809 里 5 是「捕获了该水域的所有稀有鱼」，4 是塑封卡牌合集。801 与 809 的礼物行
+// 共用同一个客户端枚举（plhpmhpadcg），所以结算弹窗这里也用 3。
+//
+// 教训：早前 801 的两次扫频把 5 记成「数条稀有鱼」，是扫频显示顺序造成的误判；
+// 5 会画成「集齐水域」的卡，别再用。
+const giftSourceTrophyCountReached = 3
 
 // giftRows811 把若干条礼物打包成 811 礼物行数组。外层 args code 173（argcode_table
 // by_elem 811→173），单行 {f0=来源, f1=参数, f2=礼物物品树(args 61), f3=空物品数组}。

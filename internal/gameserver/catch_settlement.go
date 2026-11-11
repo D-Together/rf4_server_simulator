@@ -241,6 +241,12 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 	r.IsRecord = r.PreviousBest <= 0 || f.WeightG > r.PreviousBest
 	now := float64(time.Now().UnixNano()) / 1e9
 	r.CaughtAt = now
+	// 稀有鱼 / 超级稀有鱼的鱼种数按「钓到过」记（catch_seen），在本事务内落库：
+	// 官方结算界面在玩家选择入护/放生之前就画奖座礼物卡，判定必须在结算时成立；
+	// catch_log 要等 14/5 入护才写，用它做分母会永远差这一尾。
+	if err := recordCatchSeenTx(ctx, tx, uid, f.Species, f.Grade, now); err != nil {
+		return nil, err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE profile SET xp=?,level=?,updated_ts=? WHERE uid=?`, newXP, level, now, uid); err != nil {
 		return nil, err
 	}
@@ -302,8 +308,18 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 			res.giftItems = append(res.giftItems, g.Items...)
 		}
 	}
-	// 稀有鱼 / 超级稀有鱼的鱼种数奖座**不在这里发**：图鉴口径是 catch_log，
-	// 而 catch_log 要到 14/5 入护才写。结算阶段发会让「拿到奖座后放生」的玩家
-	// 出现「背包有奖座、面板不计数」的不一致，改由 fishingKeep 入护后判定。
+	// 稀有鱼 / 超级稀有鱼的鱼种数奖座**在结算时判定**：本尾鱼已在事务里写进
+	// catch_seen，判定口径就是「钓到过的鱼种数」。发出来的物品随结果返回，
+	// 由 14/4 挂 801.f4 的礼物行（来源码 3「捕获了数条稀有鱼」，参数为鱼种数）
+	// 与 801.f8 奖励列表，客户端结算界面当场弹卡 —— 这正是官方的表现。
+	// 图鉴（catch_log/307.f16）仍然只认入护，放生的鱼不点亮图鉴但奖座已按官方口径记过。
+	if rare, super, rerr := s.rarityMilestoneAfterCatch(ctx, uid); rerr != nil {
+		s.log.Warn("稀有鱼里程碑判定失败", "uid", uid, "err", rerr)
+	} else {
+		res.rarityGifts = rare.Items
+		res.raritySpeciesCount = rare.Count
+		res.superRarityGifts = super.Items
+		res.superRaritySpeciesCount = super.Count
+	}
 	return res, nil
 }
