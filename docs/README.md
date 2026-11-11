@@ -43,6 +43,25 @@
 - [钓鱼全链路分析（2026-11-07）](analysis-fishing-chain-2026-11-07.md)：一次性排查快照，
   含历史事故过程与行号，会过期；结论以代码与能力契约为准。
 
+### 搏鱼物理与发鱼分析快照
+
+一次性分析快照，会过期；结论以代码与能力契约为准。
+
+- [搏鱼物理：总览与问题清单（2026-11-07）](analysis-fish-fight-physics-2026-11-07.md)：
+  上鱼→轨迹→拉力→双方耐力四篇的入口篇。
+- [搏鱼物理 1/4：鱼的运动轨迹（客户端 Fish AI）](analysis-fish-fight-physics-fish-ai-2026-11-07.md)。
+- [搏鱼物理 2/4：动作拉力与线物理](analysis-fish-fight-physics-pull-line-2026-11-07.md)。
+- [搏鱼物理 3/4：鱼的耐力（stamina）机制](analysis-fish-fight-physics-fish-stamina-2026-11-07.md)。
+- [搏鱼物理 4/4：玩家耐力/体力条（308.f0）](analysis-fish-fight-physics-player-energy-2026-11-07.md)。
+- [PR#285 合并后发鱼分布分析（2026-11-08）](analysis-pr285-fish-hunt-distribution-2026-11-08.md)：
+  钩型嘬饵/四阶段大鱼狩猎/蓝冠天命。
+- [PR#304/#305 合并后发鱼逻辑分析（2026-11-09）](analysis-pr304-pr305-fish-hunt-spawn-2026-11-09.md)：
+  钩型确认修复 + 海图声呐狩猎。
+- [rf4almanac 重量数据整理与可用性分析（2026-11-08）](analysis-rf4almanac-weight-2026-11-08.md)；
+  抓取与许可声明见该文「抓取与许可声明」一节。
+- [鱼口配置叠加/覆盖关系调查（2026-11-10）](后台配置对发鱼流程影响的调查.md)。
+- [升级礼物卡片机制（完整还原）](LEVEL_UP_GIFT_CARDS.md)。
+
 ## 工程约定
 
 - [仓库入口](../CLAUDE.md)：硬约束（红线）与事实入口表，Agent 必读。
