@@ -297,10 +297,18 @@ func (s *Server) buildSettle813(ctx context.Context, uid int64, f *RolledFish, r
 	// 重放回执只还原事实，不能再次触发熟练度提示；满级后尤其会误弹旧的 +0.x = 100%。
 	levelsGained := int64(0)
 	skillGain := r.skillGain
+	skillID := r.skillID
 	if r.replayed {
 		skillGain = 0
 	} else {
 		levelsGained = max64(0, r.levelsGained)
+	}
+	if skillGain <= 0 {
+		// 无熟练度可报（满级钳到 0 / 回执重放）：310.f2 归零 = 官服「无技能大类」
+		// 语义（官服抓包 n=18 中 7 行 f2=0）。客户端技能加成行按 f2 驱动，f2=0
+		// 整行不渲染；只发 f3=0 会渲染出「+0 = 100%」。801.f6 的 312 当前技能
+		// 面板仍用 r.skillID，不受影响。
+		skillID = 0
 	}
 	bonuses := proto.Args(proto.S("31"))
 	for _, bonus := range r.bonuses {
@@ -325,7 +333,7 @@ func (s *Server) buildSettle813(ctx context.Context, uid int64, f *RolledFish, r
 	obj310 := wiregen.MustMakeObj("kegeppimjbm", map[int]*proto.Value{
 		0: proto.U64(uint64(r.totalXP)),
 		1: proto.U32(uint32(levelsGained)),
-		2: proto.U32(uint32(r.skillID)),
+		2: proto.U32(uint32(skillID)),
 		3: proto.F32(float32(skillGain)),
 		4: proto.Null(),
 		5: proto.U32(uint32(max64(0, r.levelsGained))),
