@@ -505,16 +505,15 @@ func (s *Server) heldRodGUID(uid int64) string {
 	return guid
 }
 
-// applyConsumableRestoreTx 在经济事务内应用食品/热饮的即时状态恢复。
+// consumableRestoreTarget 计算某个消耗品分类作用在 cur 上的新状态。
 // 分类映射见 consumableRestoreForItem：咖啡→精力、茶→舒适度、
 // 可可→饱食+少量精力、药品→健康（f4 下降）、其余食品→饱食度。
 // 恢复量全部为 tunables 标定值。
-func applyConsumableRestoreTx(ctx context.Context, tx *sql.Tx, uid int64, kind string, p conditionParams, now time.Time) error {
-	cur, err := store.EnsurePlayerConditionTx(ctx, tx, uid)
-	if err != nil {
-		return err
-	}
-	next := *cur
+//
+// 判定与写入共用这一个函数：只有它真的让某条状态变化，这次使用才算有效，
+// 避免扣掉物品而状态条没有任何可见变化。
+func consumableRestoreTarget(cur store.PlayerCondition, kind string, p conditionParams) store.PlayerCondition {
+	next := cur
 	switch kind {
 	case "coffee":
 		next.Primary = clampFloat(next.Primary+p.CoffeeEnergyRestore, 0, p.EnergyMax)
@@ -529,6 +528,27 @@ func applyConsumableRestoreTx(ctx context.Context, tx *sql.Tx, uid int64, kind s
 	default: // "food"
 		next.Secondary = clampFloat(next.Secondary+p.FoodHungerRestore, 0, 1)
 	}
+	return next
+}
+
+// consumableRestoreChanges 判断该分类在当前状态下是否真的能推动状态条。
+// 阈值复用写回判定阈值，低于它的变化玩家看不出来，按"没生效"处理。
+func consumableRestoreChanges(cur store.PlayerCondition, kind string, p conditionParams) bool {
+	next := consumableRestoreTarget(cur, kind, p)
+	return math.Abs(next.Primary-cur.Primary) > conditionWriteBackDelta ||
+		math.Abs(next.Secondary-cur.Secondary) > conditionWriteBackDelta ||
+		math.Abs(next.Comfort-cur.Comfort) > conditionWriteBackDelta ||
+		math.Abs(next.LuckPenalty-cur.LuckPenalty) > conditionWriteBackDelta
+}
+
+// applyConsumableRestoreTx 在经济事务内应用食品/热饮的即时状态恢复。
+// 计算口径与 consumableRestoreChanges 共用 consumableRestoreTarget。
+func applyConsumableRestoreTx(ctx context.Context, tx *sql.Tx, uid int64, kind string, p conditionParams, now time.Time) error {
+	cur, err := store.EnsurePlayerConditionTx(ctx, tx, uid)
+	if err != nil {
+		return err
+	}
+	next := consumableRestoreTarget(*cur, kind, p)
 	next.UpdatedTS = float64(now.Unix())
 	return store.UpsertPlayerConditionTx(ctx, tx, next)
 }
