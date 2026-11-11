@@ -58,12 +58,28 @@ func TestExistingMarineRodFloatRigIsCorrected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("造竿失败: %v", err)
 	}
-	if !srv.rigSetType(ctx, uid, rod.GUID, 1) {
-		t.Fatal("写入旧错误类型失败")
+	// 模拟旧版本已落库的不兼容浮钓类型。17/1 现在会正确拒绝这类
+	// 新请求，因此遗留数据必须直接写入，才能覆盖登录/投影矫正路径。
+	row, err := db.GetItemByGUID(ctx, rod.GUID)
+	if err != nil || row == nil {
+		t.Fatalf("读取竿失败: row=%v err=%v", row, err)
+	}
+	fields, err := FieldsFromJSON(row.FieldsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := fieldIdxByCS(row.WireClass, csRigObject)
+	if idx < 0 {
+		t.Fatal("竿实例缺少钓组字段")
+	}
+	fields[idx].Val = buildRig153Like(fields[idx].Val, "rig_FloatSimple", 1, rigCompsOf(fields[idx].Val), 100, 0)
+	srv.saveItemFields(ctx, row, fields)
+	if err := db.UpsertRig(ctx, rod.GUID, uid, 1, "", "{}"); err != nil {
+		t.Fatal(err)
 	}
 	srv.ensureRig(ctx, uid, rod.GUID)
 
-	row, err := db.GetItemByGUID(ctx, rod.GUID)
+	row, err = db.GetItemByGUID(ctx, rod.GUID)
 	if err != nil || row == nil {
 		t.Fatalf("读取竿失败: row=%v err=%v", row, err)
 	}

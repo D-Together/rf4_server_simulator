@@ -1635,7 +1635,7 @@ func (s *Server) rigComponentWriteAt(ctx context.Context, parentGUID string, slo
 // rigItemMutate 修改竿实例的装配结果并落库。
 // 钓线写入 f3，渔轮写入 f4，其余组件写入 f5；空 GUID 表示拆下。
 // f5 缺失时按竿型派生默认钓组。换类型时资源名与枚举必须同步，
-// 切到沉底族时移除浮漂组件。
+// 仅保留前后钓组都支持的组件；其他组件退回背包。
 // collect 语义与 dedupeRigComponents 相同：换类型等触发去重退回时，
 // 交互路径传入以收集被退回的组件，供 handler 并入快照/安排刷新。
 func (s *Server) rigItemMutate(ctx context.Context, rodGUID string, slot *int64, comp *rigComp, rigType *int64, collect ...*[]*rigReleased) bool {
@@ -1748,8 +1748,12 @@ func (s *Server) rigItemMutate(ctx context.Context, rodGUID string, slot *int64,
 	}
 	if rigType != nil {
 		curType = *rigType
-		// 换类型后同品类组件的规范索引可能收敛到同一个槽位
-		// （例如两种海钓钓组都用 13/175），必须先把重复项退回背包，
+		// 切换钓组不是保存多个预设：一根竿只有一份当前装配。
+		// 因此只让前后模板共同支持的部件继续留在竿上；目标模板
+		// 不支持的浮漂、前导、食笼等要退回背包，不能作为旧钓组残留。
+		s.retainSharedRigComponents(ctx, row.UID, rodGUID, originalType, curType, comps, collect...)
+		// 保留下来的组件在新模板中的规范索引可能收敛到同一个槽位
+		// （例如两种海钓钓组都用 13/175），必须把重复项退回背包，
 		// 否则客户端渲染钓组时两个前导叠在一位，抛竿后整组被判无效。
 		s.dedupeRigComponents(ctx, row.UID, rodGUID, curType, comps, collect...)
 		// f0 资源名与 f1 类型必须同步。
@@ -1759,10 +1763,6 @@ func (s *Server) rigItemMutate(ctx context.Context, rodGUID string, slot *int64,
 			if mapped == rigNameLure {
 				curDepth = 0
 			}
-		}
-		// 沉底钓组不保留浮漂组件。
-		if bottomRigTypes[curType] {
-			deleteRigCategory(comps, catFloat)
 		}
 	}
 
@@ -2040,6 +2040,17 @@ func (s *Server) rigSetType(ctx context.Context, uid int64, rodGUID string, rigT
 	if err != nil || row == nil || row.UID != uid {
 		return false
 	}
+	// 17/1 来自客户端，不能只信任物品归属。已知竿型必须只能选用
+	// 自己的钓组集合，否则会把海钓、路亚等无效类型写进普通鱼竿实例。
+	// 未知竿型沿用矩阵的一贯口径：不在此处拦截，交给后续兼容性矫正。
+	def, derr := s.DB.GetItemDef(ctx, row.NumericID)
+	if derr != nil || def == nil || def.Category != gearCatRod {
+		return false
+	}
+	if allowed, known := rodRigAllowed[rodDefRodType(def)]; known && len(allowed) > 0 && !allowedContains(allowed, rigType) {
+		s.log.Warn("竿钓组类型被拒绝：与竿型不兼容", "rod", shortGUID(rodGUID), "rig_type", rigType)
+		return false
+	}
 	// 玩家显式选择优先。已装组件与新类型不完全匹配时也不拒绝，
 	// 后续矫正不能用组件推断覆盖该选择。
 	// 钓组与挂饵方式联动：mutate 里 buildRig153Like 已按新类型重算 f9，
@@ -2050,6 +2061,62 @@ func (s *Server) rigSetType(ctx context.Context, uid int64, rodGUID string, rigT
 	_ = s.DB.UpdateRigType(ctx, rodGUID, rigType)
 	s.log.Info("竿钓组类型更新", "rod", shortGUID(rodGUID), "rig_type", rigType)
 	return true
+}
+
+// retainSharedRigComponents 在切换钓组时保留两个模板共同支持的部件。
+// 一根竿目前没有按钓组类型保存多份装配预设；若不在这里卸下目标模板
+// 不支持的组件，切换后它们会继续写进新钓组的 f5，形成“外观已切换、
+// 实际仍带着旧钓组配件”的混合状态。
+//
+// 渔轮、主线、尖梢等 templateExemptCats 是竿的通用部件，不随钓组切换。
+// 饵依附钩位：目标钓组没有钩位时一并退回，防止留下孤立的饵实例。
+func (s *Server) retainSharedRigComponents(ctx context.Context, uid int64, parentGUID string, fromType, toType int64, comps map[int64]rigComp, collect ...*[]*rigReleased) {
+	if fromType == toType || len(comps) == 0 {
+		return
+	}
+	keys := make([]int64, 0, len(comps))
+	for key := range comps {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		ci, cj := rigCompCategory(keys[i]), rigCompCategory(keys[j])
+		if ci != cj {
+			return ci < cj
+		}
+		return rigCompOrdinal(keys[i]) < rigCompOrdinal(keys[j])
+	})
+	for _, key := range keys {
+		comp, exists := comps[key]
+		if !exists {
+			continue
+		}
+		category, ordinal := rigCompCategory(key), rigCompOrdinal(key)
+		if !rigComponentSharedByTypes(fromType, toType, category) {
+			delete(comps, key)
+			s.releaseDedupedComponent(ctx, uid, parentGUID, comp.GUID, collect...)
+			continue
+		}
+		// 共同槽位也必须使用新模板的索引；海钓 1000+ 钩位子槽会由
+		// canonicalIndexForOrdinal 原样保留。
+		if len(slotIndicesFor(toType, category)) > 0 {
+			comp.Extra = canonicalIndexForOrdinal(category, comp.Extra, toType, ordinal)
+			comps[key] = comp
+		}
+	}
+}
+
+func rigComponentSharedByTypes(fromType, toType, category int64) bool {
+	if category == catBait {
+		return len(slotIndicesFor(fromType, catHook)) > 0 && len(slotIndicesFor(toType, catHook)) > 0
+	}
+	if templateExemptCats[category] {
+		return true
+	}
+	// 静态表没有描述的扩展组件不能安全判断归属，维持旧行为而不强制退回。
+	if _, known := canonicalRigIndex[category]; !known {
+		return true
+	}
+	return len(slotIndicesFor(fromType, category)) > 0 && len(slotIndicesFor(toType, category)) > 0
 }
 
 func (s *Server) rigTypeExplicit(ctx context.Context, rodGUID string) bool {

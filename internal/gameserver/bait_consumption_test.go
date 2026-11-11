@@ -35,9 +35,9 @@ func baitTestRod(t *testing.T, s *Server) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 钉在路亚族 SimpleJig：钩槽与沉底族一致（idx 250），
+	// BottomSimple 同样使用 250 钩槽，且属于 Feeder 竿允许的钓组，
 	// 保持本文件验证的逐份拆分配饵路径。
-	if !s.rigSetType(t.Context(), 1000001, rod.GUID, 6) {
+	if !s.rigSetType(t.Context(), 1000001, rod.GUID, 12) {
 		t.Fatal("rigSetType 失败")
 	}
 	return rod.GUID
