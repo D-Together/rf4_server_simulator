@@ -54,6 +54,26 @@ Status: ready
 - 成就：`distinctCatchBaits` 仍读 `catch_log`，现在会把放生用过的饵计入；
   触发事件仍是 14/5 `evFishKept`，所以不会提前解锁。
 
+## 影响面：读 catch_log 的既有口径
+
+`catch_log` 开始包含放生的鱼（`source='catch'` 常驻）后，所有读它的既有口径一并变化，
+逐项列出：
+
+| 消费方 | 位置 | 变化 |
+|---|---|---|
+| 3/17 图鉴面板 | `buildFishTrophies323` | 钓到即点亮（本 PR 的目标行为） |
+| 307.f16 星号 / 24/19 玩家卡 | `store.RareSpeciesCount` | 鱼种数含放生的鱼，与奖座同步 |
+| 321 统计（3/2） | `buildStats321` / `loadCatchStatRows` | 总条数、稀有/超稀有、按日条数与重量全部含放生 |
+| 成就 906/907「20/50 种诱饵」 | `distinctCatchBaits`（`evFishKept` 触发） | 诱饵种类含放生用过的饵；判定时刻不变（14/5） |
+| 成就 911「累计释放 10 条稀有鱼」 | 未实装 | 本改动后「grade≥3 且 source='catch'」即放生稀有鱼数，具备实现条件（本 PR 不实装） |
+| 结算纪录判定 | `insertCatchLogSettleTx` 上方的 `MAX(weight_g)` | 历史最大含放生的鱼：破纪录弹「新纪录」按「钓到过」口径 |
+| 最近钓获 / 社交动态 | `store`（`repos_social.go` 的最近钓获） | 放生的鱼也出现在最近钓获列表里 |
+| `CatchLogTotals` | `store`（`repos2.go`） | 无调用方；其 `source='catch'` 过滤在 main 上恒为空集，本改动后变为「只统计放生」，仍无实际影响，留待后续清理 |
+
+放生鱼进 321「钓获统计」是语义取向：官服口径「钓到即记」，统计页名为钓获而非入护，
+包含放生是正确的；若后续竞赛要区分，需单独加 `source` 过滤（竞赛计分不读 `catch_log`，
+暂无此需求）。
+
 ## Testing
 
 - `internal/gameserver/waterway_trophy_keep_test.go`
@@ -68,6 +88,10 @@ Status: ready
     pending 保留、护网为空、重试后正常入护（触发器等同时拦住 INSERT 与 UPDATE）。
 - `internal/gameserver/fishing_semantics_test.go`
   - 入护后 `catch_log` 仍只有 1 行且 `source='keep'`（验证 UPDATE 而不是新增）。
+  - `TestCatchLogReplayedSettleAfterKeptStaysSingleRow`：结算 → 入护 → 重放 14/4。
+    唯一索引 `uq_catch_log_fish_identity` 只到 `(uid, source, catch_guid)`，入护把行
+    抬成 `'keep'` 后 `'catch'` 槽位空出；重放必须命中 `catch-settlement:` kv 回执
+    （`replayed=true`）而不二次入账——`catch_log` 仍 1 行、经验不变。
 
 ## Out of Scope
 

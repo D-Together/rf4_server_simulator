@@ -27,7 +27,7 @@ type achievementEventKind uint8
 const (
 	evFishLanded   achievementEventKind = iota + 1 // 14/4 上鱼
 	evCast                                         // 14/2 抛投
-	evFishKept                                     // 14/5 入护（catch_log 此刻才落库）
+	evFishKept                                     // 14/5 入护（catch_log 已在 14/4 结算落库，入护只把 source 抬成 'keep'）
 	evCraftOK                                      // 9/1 制作成功
 	evBaitDug                                      // 9/3 挖饵成功
 	evFishReleased                                 // 14/6 放流
@@ -240,8 +240,9 @@ var achievementRules = []achievementRule{
 	{ID: 1004, Event: evCast, Check: castOver(100)},
 }
 
-// distinctCatchBaits 是 14/5 入护事件的统计来源：catch_log 只在入护时写入，
-// 因此依赖「用过的诱饵种类」的成就在这一刻判定，而不是在 14/4 预测。
+// distinctCatchBaits 是 14/5 入护事件的统计来源：catch_log 现在在 14/4 结算就写入
+// （source='catch'，放生保持该值），所以这里统计的「用过的诱饵种类」也包含放生
+// 用过的饵；成就仍挂在 evFishKept 上判定，不会因结算提前落库而提前解锁。
 func (s *Server) distinctCatchBaits(ctx context.Context, uid int64) int64 {
 	var n int64
 	_ = s.DB.SQL.QueryRowContext(ctx,
@@ -326,8 +327,10 @@ func (s *Server) evaluateAchievements(ctx *Ctx, ev achievementEvent) {
 // 904 连续五条鱼无中断：全项目无 streak/连续计数（player_counters 只有
 //   escapes/line_breaks/rod_breaks）。
 //
-// 911 累计释放 10 条稀有鱼：放流无持久化（catch_log 只记 source='keep'，
-//   releaseCatchOnce 只写 xp 流水与幂等收据）。912 单次放流已实装。
+// 911 累计释放 10 条稀有鱼：此前放流无持久化（catch_log 只记 source='keep'）。
+//   现在 catch_log 在结算落 source='catch'、入护才抬成 'keep'，放生的稀有鱼
+//   可按「grade>=3 且 source='catch'」计数，911 具备实现条件（本批不实装）。
+//   912 单次放流已实装。
 //
 // ---- 以下已实装，不属于上面 41 条，仅记录近似判定的已知差距 ----
 // 151/153/154/162 用拟饵 item_id 前缀判断（crank/plug/spoon/spinner/
