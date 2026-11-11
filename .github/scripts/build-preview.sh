@@ -80,19 +80,34 @@ sed \
 
 python3 tools/stage_preview.py "${STAGE}"
 
-# 制品内自带的版本描述（与仓库根 version.json 同 schema，只描述本次构建）。
-cat > "${STAGE}/version.json" <<EOF
-{
-  "schema": 1,
-  "channel": "preview",
-  "version": "${VERSION}",
-  "build_ts": "${BUILD_NUM_TS}",
-  "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "commit": "${COMMIT_SHA}",
-  "asset_name": "${ASSET_NAME}",
-  "source": "https://github.com/glance522/rf4_server_simulator"
+# 制品内自带的 version.json：结构与仓库根完全一致（schema/stable/preview），
+# 只把本次构建写进 preview 通道，根文件里另一个通道原样带过去。
+python3 - "${VERSION}" "${BUILD_NUM_TS}" "${ASSET_NAME}" "${ROOT}/version.json" "${STAGE}/version.json" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+
+version, build_ts, asset_name, src, dst = sys.argv[1:6]
+base = "https://github.com/glance522/rf4_server_simulator"
+with open(src, encoding="utf-8") as f:
+    data = json.load(f)
+if data.get("schema") != 1:
+    raise SystemExit(f"unexpected schema in {src}: {data.get('schema')!r}")
+# 字段集合与顺序不能变：客户端按仓库根那份结构解析。
+data["preview"] = {
+    "version": version,
+    "build_ts": build_ts,
+    "released_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "notes_url": f"{base}/releases/tag/{version}",
+    # preview 用户给列表页（含 Pre-release），releases/latest 只指向正式版。
+    "download_url": f"{base}/releases",
+    "download_mirror_url": (
+        "https://gh-proxy.com/" + base + f"/releases/download/{version}/{asset_name}"
+    ),
 }
-EOF
+with open(dst, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+PY
 
 cat > "${STAGE}/快速开始.txt" <<EOF
 rf4_server_simulator ${VERSION} 快速开始
@@ -143,7 +158,7 @@ cat > "${RELEASE_NOTES}" <<EOF
 - certs 本地开发证书
 - README、LICENSE、docs
 - 快速开始.txt、启动服务器.cmd
-- version.json（本次构建的版本、提交与通道信息）
+- version.json（结构同仓库根：本次构建写进 preview 通道）
 
 ## 问题反馈
 
