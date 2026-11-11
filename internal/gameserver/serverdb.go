@@ -90,20 +90,9 @@ func (s *Server) loadFightCurves() {
 	}
 }
 
-// buildFightCurves 构造 27.f21 的完整搏鱼阶段池。
+// buildFightCurves 构造 27.f21 曲线池：鱼种池缺省借同习性池，张力列按
+// pull/池基准 uniform 缩放，其余列保持池原值（官方口径，见 spec）。
 func (s *Server) buildFightCurves(species string, pull float64) *proto.Value {
-	profile := s.fishFightProfileFor(&RolledFish{Species: species})
-	return s.buildFightCurvesWithProfile(species, pull, profile)
-}
-
-func (s *Server) buildFightCurvesForFish(f *RolledFish, pull float64, profile fishFightProfile) *proto.Value {
-	if f == nil {
-		return s.buildFightCurves("", pull)
-	}
-	return s.buildFightCurvesWithProfile(f.Species, pull, profile)
-}
-
-func (s *Server) buildFightCurvesWithProfile(species string, pull float64, profile fishFightProfile) *proto.Value {
 	s.curveMu.Lock()
 	rows := s.curves[species]
 	if len(rows) == 0 {
@@ -124,6 +113,10 @@ func (s *Server) buildFightCurvesWithProfile(species string, pull float64, profi
 	} else {
 		selected = rows
 	}
+	// 官方 14/14 抓包证实：每鱼曲线 = 鱼种池 × 单一 uniform scale（张力列逐行
+	// 精确成立，见 specs/changes/fish-pull-k-table/spec.md），duration 与其余列
+	// 不随体重/阶段缩放。任何逐阶段乘数都是自造层，直接破坏 105 主搏/302 下潜
+	// 的官方强度比例。
 	baseTension := selected[0][8]
 	scale := 1.0
 	if baseTension > 0 {
@@ -131,20 +124,10 @@ func (s *Server) buildFightCurvesWithProfile(species string, pull float64, profi
 	}
 	for _, r := range selected {
 		items := map[int]*proto.Value{0: proto.U32(uint32(r[0]))}
-		stage := uint32(r[0])
-		phaseTension := fightPhaseTensionScale(stage)
-		phaseDuration := fightPhaseDurationScale(stage)
-		durationScale := profile.DurationScale * phaseDuration
-		if fightIsRestPhase(stage) {
-			durationScale = profile.RestScale * phaseDuration
-		}
 		for i := 1; i <= 14; i++ {
 			v := r[i]
 			if i == 8 || i == 9 {
-				v *= scale * phaseTension
-			}
-			if (i == 2 || i == 3) && v > 0 {
-				v = math.Max(0.1, v*durationScale)
+				v *= scale
 			}
 			items[i] = proto.F32(float32(v))
 		}
@@ -154,15 +137,6 @@ func (s *Server) buildFightCurvesWithProfile(species string, pull float64, profi
 		out.Items = append(out.Items, wiregen.MustMakeObj("oiikpeaajln", items))
 	}
 	return out
-}
-
-func findFightCurveRow(rows [][19]float64, want int) ([19]float64, bool) {
-	for _, r := range rows {
-		if int(r[0]) == want {
-			return r, true
-		}
-	}
-	return [19]float64{}, false
 }
 
 // knownRealFightCurveRows 是 2026-10-31 真服 14/14 抓包中 27.f21 的原始两行。

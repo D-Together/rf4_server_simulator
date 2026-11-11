@@ -52,6 +52,11 @@ const (
 	containerKeepnet       = 5
 	containerTradingCards  = 18
 	houseContainerCapacity = 100
+	// containerRewards 是客户端奖赏专用分组（lmmhdlhogdc=14）。3/16 响应处理
+	// 函数 ogbnjjglplh 把奖赏写死进该组（GameAssembly 0x1147EC0 `mov edx,0xe`）；
+	// 物品管理器 eegjkjenhoe 按物品 f4 容器枚举分组，house=10 进不了奖赏组。
+	// 奖赏落库仍用 house（3/16 读 house），但实时推送的 wire 树须把 f4 投影成 14。
+	containerRewards = 14
 )
 
 // ---- 4/1 items/count ----
@@ -1556,11 +1561,9 @@ func hFishingLeft(ctx *Ctx) ([]byte, bool) {
 func hFishingGen(ctx *Ctx) ([]byte, bool) { return nil, true } // fire-and-forget
 func hFishingLoad(ctx *Ctx) ([]byte, bool) {
 	// 14/8 是持续发送的钓组负载/姿态遥测，不是中钩确认。
-	// 全量 4/22 会重建鱼实体并打断冲刺、体力阶段；真实报文后没有这条推送。
-	if ctx.Sess.Srv.tunableF("fight_load_full_sync", 0) != 0 {
-		ctx.Sess.Push4_22Full()
-	}
-	// 一条负载上报折算一次判定：未锁轮超泄力算打滑磨摩擦片，锁轮超承力按发热曲线烧。
+	// 一条负载上报折算一次受力账：受力秒按真实间隔累计、达到打滑门槛磨摩擦片；
+	// 磨损按官服帧节奏中途落库并经 Push4_22Trees 下发裸部件子树。
+	// 严禁在这里做全量 4/22 同步——全量会重建鱼实体，打断冲刺与体力阶段。
 	ctx.Sess.Srv.recordFightReelLoad(ctx)
 	return nil, true
 }

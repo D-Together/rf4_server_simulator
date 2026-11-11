@@ -238,7 +238,8 @@ func (s *Server) BuildProfile307W(ctx context.Context, uid int64, wNow int64) (*
 	// 把 f16 拷进 ifbfdldbana.gebeadddmlp；RUIUserInfoWidget（等级旁星号）
 	// 和 ddkpcmhdfdb.fgnijlofipp 都显示该值，24/19 的 f5 是同一字段。官服
 	// 语义按鱼种去重：钓到过 grade>=3（重量稀有/超稀有）的鱼种各计一次，
-	// 不等于统计页 3/2 按条数的稀有渔获计数。
+	// 不等于统计页 3/2 按条数的稀有渔获计数。「钓到过」= catch_log 里有一行，
+	// 放生的鱼也算（结算 14/4 就落库，入护只把 source 抬成 'keep'）。
 	rareCatches, rareErr := s.DB.RareSpeciesCount(ctx, uid, 3)
 	if rareErr != nil {
 		s.log.Warn("奖杯鱼种数读取失败，按 0 下发", "uid", uid, "err", rareErr)
@@ -513,6 +514,17 @@ func (s *Session) Push4_22Items(extraGUIDs []string) {
 		return
 	}
 	s.Push(4, 22, proto.Args(proto.S("61"), items...))
+}
+
+// Push4_22Trees 以官服搏鱼帧形状推送裸物品/部件子树（4/22 args("61")）。
+// 只发受力磨损涉及的零件子树，绝不重建竿/线全量树——全量重建会重建鱼实体、
+// 打断冲刺与体力阶段（见 hFishingLoad 注释）。形状依据官服搏鱼 4/22 抓包
+// （lure2 46 帧 + 底钓2 274 帧，部件作为独立对象并列，按 GUID 原位更新）。
+func (s *Session) Push4_22Trees(trees []*proto.Value) {
+	if len(trees) == 0 {
+		return
+	}
+	s.Push(4, 22, proto.Args(proto.S("61"), trees...))
 }
 
 // Push4_22ItemGUIDs 只推指定背包物品的最新树。

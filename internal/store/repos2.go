@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -13,6 +14,19 @@ import (
 
 // maxSkillPoints 是单个技能大类的熟练度上限。
 const maxSkillPoints = 100.0
+
+// QuantizeSkillPoints 把熟练度对齐到 0.1 显示格。官服增量只有 0.1/0.2，
+// 客户端 UI 也按 0.1 渲染；浮点累加（SQLite REAL / Go float64）会攒出
+// 99.99999999999996 这类尾差——显示为 100% 却仍小于上限，钳位后产生
+// 3.6e-14 的正残渣增量，客户端渲染出「+0 = 100%」技能行（2026-11-11 实测）。
+//
+// 四舍五入方向的安全性前提：熟练度增量恒为 0.1/0.2，且 profCap 减去量化后
+// 的旧值仍是 0.1 的整数倍，正常路径下本函数是恒等变换，不改变任何值。
+// 若未来引入非 0.1 网格的增量或修改 profCap（100.0），四舍五入最多会向上
+// 多给 0.05——届时需改为截断（math.Floor）并重新评估显示语义。
+func QuantizeSkillPoints(v float64) float64 {
+	return math.Round(v*10) / 10
+}
 
 // ListSkills 取玩家技能熟练度。
 func (d *DB) ListSkills(ctx context.Context, uid int64) (map[int64]float64, error) {
@@ -36,12 +50,12 @@ func (d *DB) ListSkills(ctx context.Context, uid int64) (map[int64]float64, erro
 	return out, rows.Err()
 }
 
-// AddSkillPoints 增加熟练度（UPSERT 累加）。
+// AddSkillPoints 增加熟练度（UPSERT 累加，0.1 显示格量化防浮点尾差）。
 func (d *DB) AddSkillPoints(ctx context.Context, uid, skillID int64, delta float64) error {
 	_, err := d.SQL.ExecContext(ctx, `
-		INSERT INTO skill(uid, skill_id, points) VALUES(?,?,MIN(?,?))
+		INSERT INTO skill(uid, skill_id, points) VALUES(?,?,MIN(ROUND(?*10)/10,?))
 		ON CONFLICT (uid, skill_id) DO UPDATE
-		SET points = MIN(points + excluded.points, ?)`,
+		SET points = MIN(ROUND((points + excluded.points)*10)/10, ?)`,
 		uid, skillID, delta, maxSkillPoints, maxSkillPoints)
 	return err
 }
@@ -61,9 +75,9 @@ func (d *DB) GetSkillPointsTx(ctx context.Context, tx *sql.Tx, uid, skillID int6
 // AddSkillPointsTx 在事务内增加熟练度，供“扣物 + 加熟练度”原子提交使用。
 func (d *DB) AddSkillPointsTx(ctx context.Context, tx *sql.Tx, uid, skillID int64, delta float64) error {
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO skill(uid, skill_id, points) VALUES(?,?,MIN(?,?))
+		INSERT INTO skill(uid, skill_id, points) VALUES(?,?,MIN(ROUND(?*10)/10,?))
 		ON CONFLICT (uid, skill_id) DO UPDATE
-		SET points = MIN(points + excluded.points, ?)`,
+		SET points = MIN(ROUND((points + excluded.points)*10)/10, ?)`,
 		uid, skillID, delta, maxSkillPoints, maxSkillPoints)
 	return err
 }
@@ -283,6 +297,9 @@ func (d *DB) KeepnetDelete(ctx context.Context, uid int64, echoGUIDs []string) e
 // 鱼种数，按 fish_key 去重。面板等级旁星号与 24/19 玩家卡共用该口径
 // （客户端两路同落 ifbfdldbana.gebeadddmlp）；统计页 3/2 的逐鱼种条数
 // 是另一口径，不经此函数。
+//
+// catch_log 在 14/4 结算就落库（source='catch'），入护只抬成 'keep'，
+// 放生保持 'catch' —— 所以「钓到过」包含放生的鱼，与稀有鱼奖座同步。
 func (d *DB) RareSpeciesCount(ctx context.Context, uid, minGrade int64) (int64, error) {
 	var n int64
 	err := d.SQL.QueryRowContext(ctx,

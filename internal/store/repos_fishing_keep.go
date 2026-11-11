@@ -62,14 +62,31 @@ func (d *DB) KeepFishingCatchWithCapacity(ctx context.Context, e *KeepnetEntry, 
 			if err != nil {
 				return false, err
 			}
-			_, err = tx.ExecContext(ctx, `INSERT INTO catch_log(
+			// 14/4 结算时已经以 source='catch' 记过这一尾（图鉴/奖杯口径是「钓到即记」），
+			// 入护只把同一行抬成 'keep' 并补上入护当刻的钓法与经验快照，
+			// 这样 catch_log 里每尾鱼仍然只有一行。ts 保留钓到时刻，不改写入护时间。
+			upd, err := tx.ExecContext(ctx, `UPDATE catch_log
+				SET source='keep', xp=?, silver=?, tackle_cat=?,
+				    bait=CASE WHEN ?<>'' THEN ? ELSE bait END,
+				    loc_level=CASE WHEN COALESCE(loc_level,'')='' THEN ? ELSE loc_level END
+				WHERE uid=? AND source='catch' AND catch_guid=?`,
+				xp, silver, e.TackleCat, e.KeepBait, e.KeepBait, e.KeepLevel, e.UID, e.EchoGUID)
+			if err != nil {
+				return false, err
+			}
+			if n, err := upd.RowsAffected(); err != nil {
+				return false, err
+			} else if n == 0 {
+				// 结算行不存在（补丁上线前的旧 pending、或结算写库被跳过）时补插一行。
+				_, err = tx.ExecContext(ctx, `INSERT INTO catch_log(
 			ts,loc,spot,fish_key,name_zh,weight_g,length_m,source,bait,grade,xp,silver,loc_level,uid,catch_guid,tackle_cat)
 			VALUES(?,?,?,?,?,?,?,'keep',?,?,?,?,?,?,?,?)
 			ON CONFLICT(uid,source,catch_guid) WHERE catch_guid IS NOT NULL DO NOTHING`,
-				e.TS, e.KeepLoc, e.KeepSpot, e.Species, e.NameZh, e.WeightG, e.LengthM,
-				e.KeepBait, e.Cat, xp, silver, e.KeepLevel, e.UID, e.EchoGUID, e.TackleCat)
-			if err != nil {
-				return false, err
+					e.TS, e.KeepLoc, e.KeepSpot, e.Species, e.NameZh, e.WeightG, e.LengthM,
+					e.KeepBait, e.Cat, xp, silver, e.KeepLevel, e.UID, e.EchoGUID, e.TackleCat)
+				if err != nil {
+					return false, err
+				}
 			}
 			kept = true
 		}

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"rf4server/internal/proto"
 	"rf4server/internal/store"
 )
 
@@ -279,11 +278,7 @@ func (s *Server) baitedHookDef(ctx context.Context, group baitedHookSet) (*store
 				if err != nil {
 					return nil, 0
 				}
-				durability := 1.0
-				if idx := fieldIdxByCS(hook.Class, csDurability); idx >= 0 && idx < len(hook.Fields) && hook.Fields[idx].Num != nil {
-					durability = float64(proto.F32FromBits(uint32(u64Of(hook.Fields[idx].Num))))
-				}
-				return def, durability
+				return def, treeDurability(hook)
 			}
 		}
 	}

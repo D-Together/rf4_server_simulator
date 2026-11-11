@@ -129,7 +129,7 @@ func TestEmptyRollKeepsOtherRodWaiting(t *testing.T) {
 			baitTestMount(t, s, rod, "worm_01", 2, 350)
 			second := s.selectFishingRod(uid, rod)
 			second.mu.Lock()
-			second.RigType, second.CastActive, second.InWater = 6, true, true
+			second.RigType, second.CastActive, second.InWater = 12, true, true
 			second.CastTs = time.Now().Add(-time.Minute)
 			old := fishingTimerTicket{second.castGeneration, second.biteTicket}
 			s.emptyWeatherBiteLocked(sess, second, time.Now())

@@ -10,7 +10,45 @@ import (
 
 	"rf4server/internal/logging"
 	"rf4server/internal/proto"
+	"rf4server/internal/store"
 )
+
+// 满级浮点尾差回归：纺车技能存量 99.99999999999996（显示 100% 但 <100）会
+// 钳位出正残渣增量，客户端渲染「+0 = 100%」技能行（2026-11-11 实测）。
+// 量化到 0.1 显示格后 gain=0，310.f2 归零隐藏整行，库点数保持不动。
+func TestCatchSkillFloatResidueHidesSkillRow(t *testing.T) {
+	srv, db := newProgressSrv(t)
+	ctx := context.Background()
+	const uid = int64(1000001)
+	if _, err := db.EnsureProfile(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.QuantizeSkillPoints(99.99999999999996); got != 100 {
+		t.Fatalf("QuantizeSkillPoints(99.99999999999996)=%v, want 100", got)
+	}
+	const residue = 99.99999999999996
+	if _, err := db.SQL.Exec(`INSERT INTO skill(uid,skill_id,points) VALUES(?,?,?)`, uid, 2, residue); err != nil {
+		t.Fatal(err)
+	}
+	fish := &RolledFish{FishGUID: newFishGUID(), Species: "perch", Grade: 2, WeightG: 642}
+	result := srv.settleCatchXP(ctx, uid, fish, 5) // 纺车钓组 → skill_id=2
+	if result == nil || result.skillID != 2 {
+		t.Fatalf("wrong skill result: %+v", result)
+	}
+	if result.skillGain != 0 {
+		t.Fatalf("尾差技能点(%v)应量化到 100 后零增量，实得 %v", residue, result.skillGain)
+	}
+	var points float64
+	if err := db.SQL.QueryRow(`SELECT points FROM skill WHERE uid=? AND skill_id=?`, uid, 2).Scan(&points); err != nil {
+		t.Fatal(err)
+	}
+	if points != residue {
+		t.Fatalf("零增量不得写库，点数 %v 已被改动", points)
+	}
+	if got := u32Of(srv.buildSettle813(ctx, uid, fish, result).Field(8).Val.Field(2).Num); got != 0 {
+		t.Fatalf("尾差结算 310.f2=%d, want 0（隐藏技能加成行）", got)
+	}
+}
 
 func TestCatchSettlementOnceAcrossCallsAndRestart(t *testing.T) {
 	srv, db := newDetachTestServer(t)
@@ -109,6 +147,7 @@ func TestCatchSkillUsesRigAndReportsRemainingGain(t *testing.T) {
 		{"marine_bottom", 55, 11, "worm", 99.9, .1},
 		{"capped", 12, 3, "worm", 100, 0},
 		{"legacy_above_cap", 12, 3, "worm", 105, 0},
+		{"float_residue", 1, 1, "spinner_wrong_hint", 99.99999999999996, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv, db := newProgressSrv(t)

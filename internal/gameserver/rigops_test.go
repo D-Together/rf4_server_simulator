@@ -337,6 +337,99 @@ func TestRigSetTypeStaleCorrection(t *testing.T) {
 	}
 }
 
+// TestRigSetTypeRejectsUnsupportedRodType 确保 17/1 不能把不属于本竿型的
+// 钓组写进实例或 rig 派生表。
+func TestRigSetTypeRejectsUnsupportedRodType(t *testing.T) {
+	srv, db := newRigTestServer(t)
+	ctx := context.Background()
+	const uid = int64(1000001)
+
+	rod, err := srv.CreateItem(ctx, uid, "feeder_10125_FD360", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !srv.rigSetType(ctx, uid, rod.GUID, 12) {
+		t.Fatal("设置 Feeder 合法钓组失败")
+	}
+	if srv.rigSetType(ctx, uid, rod.GUID, 50) { // MarinePilker，不属于 Feeder 竿型 10
+		t.Fatal("不兼容的海钓钓组不应被 Feeder 竿接受")
+	}
+
+	rigType, found, err := db.GetRigType(ctx, rod.GUID)
+	if err != nil || !found || rigType != 12 {
+		t.Fatalf("拒绝后 rig 行应保持 12，实得 type=%d found=%v err=%v", rigType, found, err)
+	}
+	row, err := db.GetItemByGUID(ctx, rod.GUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f5 := rigStoredF5(t, row)
+	if got := int64(u64Of(f5.Field(1).Num)); got != 12 {
+		t.Fatalf("拒绝后实例 f5.f1 应保持 12，实得 %d", got)
+	}
+}
+
+// TestRigTypeSwitchReturnsIncompatibleComponents 确保切换钓组时，不能把旧钓组
+// 专用的食笼和前导带进新钓组；两种钓组都支持的铃铛和鱼钩要继续保留。
+func TestRigTypeSwitchReturnsIncompatibleComponents(t *testing.T) {
+	srv, db := newRigTestServer(t)
+	ctx := context.Background()
+	const uid int64 = 1000001
+
+	rod, err := srv.CreateItem(ctx, uid, "feeder_10125_FD360", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !srv.rigSetType(ctx, uid, rod.GUID, 12) { // BottomSimple: 铃铛/食笼/前导/钩
+		t.Fatal("设置初始钓组失败")
+	}
+	items := make(map[string]*store.Item)
+	for name, itemID := range map[string]string{
+		"bell":   "feeder_bell",     // 47；两种钓组都支持
+		"feeder": "feeder_30037",    // 31；目标钓组不支持
+		"leader": "fc_leader_40048", // 13；目标钓组不支持
+		"hook":   "c_hook_20712",    // 12；两种钓组都支持
+	} {
+		it, createErr := srv.CreateItem(ctx, uid, itemID, "backpack", 1)
+		if createErr != nil {
+			t.Fatalf("创建 %s: %v", name, createErr)
+		}
+		items[name] = it
+		res := srv.rigSetComponent(ctx, uid, rod.GUID, 0, it.GUID, 0,
+			rigSetOpts{ParentType: familyRod, EnforceCategory: true})
+		if res.Rejected {
+			t.Fatalf("装配 %s 被拒绝", name)
+		}
+	}
+
+	var released []*rigReleased
+	if !srv.rigSetType(ctx, uid, rod.GUID, 13, &released) { // BottomPaternoster: 只保留铃铛和钩
+		t.Fatal("切换目标钓组失败")
+	}
+	if len(released) != 2 {
+		t.Fatalf("应退回 2 件不兼容配件，实得 %d", len(released))
+	}
+	for _, name := range []string{"feeder", "leader"} {
+		row := mustItem(t, db, items[name].GUID)
+		if row.Container != "backpack" || row.RigGUID != "" {
+			t.Fatalf("%s 未退回背包: container=%q rig=%q", name, row.Container, row.RigGUID)
+		}
+	}
+	for _, name := range []string{"bell", "hook"} {
+		row := mustItem(t, db, items[name].GUID)
+		if row.Container != "rig" || row.RigGUID != rod.GUID {
+			t.Fatalf("%s 不应因切换被卸下: container=%q rig=%q", name, row.Container, row.RigGUID)
+		}
+	}
+	fresh := mustItem(t, db, rod.GUID)
+	comps := rigCompsOf(rigStoredF5(t, fresh))
+	for _, category := range []int64{31, 13} {
+		if got := rigCompKeysOfCategory(comps, category); len(got) != 0 {
+			t.Fatalf("目标钓组不支持的品类 %d 仍残留: %v", category, got)
+		}
+	}
+}
+
 // TestRigExplicitTypeWinsOverComponents 验证玩家显式选择的合法钓组类型
 // 不会因已装组件不同而被覆盖。
 func TestRigExplicitTypeWinsOverComponents(t *testing.T) {
@@ -453,6 +546,127 @@ func TestBottomSimpleSharedSlotReplacesAlternative(t *testing.T) {
 	returned, err := db.GetItemByGUID(ctx, feeder.GUID)
 	if err != nil || returned == nil || returned.Container != "backpack" || returned.RigGUID != "" {
 		t.Fatalf("被替换的喂食器未退回背包: row=%+v err=%v", returned, err)
+	}
+}
+
+// TestBottomSimpleMountLeaderKeepsRigType 验证飞德竿首次安装引线时仍保持
+// BottomSimple；若模板漏掉品类 13，装配兼容性推导会错误跳到首个带引线槽的
+// BottomLiveFish(17)。
+func TestBottomSimpleMountLeaderKeepsRigType(t *testing.T) {
+	srv, db := newRigTestServer(t)
+	ctx := context.Background()
+	const uid = int64(1000001)
+
+	rod, err := srv.CreateItem(ctx, uid, "feeder_10125_FD360", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leader, err := srv.CreateItem(ctx, uid, "sh_leader_40815", "backpack", 1)
+	if err != nil {
+		t.Fatalf("创建飞德引线: %v", err)
+	}
+	runRodSet(t, srv, newProbeSess(srv), rod.GUID, leader.GUID, 0)
+
+	rt, found, err := db.GetRigType(ctx, rod.GUID)
+	if err != nil || !found || rt != 12 {
+		t.Fatalf("首次装引线后 rig_type=%d found=%v err=%v，期望 12", rt, found, err)
+	}
+	row, err := db.GetItemByGUID(ctx, rod.GUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f5 := rigStoredF5(t, row)
+	if name := f5.Fields[0].StrOr(); name != "rig_BottomSimple" {
+		t.Fatalf("首次装引线后 f5.f0=%q，期望 rig_BottomSimple", name)
+	}
+	if got := int64(u64Of(f5.Fields[1].Num)); got != 12 {
+		t.Fatalf("首次装引线后 f5.f1=%d，期望 12", got)
+	}
+	if comp, ok := rigCompsOf(f5)[catLead]; !ok || comp.GUID != leader.GUID || comp.Extra != 150 {
+		t.Fatalf("f5 缺少引线(13, extra150)：实得 %v", rigCompsOf(f5))
+	}
+	// 同一装配请求重放不得复制引线或改变归属。
+	runRodSet(t, srv, newProbeSess(srv), rod.GUID, leader.GUID, 0)
+	row, err = db.GetItemByGUID(ctx, rod.GUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comps := rigCompsOf(rigStoredF5(t, row))
+	if keys := rigCompKeysOfCategory(comps, catLead); len(keys) != 1 || comps[keys[0]].GUID != leader.GUID {
+		t.Fatalf("重复装配后引线组件=%v，期望同一 GUID 仅一件", comps)
+	}
+	name, rt, ok := rigIdentity(rigStoredF5(t, row))
+	if !ok || name != "rig_BottomSimple" || rt != 12 {
+		t.Fatalf("重复装配后 f5 身份=%q/%d/%v，期望 rig_BottomSimple/12/true", name, rt, ok)
+	}
+	if projected, found, err := db.GetRigType(ctx, rod.GUID); err != nil || !found || projected != 12 {
+		t.Fatalf("重复装配后 rig_type=%d found=%v err=%v，期望 12", projected, found, err)
+	}
+	mounted, err := db.GetItemByGUID(ctx, leader.GUID)
+	if err != nil || mounted.Container != "rig" || mounted.RigGUID != rod.GUID || mounted.Qty != leader.Qty {
+		t.Fatalf("重复装配后引线归属错误: row=%+v err=%v", mounted, err)
+	}
+	rows, err := db.ListRigComponents(ctx, rod.GUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectedLeaders := 0
+	for _, comp := range rows {
+		if comp.Slot == catLead {
+			projectedLeaders++
+			if comp.Ordinal != 0 || comp.GUID != leader.GUID || comp.Extra != 150 {
+				t.Fatalf("引线投影错误: %+v", comp)
+			}
+		}
+	}
+	if projectedLeaders != 1 {
+		t.Fatalf("引线投影数量=%d，期望 1: %+v", projectedLeaders, rows)
+	}
+}
+
+// TestBottomSimpleLeaderBreakKeepsUpstreamFeeder 验证模板数组仍按物理链排序：
+// 食笼/沉子在引线上游，断引线只能移除引线及其下游，不能吞掉食笼。
+func TestBottomSimpleLeaderBreakKeepsUpstreamFeeder(t *testing.T) {
+	srv, db := newStaticRigTestServer(t)
+	ctx := context.Background()
+	const uid = int64(1000001)
+
+	rod, err := srv.CreateItem(ctx, uid, "feeder_10125_FD360", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line, err := srv.CreateItem(ctx, uid, "mono_15095", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feeder, err := srv.CreateItem(ctx, uid, "feeder_30037", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leader, err := srv.CreateItem(ctx, uid, "sh_leader_40815", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := newProbeSess(srv)
+	runRodSet(t, srv, sess, rod.GUID, line.GUID, 0)
+	runRodSet(t, srv, sess, rod.GUID, feeder.GUID, 0)
+	runRodSet(t, srv, sess, rod.GUID, leader.GUID, 0)
+
+	if _, err := srv.breakLineTx(ctx, uid, rod.GUID, leader.GUID, catLead); err != nil {
+		t.Fatalf("断引线失败: %v", err)
+	}
+	if row, _ := db.GetItemByGUID(ctx, leader.GUID); row != nil {
+		t.Fatal("断件自身应被移除")
+	}
+	kept, err := db.GetItemByGUID(ctx, feeder.GUID)
+	if err != nil || kept.Container != "rig" || kept.RigGUID != rod.GUID {
+		t.Fatalf("断引线误删或卸下上游食笼: row=%+v err=%v", kept, err)
+	}
+	if got := rigSlotGUIDs(t, srv, rod.GUID)[31]; got != feeder.GUID {
+		t.Fatalf("断引线后食笼投影=%q，期望 %q", got, feeder.GUID)
+	}
+	if comp, ok := rigCompsOf(rigStoredF5(t, mustItem(t, db, rod.GUID)))[31]; !ok || comp.GUID != feeder.GUID {
+		t.Fatalf("断引线后 f5 应保留食笼: %+v", comp)
 	}
 }
 

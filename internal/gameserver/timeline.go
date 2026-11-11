@@ -47,14 +47,54 @@ func hNull(*Ctx) ([]byte, bool) { return []byte{0x00}, true }
 // hU32ArrEmpty 回空 u32 数组（05 0000）。
 func hU32ArrEmpty(*Ctx) ([]byte, bool) { return []byte{0x05, 0x00, 0x00}, true }
 
-// hCraftTemplates 处理 9/5，返回空的 args(97) 配方模板。
-// 必须通过编码器生成字节，避免手写长度前缀导致错位。
+// hCraftTemplates 处理 9/5，返回该玩家的配方模板列表（args(97) 的 171 数组）。
+//
+// 列表容器 code 97 来自 argcode_table.json 的 by_cmd["9/5"] 与 by_type_id["171"]。
+// 没配 DB 或查询失败时退回空列表：客户端拿到空列表只是列表为空，
+// 拿到 null 会在 foreach 上崩。
 func hCraftTemplates(ctx *Ctx) ([]byte, bool) {
-	body, err := proto.EncodeValue(proto.Args(proto.S("97")), ctx.Sess.Table())
+	body, err := proto.EncodeValue(craftTemplatesTree(ctx), ctx.Sess.Table())
 	if err != nil {
 		return emptyArgsBody(), true
 	}
 	return body, true
+}
+
+// craftTemplatesTree 读库构造 9/5 响应树；任何失败都返回空 args(97)。
+//
+// 逐条跳过「配方已不在静态库」的模板：配方被移除或改名后，模板点进去只会
+// 得到一条无法制作的死条目。跳过是单条粒度，不影响其他模板；跳过的条数会
+// 记日志，便于和玩家反馈对账。
+func craftTemplatesTree(ctx *Ctx) *proto.Value {
+	srv := ctx.Sess.Srv
+	if srv == nil || srv.DB == nil {
+		return proto.Args(proto.S("97"))
+	}
+	cctx := ctx.Sess.pushCtx()
+	rows, err := srv.DB.ListCraftTemplates(cctx, ctx.Sess.Userid)
+	if err != nil {
+		ctx.Log.Warn("9/5 模板列表读取失败", "err", err)
+		return proto.Args(proto.S("97"))
+	}
+	items := make([]*proto.Value, 0, len(rows))
+	skipped := 0
+	for _, row := range rows {
+		if srv.resolveRecipe(cctx, row.RecipeID) == nil {
+			skipped++
+			ctx.Log.Warn("9/5 跳过配方已失效的模板",
+				"guid", row.GUID, "recipe", row.RecipeID, "name", row.Name)
+			continue
+		}
+		items = append(items, craftTemplate(
+			row.GUID, row.Name, row.Kind,
+			craftTemplateEntriesFromJSON(row.ToolsJSON),
+			craftTemplateEntriesFromJSON(row.MaterialsJSON),
+		))
+	}
+	if skipped > 0 {
+		ctx.Log.Info("9/5 模板列表", "total", len(rows), "served", len(items), "skipped", skipped)
+	}
+	return proto.Args(proto.S(craftTemplateListCode), items...)
 }
 
 // hPlayerWarnings 返回警告数组；客户端按数组解包，null 会触发空引用。
@@ -194,7 +234,13 @@ func u32Values(v []int64) []uint32 {
 func hFog(ctx *Ctx) ([]byte, bool) {
 	var obj *proto.Value
 	if ctx != nil && ctx.Sess != nil && ctx.Sess.Srv != nil {
-		obj = ctx.Sess.Srv.build5003(ctx.Sess.pushCtx(), ctx.Sess.Userid)
+		// 分支奖杯兜底：覆盖功能上线前已完成的历史分支，幂等；
+		// 新发奖杯推 4/22，奖赏面板下次打开（3/16）即可见。
+		srv := ctx.Sess.Srv
+		for _, cup := range srv.ensureQualificationCups(ctx.Sess.pushCtx(), ctx.Sess.Userid) {
+			srv.pushAwardUpdate(ctx.Sess.Userid, cup)
+		}
+		obj = srv.build5003(ctx.Sess.pushCtx(), ctx.Sess.Userid)
 	} else {
 		obj = (*Server)(nil).build5003FromStates(nil, build5012([]uint32{0}, seasonEndFiletime(0)))
 	}

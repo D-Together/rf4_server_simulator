@@ -13,6 +13,7 @@ package gameserver
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"rf4server/internal/proto"
@@ -142,11 +143,90 @@ type gift811Line struct {
 const giftSourceNewLevel = 1
 
 // giftSourceTrophyCountReached 是「捕获了数条稀有鱼」的来源码（结算弹窗上下文）：
-// 稀有鱼 / 超级稀有鱼的**鱼种数**跨档时用它把奖座挂进结算礼物卡
+// 稀有鱼 / 超级稀有鱼的**鱼种数**跨档时用它把奖座挂进 801.f4 的礼物卡
 // （kDlg_Catched_GiftsTrophyCountReached）。
-// 目前服务端不再往 801.f4 塞该来源：稀有鱼奖座改为入护后静默到账
-// （见 rarity_milestones.go 的 pushRarityStatuettesOnKeep），保留常量仅供协议对齐。
+//
+// 2026-11-11 反汇编客户端卡片取词函数（GameAssembly 0x180D4BD40）得到硬证据：
+//
+//	cmp eax, 5 ; ja default        ; eax = source-1，只有 1..6 进表
+//	jmp [table + (source-1)*4]     ; 表在 0x180D4C04C，6 项
+//	表项：1→0x180D4BDDD  2→0x180D4BE99  3→0x180D4BFA3
+//	      4→0x180D4BEEC  5→0x180D4BEF8  6→0x180D4BF48
+//
+// 其中 3 的落点 **0x180D4BFA3 正是 `ja` 的越界目标**——也就是说 3 在客户端枚举里
+// 是空号，没有专属文案分支，画不出卡片。这解释了「十种了结算界面还是不弹」。
+// 809 塑封那次「单发 3 一个徽章都不画」也不是「差参数」，而是同样落在这条空号路径。
+//
+// 有效值只有 1、2、4、5、6 五个，正好对上 Localization 的 5 个 Gifts key。
+// 结合既往实机（2 = 游戏活动、4 = 塑封卡牌合集、5/6 = 集齐水域一族），
+// 「数条稀有鱼」只有 5 与 6 两个候选。2026-11-11 用 settle_gift_debug_sources 一次
+// 把 2/3/5/6 四条行同时挂进 801.f4 实测：2 = 游戏活动、5 = 捕获了数条稀有鱼、
+// 6 = 捕获了该水域的所有稀有鱼，3 一条卡都没画 —— 与跳转表的结论吻合。
 const giftSourceTrophyCountReached = 5
+
+// giftSourceTrophyTableCollected 是「捕获了该水域的所有稀有鱼」的来源码（水域奖杯）。
+//
+// 同一张跳转表里 6 号分支就是它，2026-11-11 实机确认：把 6 挂进 801.f4 后，结算界面
+// 弹出副标题「捕获了该水域的所有稀有鱼」的礼物卡。文案没有占位符，f1 随便给非 0。
+const giftSourceTrophyTableCollected = 6
+
+// debugGiftRowsSourceKey 是实机校准 811 来源码的一次性开关：值是逗号分隔的来源码，
+// 非空时每次有鱼的 801 结算都额外挂同样多的礼物行，物品取玩家背包里现成的奖座
+// （只进 801.f4 供客户端画卡，**不进 801.f8**，不写库、不发放任何东西）。
+// 校准完把 tunable 删掉即恢复。
+const debugGiftRowsSourceKey = "settle_gift_debug_sources"
+
+// debugGiftRows 构造校准用的礼物行；无开关或取不到奖座时返回 nil。
+func (s *Server) debugGiftRows(ctx context.Context, uid int64) []gift811Line {
+	if s.DB == nil {
+		return nil
+	}
+	spec := strings.TrimSpace(s.tunableS(debugGiftRowsSourceKey, ""))
+	if spec == "" {
+		return nil
+	}
+	var codes []int
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil || n <= 0 || n > 255 {
+			continue
+		}
+		codes = append(codes, n)
+	}
+	if len(codes) == 0 {
+		return nil
+	}
+	rows, err := s.DB.SQL.QueryContext(ctx,
+		`SELECT guid FROM item WHERE uid=? AND item_id LIKE 'statuette_%' ORDER BY item_id LIMIT ?`,
+		uid, len(codes))
+	if err != nil {
+		return nil
+	}
+	var guids []string
+	for rows.Next() {
+		var g string
+		if serr := rows.Scan(&g); serr == nil && g != "" {
+			guids = append(guids, g)
+		}
+	}
+	rows.Close()
+	if len(guids) == 0 {
+		return nil
+	}
+	out := make([]gift811Line, 0, len(codes))
+	for i, code := range codes {
+		row, gerr := s.DB.GetItemByGUID(ctx, guids[i%len(guids)])
+		if gerr != nil || row == nil {
+			continue
+		}
+		out = append(out, gift811Line{source: code, param: 10, items: []*store.Item{row}})
+	}
+	return out
+}
 
 // giftRows811 把若干条礼物打包成 811 礼物行数组。外层 args code 173（argcode_table
 // by_elem 811→173），单行 {f0=来源, f1=参数, f2=礼物物品树(args 61), f3=空物品数组}。

@@ -586,9 +586,11 @@ var defaultFishPool = []fishPoolEntry{
 // maxMockWeight 是缺少可信装备物理数据时使用的重量上限。
 const maxMockWeight = 650
 
-// 以下三项来自旧版对真实服务器 14/14 帧的逐字节校准：
-// 53g -> 体力池 126.5661239624、拉力 0.5197524514；
-// 63g -> 拉力 0.6178189516。旧版两条样本的拉力都严格满足每克 0.00980665。
+// verifiedInitialStaminaRatio 来自旧版对真实服务器 14/14 帧的逐字节校准（63g 样本）。
+// verifiedForcePerGram（每克 0.00980665）与 2026-11-11 官服 29 条 14/14 A 级样本
+// 直接矛盾（官方 f8 = 体重kg × 逐鱼种 k，k ∈ 12.6..20.6，见
+// specs/changes/fish-pull-k-table/spec.md），已从 f8 主路径移除，仅作历史口径注记；
+// newtonPerKgf 数值上恰为标准换算 9.80665，继续用于结算侧牛↔公斤力换算。
 const (
 	verifiedStaminaPerGram      = 2.3880400747623083
 	verifiedInitialStaminaRatio = 0.5628187656402588
@@ -599,12 +601,155 @@ const (
 	defaultFishInitialStaminaRatio = verifiedInitialStaminaRatio
 )
 
-// newtonPerKgf 是 obj27#8 鱼拉力（牛）与公斤力的换算系数，由 verifiedForcePerGram
-// 同源导出。f8 的量纲是牛（官方样本严格 = 体重kg×g），而渔轮泄力/锁轮承力以公斤计；
-// 服务端任何把 f8 拉力与承力公斤数比较的结算都必须先除以它，否则拉力被放大 9.8 倍，
-// 小鱼也会把摩擦片当超载烧穿（实测 461g 鱼被磨损账记成 6.57kg 拉力）。
-// 口径见 specs/changes/reel-wear-pull-unit/spec.md。
-const newtonPerKgf = verifiedForcePerGram * 1000
+// newtonPerKgf 是 obj27#8 鱼拉力（牛）与公斤力的换算系数（1 kgf = 9.80665 N）。
+// f8 的量纲是牛，而渔轮泄力/锁轮承力以公斤计；服务端任何把 f8 拉力与承力公斤数
+// 比较的结算都必须先除以它，否则拉力被放大 9.8 倍，小鱼也会把摩擦片当超载烧穿
+// （实测 461g 鱼被磨损账记成 6.57kg 拉力）。口径见 specs/changes/reel-wear-pull-unit/spec.md。
+const newtonPerKgf = 9.80665
+
+// fishPullK0 是逐鱼种拉力基值（=1kg 体重时的 k，N/kg），来自官服 14/14 抓包
+// A 级样本按 k0 = k − fishPullLnSlope·ln(w_kg) 反推；f8 = w_kg × (K0 + slope·ln(w_kg))。
+// 种内斜率 ~0.3–0.4，已用 perch/crucian/g_carp 多重量级样本钉死；样本与推导见
+// specs/changes/fish-pull-k-table/spec.md「Further Notes」。
+const fishPullLnSlope = 0.35
+
+var fishPullK0 = map[string]float64{
+	"merlang":    21.1,
+	"b_gill":     20.4,
+	"taran":      18.8,
+	"g_carp":     18.5,
+	"piksha":     18.3,
+	"b_carp":     18.0,
+	"n.pike":     17.3,
+	"perch":      17.6,
+	"din_l_carp": 16.9,
+	"carp":       16.5,
+	"c.roach":    16.4,
+	"crucian":    15.05,
+	"c.carp":     13.7,
+	"s.bream":    13.0,
+}
+
+// fishPullGroupK0 是未实测鱼种的习性组拉力基值（v1 推断，依据已实测样本呈现的
+// 梯度：同科体型单调、海水/洄游高于静水；推断组 ±1.5，见 spec「Further Notes」）。
+// 键 = 习性组名。
+var fishPullGroupK0 = map[string]float64{
+	"marine_gadid":    19.7, // 海水鳕科
+	"herb_carp":       18.2, // 大型草食鲤科
+	"migratory_roach": 18.8, // 洄游速游鲤科
+	"sunfish":         20.4, // 小型凶猛太阳鱼科
+	"predator":        17.5, // 梭形掠食者
+	"carp_mid":        16.7, // 中型力量鲤科
+	"roach_run":       16.4, // 拟鲤族
+	"still_carp":      15.0, // 静水小型鲤科
+	"pond_carp":       13.7, // 小型池塘鲤科
+	"weak_silver":     13.0, // 小型银色弱鱼
+	"salmonid":        18.0, // 鲑科（纯估计）
+	"sturgeon":        17.0, // 鲟科（纯估计）
+	"catfish":         16.0, // 鲶科（纯估计）
+	"flatfish":        16.0, // 比目鱼（纯估计）
+}
+
+// fishPullSpeciesGroup 把未实测但高频的鱼种映射到习性组；缺省走 fallback。
+var fishPullSpeciesGroup = map[string]string{
+	"karasekarp":    "still_carp",
+	"din_m_carp":    "carp_mid",
+	"din_n_carp":    "carp_mid",
+	"n_carp":        "carp_mid",
+	"kohaku":        "carp_mid",
+	"o_ogon":        "carp_mid",
+	"n_asagi":       "carp_mid",
+	"yotsushiro":    "carp_mid",
+	"hi_utsri":      "carp_mid",
+	"m_goshiki":     "carp_mid",
+	"tench":         "carp_mid",
+	"kw_tench":      "carp_mid",
+	"c_barbel":      "carp_mid",
+	"bream":         "still_carp",
+	"wa_bream":      "still_carp",
+	"s.orfe":        "roach_run",
+	"e.chub":        "roach_run",
+	"shemaya":       "roach_run",
+	"syb_roach":     "roach_run",
+	"vobla":         "roach_run",
+	"lm_b_bass":     "predator",
+	"sm_bass":       "predator",
+	"sp_bass":       "predator",
+	"wh_bass":       "predator",
+	"s_bass":        "predator",
+	"hs_bass":       "predator",
+	"bp_bass":       "sunfish",
+	"black_crappie": "sunfish",
+	"warm":          "sunfish",
+	"riv_rb_trout":  "salmonid",
+	"sevan_trout":   "salmonid",
+	"palia_lud":     "salmonid",
+	"malma":         "salmonid",
+	"gc_smelt":      "salmonid",
+	"taimen":        "salmonid",
+	"os_grayling":   "salmonid",
+	"coalfish":      "marine_gadid",
+	"pollachius":    "marine_gadid",
+	"menek":         "marine_gadid",
+	"p_sturgeon":    "sturgeon",
+	"sterlet":       "sturgeon",
+	"beluga":        "sturgeon",
+	"fhcatfish":     "catfish",
+	"ch_catfish":    "catfish",
+	"w_catfish":     "catfish",
+	"burbot":        "catfish",
+	"turbot":        "flatfish",
+	"sea_kambala":   "flatfish",
+	"lh_kambala":    "flatfish",
+	"asp":           "predator",
+	"ruffe":         "predator",
+	"ruffe_n":       "predator",
+	"zander":        "predator",
+	"g_shad":        "weak_silver",
+	"d_zubatka":     "predator",
+	"m_zubatka":     "predator",
+}
+
+// fishPullK0For 返回鱼种拉力基值：实测种 → 习性组 → fallback（tunable 可覆盖）。
+func (s *Server) fishPullK0For(species string) float64 {
+	if k, ok := fishPullK0[species]; ok {
+		return k
+	}
+	if g, ok := fishPullSpeciesGroup[species]; ok {
+		if k, ok := fishPullGroupK0[g]; ok {
+			return k
+		}
+	}
+	return s.tunableF("fish_pull_fallback_k", 17.5)
+}
+
+// fishFightPullFor 计算 obj27#8 拉力（牛）：
+// f8 = w_kg × (K0(species) + slope·ln(w_kg))，逐鱼种 A 级抓包标定
+// （specs/changes/fish-pull-k-table/spec.md）。官方 k 无 archetype 形状，
+// 因此 profile 不再参与力的缩放；RolledFish.Force 手动覆盖与
+// fight_power_scale 应急缩放保留。
+func (s *Server) fishFightPullFor(f *RolledFish) float64 {
+	if f == nil {
+		return 0
+	}
+	pull := f.Force
+	if pull <= 0 {
+		wKg := math.Max(0.01, float64(f.WeightG)/1000)
+		slope := s.tunableF("fish_pull_ln_slope", fishPullLnSlope)
+		pull = wKg * (s.fishPullK0For(f.Species) + slope*math.Log(wKg))
+	}
+	if k := s.tunableF("fight_power_scale", 1.0); k > 0 && k != 1.0 {
+		pull = math.Max(0.5, math.Round(pull*k*10000)/10000)
+	}
+	return math.Max(0.5, math.Round(pull*10000)/10000)
+}
+
+// fishFightPullKgfFor 把 27.f8 的鱼拉力（牛）换算成公斤力，供与渔轮泄力、锁轮承力
+// （公斤）比较的服务端结算使用。27.f8 下发给客户端必须保持牛，所以换算只发生在
+// 结算边界，不回改 fishFightPullFor。
+func (s *Server) fishFightPullKgfFor(f *RolledFish) float64 {
+	return s.fishFightPullFor(f) / newtonPerKgf
+}
 
 // lengthSeed 保存体长公式 k*w^p 的参数。
 var lengthSeed = map[string][2]float64{
@@ -1577,34 +1722,85 @@ func (s *Server) fishStaminaForProfile(f *RolledFish, profile fishFightProfile) 
 	}
 	stamina := f.Stamina
 	if stamina <= 0 {
-		stamina = verifiedStaminaPerGram * float64(f.WeightG)
+		// 实测种走官方每克均值（A 级样本，specs/changes/fish-official-data-tables/spec.md），
+		// 官方 f8/f5 都没有 archetype 形状，直接 rate×体重，不再乘 StaminaScale；
+		// 官方种内散布 ±13%~57%（g_carp 最大），均值表把个体误差压回散布带。
+		// 未实测种维持旧口径（2.388/g × archetype 耐力倍率）。
+		if rate, ok := fishStaminaRatePerGram[f.Species]; ok {
+			stamina = rate * float64(f.WeightG)
+		} else {
+			stamina = verifiedStaminaPerGram * float64(f.WeightG) * profile.StaminaScale
+		}
 	}
 	scale := s.tunableF("fish_stamina_scale", defaultFishStaminaScale)
 	if scale > 0 {
 		stamina *= scale
 	}
-	return stamina * profile.StaminaScale
+	return stamina
 }
 
-func (s *Server) fishFightPullFor(f *RolledFish, profile fishFightProfile) float64 {
+// fishStaminaRatePerGram 是官方 14/14 抓包实测鱼种的 f5 每克均值（2026-11-11，
+// 31 样本；见 specs/changes/fish-official-data-tables/spec.md）。海钓两科的
+// 官方值远高于旧版常数 2.388（merlang 10.5 / piksha 6.4）。
+var fishStaminaRatePerGram = map[string]float64{
+	"merlang":    10.50,
+	"piksha":     6.39,
+	"s.bream":    5.87,
+	"b_gill":     4.07,
+	"taran":      3.55,
+	"din_l_carp": 2.77,
+	"n.pike":     2.76,
+	"perch":      2.75,
+	"c.carp":     2.52,
+	"c.roach":    2.51,
+	"g_carp":     2.44,
+	"crucian":    2.29,
+	"carp":       2.10,
+	"b_carp":     2.09,
+}
+
+// fishF6Table 是官方实测鱼种的 f6 抗疲劳系数（0.05 步进量化值）。语义：
+// 疲劳速率 ∝ (1−f6)，f6=1 永不疲劳。官方种内还有随体重的 0.05 台阶
+// （fishF6Step），v1 只对已钉死的两种建模，其余取基值。
+var fishF6Table = map[string]float64{
+	"n.pike":     0.80,
+	"perch":      0.70,
+	"g_carp":     0.70,
+	"b_carp":     0.70,
+	"carp":       0.65,
+	"din_l_carp": 0.65,
+	"c.roach":    0.50,
+	"taran":      0.50,
+	"b_gill":     0.50,
+	"merlang":    0.50,
+	"piksha":     0.50,
+	"crucian":    0.55,
+	"c.carp":     0.40,
+	"s.bream":    0.30,
+}
+
+var fishF6Step = map[string]struct {
+	AboveG int64
+	F6     float64
+}{
+	// 官方样本：perch 93-342g→0.70 / 642-1070g→0.80；crucian 193-293g→0.55 /
+	// 611-743g→0.60。台阶边界取两档中点。
+	"perch":   {AboveG: 500, F6: 0.80},
+	"crucian": {AboveG: 450, F6: 0.60},
+}
+
+// fishF6For 返回本鱼 f6：实测种量化表（含体重台阶）→ 旧版校准常数 fallback。
+func (s *Server) fishF6For(f *RolledFish) float64 {
 	if f == nil {
-		return 0
+		return s.fishInitialStaminaRatio()
 	}
-	pull := f.Force
-	if pull <= 0 {
-		pull = verifiedForcePerGram * float64(f.WeightG)
+	if v, ok := fishF6Table[f.Species]; ok {
+		if step, ok := fishF6Step[f.Species]; ok && f.WeightG >= step.AboveG {
+			return step.F6
+		}
+		return v
 	}
-	if k := s.tunableF("fight_power_scale", 1.0); k > 0 && k != 1.0 {
-		pull = math.Max(0.5, math.Round(pull*k*10000)/10000)
-	}
-	return math.Max(0.5, math.Round(pull*profile.ForceScale*10000)/10000)
-}
-
-// fishFightPullKgfFor 把 27.f8 的鱼拉力（牛）换算成公斤力，供与渔轮泄力、锁轮承力
-// （公斤）比较的服务端结算使用。27.f8 下发给客户端必须保持牛，所以换算只发生在
-// 结算边界，不回改 fishFightPullFor。
-func (s *Server) fishFightPullKgfFor(f *RolledFish, profile fishFightProfile) float64 {
-	return s.fishFightPullFor(f, profile) / newtonPerKgf
+	return s.fishInitialStaminaRatio()
 }
 
 func (s *Server) fishInitialStaminaRatio() float64 {
@@ -1652,8 +1848,8 @@ func (s *Server) buildFish27(f *RolledFish, hookGUID, gearGuid string, rigType i
 	}
 	profile := s.fishFightProfileFor(f)
 	stamina := s.fishStaminaForProfile(f, profile)
-	initialStamina := s.fishInitialStaminaRatio()
-	pull := s.fishFightPullFor(f, profile)
+	initialStamina := s.fishF6For(f)
+	pull := s.fishFightPullFor(f)
 
 	var named *string
 	name := f.Name
@@ -1704,7 +1900,7 @@ func (s *Server) buildFish27(f *RolledFish, hookGUID, gearGuid string, rigType i
 		18: proto.F32(float32(f18v)),
 		19: proto.F32(float32(f19v)),
 		20: proto.F32(float32(f20v)),
-		21: s.buildFightCurvesForFish(f, pull, profile),
+		21: s.buildFightCurves(f.Species, pull),
 		22: proto.Str(f22),
 		23: proto.Guid(hook),
 		24: proto.Null(),
@@ -1785,13 +1981,13 @@ func (s *Session) Push14_14(f *RolledFish, hookGUID, gearGuid string, rigType in
 		ratio := energyRatioForCap(s.Srv.currentPlayerCondition(s.pushCtx(), s.Userid).Primary, params.EnergyMax)
 		stamina = scaleFishStaminaForEnergy(stamina, ratio, penalty)
 	}
-	initialStamina := s.Srv.fishInitialStaminaRatio()
-	force := s.Srv.fishFightPullFor(f, profile)
+	initialStamina := s.Srv.fishF6For(f)
+	force := s.Srv.fishFightPullFor(f)
 	s.log.Info("14/14 发鱼",
 		"rod", shortGUID(gearGuid), "fish", shortGUID(f.FishGUID), "hook", shortGUID(hookGUID),
 		"鱼种", f.Species, "重量_g", f.WeightG, "体力池", stamina,
 		"初始体力", initialStamina, "拉力", force, "体型比例", profile.SizeRatio,
-		"冲刺倍率", profile.ForceScale, "耐力倍率", profile.StaminaScale)
+		"拉力K0", s.Srv.fishPullK0For(f.Species), "耐力倍率", profile.StaminaScale)
 	return s.Push(14, 14, proto.Args524(
 		proto.Guid(gearGuid),
 		s.Srv.buildFish27(f, hookGUID, gearGuid, rigType),
@@ -1908,11 +2104,9 @@ func (s *Server) scheduleBiteState(sess *Session, st *FishState, preserveHooked,
 	st.RigSettled = false
 	st.TickSeen = false
 	// 上一竿的磨损账若还没落库（异常退出、断线等），先取走，解锁后补写。
-	// 只有 resetCast（真正换新的一竿）才重新扣每竿基准；嘬饵否决、鱼离场这类
-	// 同一竿续段的重入不带新基准，否则一次抛竿的基准会被扣两次。
-	// 基准按钓组折扣：路亚族抛投频率高，同样的"一竿"要便宜得多。
-	pendingWear, hasPendingWear := rollFightWearLedgerLocked(st, st.GearGuid, resetCast,
-		s.reelCastBaseFactor(st.RigType))
+	// 官服口径：磨损只按搏鱼受力时间扣，抛竿/空竿不产生任何新账（specs/changes/
+	// wear-fight-time/spec.md），这里只是把上一竿的残余受力账结清。
+	pendingWear, hasPendingWear := rollFightWearLedgerLocked(st, st.GearGuid)
 	if resetCast || st.CastTs.IsZero() {
 		st.CastTs = now
 	}
@@ -1927,7 +2121,7 @@ func (s *Server) scheduleBiteState(sess *Session, st *FishState, preserveHooked,
 	s.armBiteTimerLocked(sess.Userid, st, now.Add(time.Duration(delay*float64(time.Second))))
 	st.mu.Unlock()
 	if hasPendingWear {
-		s.applyFightReelWear(s.dbCtx(), sess.Userid, pendingWear, "14/7")
+		s.applyFightReelWear(s.dbCtx(), sess.Userid, pendingWear, "14/7", true)
 	}
 	return true
 }

@@ -64,9 +64,13 @@ func wlRelease(t *testing.T, s *Server, sess *Session, fish *RolledFish, call in
 	return dec
 }
 
-// 放生最后一尾时不能先发奖杯：`catch_log` 只在入护时写，放生的鱼不进图鉴，
-// 若在结算（14/4）就发放，会出现「背包有奖杯、3/17 面板还差一格」（review P2）。
-func TestWaterwayTrophyIssuedOnlyAfterKeep(t *testing.T) {
+// 水域奖杯与稀有鱼奖座同一时机：**14/4 结算当场判定并发放**。
+//
+// 官方结算界面（801）在玩家选择入护或放生之前就画出「捕获了该水域的所有稀有鱼」
+// 这张卡，说明官方的水域进度在「钓到」那一刻就成立。判定数据源是 catch_seen
+// （钓到即记、带水域），catch_log 也在同一个结算事务里落库（source='catch'），
+// 所以图鉴、307.f16 与这块面板和奖杯永远同步：放生也点亮。
+func TestWaterwayTrophyIssuedOnSettleBeforeKeep(t *testing.T) {
 	t.Parallel()
 	s, db := newRigTestServer(t)
 	sess := newProbeSess(s)
@@ -94,6 +98,7 @@ func TestWaterwayTrophyIssuedOnlyAfterKeep(t *testing.T) {
 			key, key, water, uid, fmt.Sprintf("%032d", seq)); err != nil {
 			t.Fatal(err)
 		}
+		seedTrophySeen(t, db, uid, water, key, 3)
 	}
 	for i, k := range keys[1:] {
 		insertWL(k, i+1)
@@ -109,42 +114,48 @@ func TestWaterwayTrophyIssuedOnlyAfterKeep(t *testing.T) {
 		return n
 	}
 
-	// 1) 结算阶段不发：结算界面早于入护，此时 catch_log 还没有这尾鱼。
+	// 1) 结算当场发：这一尾补上最后一格，801 里要带来源码 6 的礼物行。
 	fish := &RolledFish{FishGUID: strings.Repeat("b", 32), Species: last, Grade: recordTrophyGrade,
 		WeightG: 1500, LengthM: 0.45, LocLevel: water}
-	wlSettle(t, s, sess, fish, 1)
-	if n := owned(); n != 0 {
-		t.Fatalf("结算阶段不该发水域奖杯，实得 %d 枚", n)
+	dec := wlSettle(t, s, sess, fish, 1)
+	if n := owned(); n != 1 {
+		t.Fatalf("结算当场应发 1 枚水域奖杯，实得 %d 枚", n)
+	}
+	if line := giftRowOf(dec.Field(4).Val, giftSourceTrophyTableCollected); line == nil {
+		t.Fatalf("801.f4 没有来源码 %d 的礼物行：%+v", giftSourceTrophyTableCollected, dec.Field(4).Val)
 	}
 
-	// 2) 放生不发：面板仍是 7/8，奖杯一旦发出就再也无法自洽。
+	// 2) 放生不回退：奖杯是纪念品，官方顺序是先发卡后选择。
+	// 图鉴同口径——这一尾在结算时已落 catch_log，放生不回收，面板仍是满格。
 	wlRelease(t, s, sess, fish, 2)
-	if n := owned(); n != 0 {
-		t.Fatalf("放生的鱼不该计入面板、也不该发奖杯，实得 %d 枚", n)
+	if n := owned(); n != 1 {
+		t.Fatalf("放生不该回收奖杯，实得 %d 枚", n)
 	}
 	var logged int64
-	if err := db.SQL.QueryRow(`SELECT COUNT(*) FROM catch_log WHERE uid=? AND fish_key=? AND loc_level=?`,
-		uid, last, water).Scan(&logged); err != nil {
+	var source string
+	if err := db.SQL.QueryRow(`SELECT COUNT(*), COALESCE(MAX(source),'') FROM catch_log
+		WHERE uid=? AND fish_key=? AND loc_level=?`, uid, last, water).Scan(&logged, &source); err != nil {
 		t.Fatal(err)
 	}
-	if logged != 0 {
-		t.Fatalf("放生不该写 catch_log，实得 %d 行", logged)
+	if logged != 1 {
+		t.Fatalf("放生的鱼也该留下一条钓获记录（图鉴点亮），实得 %d 行", logged)
 	}
-	p, err := s.waterwayTrophyProgressFor(t.Context(), uid, water)
-	if err != nil {
+	if source != "catch" {
+		t.Fatalf("放生后 catch_log.source 应为 catch，实得 %q", source)
+	}
+	if p, err := s.waterwayTrophyProgressFor(t.Context(), uid, water); err != nil {
 		t.Fatal(err)
-	}
-	if p.Done != p.Total-1 {
-		t.Fatalf("放生后面板应仍是 %d/%d，实得 %d/%d", p.Total-1, p.Total, p.Done, p.Total)
+	} else if p.Done != p.Total {
+		t.Fatalf("放生后水域面板应为满格 %d/%d，实得 %d/%d", p.Total, p.Total, p.Done, p.Total)
 	}
 
-	// 3) 同一种鱼改成入护：入护写 catch_log，面板填满，奖杯当场入包。
+	// 3) 同一种鱼改成入护：入护补写 catch_log，但奖杯已在结算时发过，不重复发。
 	again := &RolledFish{FishGUID: strings.Repeat("c", 32), Species: last, Grade: recordTrophyGrade,
 		WeightG: 1600, LengthM: 0.47, LocLevel: water}
 	wlSettle(t, s, sess, again, 3)
 	wlKeep(t, s, sess, again, 4)
 	if n := owned(); n != 1 {
-		t.Fatalf("入护补上最后一格后应有 1 枚奖杯，实得 %d 枚", n)
+		t.Fatalf("重复结算/入护不应再发第二枚，实得 %d 枚", n)
 	}
 	var kv int64
 	if err := db.SQL.QueryRow(`SELECT COUNT(*) FROM kv WHERE k=?`,

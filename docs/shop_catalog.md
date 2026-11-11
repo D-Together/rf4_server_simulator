@@ -14,6 +14,8 @@
 
 逐店 `shelf` 只登记有明确静态价目依据的缺失商品，不替换已有实录，也不对未登记的特产估价上架。`tungus_015`（通古斯卡合作社）登记 `tungus_bot` 和 `tungus_12pack`，价格沿用静态 `item_price`：分别为 `gold=22` 和 `gold=129`，均不提供银币价格，基础库存均为 1。价格与钱包采用相同的内部整数单位（分），不是界面显示的整枚金币。未登记的旧款伏特加及其礼盒不估价上架。
 
+`cafestore_18`（铜湖欧泊咖啡馆）同样登记了逐店 `shelf`：`small_coffee`、`big_coffee`、`hd_box`，价目沿用静态 `item_price`（`gold=4/6/1`，基础库存各 1）。cafe_ukleyka 产品线的品牌信息落在 `item_def.kind` 列而非 `brand` 列，通用品牌补齐（只比对 `brand`）补不到这三件商品，缺了这条登记就会回退到 kind 1 食品模板——客户端仍能打开咖啡馆并点咖啡，但 `22/3` 查不到价目，最终显示“发生内部错误”。
+
 未知的 `store_id` 会返回空货架。已知商店按现有品类补齐商品，品牌店同时限制为同品牌；装配零件不单独上架。已有定价沿用原币种，无价商品按上游同系列最高价或同类中位价估价，并按商品编号稳定上浮 0–10%。
 
 管理机构按商店目录里的 `books` 白名单上架品类 80 的技能书：静态 `item_def` 中这些书品牌为空、品类又与店内地图不同，通用补齐规则无法命中，缺价时也不估价。白名单按地区登记：`admin_012`（挪威海）只有 `seafish_book`，`admin_18`（铜湖）只有 `feeder_book`，`admin_01`（克马羚诺也湖）和 `admin_19`（埃尔克湖）各有 `float_fishing_book` 与 `spinning_book`。全部 4 本技能书统一挂有效银价 998500、有效金币 500（静态 `item_price` 与货架补齐时都以此为准），`22/2` 银币和 `22/3` 金币均可结算。管理后台的 `shop_item_override` 仍可单独改价。
@@ -28,7 +30,7 @@
 
 如需修改基础货架，请更新 `server_data/static.sqlite3` 中的静态目录，并重新运行 `seed`。存储层会拒绝运行时对静态表的写入。
 
-内置逐店补齐项维护在 `internal/store/assets/shop_kind_defs.json` 的对应 `stores` 条目中，目前仅用于上述两件通古斯卡特产。修改时须核对静态价目并同步目录校验测试，不是任意上架入口；不要通过修改共享 `kind` 模板改变单个品牌店的货架。
+内置逐店补齐项维护在 `internal/store/assets/shop_kind_defs.json` 的对应 `stores` 条目中，目前用于两件通古斯卡特产和三件铜湖咖啡馆商品。修改时须核对静态价目并同步目录校验测试（`TestEmbeddedShopCatalogMatchesEvidenceAndCoversAllStores` 的目录 hash 会跟着变），不是任意上架入口；不要通过修改共享 `kind` 模板改变单个品牌店的货架。
 
 ## 管理功能
 
