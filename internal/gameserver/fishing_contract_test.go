@@ -18,6 +18,12 @@ func f32At(v *proto.Value, idx int) float64 {
 // TestFish27UsesVerifiedFightFields 验证 obj27 的体力、初始体力和拉力字段语义：
 // f5/f6 沿用旧真实样本校准值；f8 = w_kg × (K0 + slope·ln(w_kg)) 逐鱼种官方口径
 // （specs/changes/fish-pull-k-table/spec.md）。
+//
+// 注意：本测试的期望值是按实现同款公式复算的，属于公式级一致性守护（防字段
+// 语义漂移、常数被手改），不是独立证据。外部真值来自官服 14/14 抓包的锚点
+// 测试：TestFishStaminaMatchesOfficialAnchors / TestFishPullMatchesOfficial-
+// Anchors / TestFishF6MatchesOfficialTable（specs/changes/fish-official-data-
+// tables/spec.md）。
 func TestFish27UsesVerifiedFightFields(t *testing.T) {
 	srv := NewServer(config.Game{Tunnel: config.Tunnel{PSK: "contract"}}, logging.Discard(), nil)
 	f := &RolledFish{FishGUID: "11111111111111111111111111111111", Species: "c.roach", Grade: 1, WeightG: 186, LengthM: 0.1981}

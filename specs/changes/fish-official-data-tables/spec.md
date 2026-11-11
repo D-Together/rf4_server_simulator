@@ -69,6 +69,8 @@ c.roach 2.51 / g_carp 2.44 / crucian 2.29 / carp 2.10 / b_carp 2.09。
 - `TestFishF6MatchesOfficialTable`：量化表 + 台阶 + fallback。
 - `TestFightCurvesSpeciesPoolsLoaded`：新池行数直配（taran 13 / merlang 8 /
   g_carp 13 / din_l_carp 24…），借池兜底仍可用。
+- `TestFightCurvesEveryPoolHasPhase100Base`：每个池恰 1 条 f0=100 基准行且
+  loader 钉到首位——uniform 缩放锚（selected[0][8]）不许静默错行。
 - 既有 `TestFish27UsesVerifiedFightFields` 的 c.roach f6 期望改为官方量化值 0.50。
 
 ## Risks
