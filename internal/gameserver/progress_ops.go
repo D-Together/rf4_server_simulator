@@ -460,12 +460,13 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 			grants.Items = append(grants.Items, tree)
 		}
 	}
-	// 礼物行：801.f4 = 811 数组。结算阶段只有升级礼物一种来源（f0=1）；同数组
-	// 并存多来源的渲染能力保留给水域奖杯等后续玩法。无礼物保持 null（官服未升级
-	// 样本形态）。
+	// 礼物行：801.f4 = 811 数组（args 173）。升级礼物 / 稀有鱼 / 水域奖杯走 giftRows811
+	// 的 gift811Line；分支杯自带 f4=14 投影，用 qualificationGiftLine 单独构造后作为额外
+	// 的 811 元素追加到同一个数组。客户端 GameResult 按来源码各渲染礼物卡；无礼物保持
+	// null（官服未升级样本形态）。
 	giftRows := proto.Null()
 	if hasFish && res != nil {
-		lines := make([]gift811Line, 0, 3)
+		lines := make([]gift811Line, 0, 4)
 		if len(res.giftItems) > 0 {
 			lines = append(lines, gift811Line{source: giftSourceNewLevel, param: res.newLevel, items: res.giftItems})
 		}
@@ -497,6 +498,14 @@ func (s *Server) fishingEndSettle(ctx *Ctx) ([]byte, bool) {
 				ctx.Log.Warn("礼物行构造失败（801.f4 置空）", "err", rerr)
 			} else {
 				giftRows = rows
+			}
+		}
+		// 分支杯：自带 f4=14 的裸 811 行，追加到同一个 args(811)，不替换上面各行。
+		if len(qualCups) > 0 {
+			if line, lerr := s.qualificationGiftLine(cctx, qualCups); lerr != nil {
+				ctx.Log.Warn("资格奖杯礼物行构造失败", "err", lerr)
+			} else if line != nil {
+				giftRows = append811Row(giftRows, line)
 			}
 		}
 	}

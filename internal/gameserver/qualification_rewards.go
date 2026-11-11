@@ -6,6 +6,7 @@ import (
 
 	"rf4server/internal/proto"
 	"rf4server/internal/store"
+	"rf4server/internal/wiregen"
 )
 
 // 资格/活动分支完成奖杯：整分支任务全部达标后，把对应奖杯发到 house
@@ -177,4 +178,47 @@ func (s *Server) pushAwardUpdate(uid int64, it *store.Item) {
 	for _, sess := range s.sessionsForUID(uid) {
 		sess.Push(4, 22, proto.Args(proto.S("61"), tree))
 	}
+}
+
+// qualificationGiftLine 把本次新发的分支杯包成一条 811(bkmnmjcfbic) 礼物行，
+// 供 801.f4 携带，客户端 GameResult 按来源码渲染礼物卡（升级礼物同机制）。
+//
+// 来源码与 f1 的硬约束来自 PR #407 的客户端反汇编 + 实机校准
+// （卡片取词函数 GameAssembly 0x180D4BD40，跳转表 0x180D4C04C）：
+//   - 有效来源只有 1/2/4/5/6；3 的落点是 ja 越界目标，是空号，画不出卡。
+//     1=新级别、2=游戏活动、4=塑封卡牌合集、5=数条稀有鱼、6=集齐水域。
+//   - f1=0 客户端整枚跳过，必须给非 0（无占位符的来源随便给非 0 即可）。
+//
+// 资格完成没有专属来源码，取通用的 2（游戏活动）渲染卡片；保留 tunable
+// qual_gift_source 供实机微调。无杯返回 nil。
+func (s *Server) qualificationGiftLine(ctx context.Context, cups []*store.Item) (*proto.Value, error) {
+	if len(cups) == 0 {
+		return nil, nil
+	}
+	items := proto.Args(proto.S("61"))
+	for _, cup := range cups {
+		tree, err := s.awardItemTree(ctx, cup)
+		if err != nil {
+			return nil, err
+		}
+		items.Items = append(items.Items, tree)
+	}
+	source := uint32(s.tunableF("qual_gift_source", 2))
+	return wiregen.MakeObj("bkmnmjcfbic", map[int]*proto.Value{
+		0: proto.U32(source),
+		1: proto.U32(1), // 非 0：f1=0 客户端整枚跳过（PR #407 实证）
+		2: items,
+		3: proto.Args(proto.S("61")),
+	})
+}
+
+// append811Row 把一条裸 811 礼物行追加到 801.f4 的 args(173) 容器里；容器为空
+// （null）时新建。用于自带 wire 投影（如奖赏 f4=14）的单行来源，与 giftRows811
+// 产出的 gift811Line 行共存于同一个数组。
+func append811Row(container, line *proto.Value) *proto.Value {
+	if container != nil && container.Kind == proto.KindArgs {
+		container.Items = append(container.Items, line)
+		return container
+	}
+	return proto.Args(proto.S("173"), line)
 }
