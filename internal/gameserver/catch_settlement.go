@@ -240,7 +240,11 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 	if err := tx.QueryRowContext(ctx, `SELECT MIN(points,100.0) FROM skill WHERE uid=? AND skill_id=?`, uid, r.SkillID).Scan(&oldSkill); err != nil && err != sql.ErrNoRows {
 		return nil, err
 	}
+	// 存量库里的浮点累加尾差（如 99.99999999999996）量化到 0.1 显示格，
+	// 否则钳位后产生正残渣增量，客户端渲染「+0 = 100%」技能行。
+	oldSkill = store.QuantizeSkillPoints(oldSkill)
 	gain := math.Min(fishingProficiencyGainForRoll(oldSkill, happyHourProficiencyRoll(oldSkill, rand.Float64(), happy), rand.Float64()), math.Max(0, profCap-oldSkill))
+	gain = store.QuantizeSkillPoints(gain) // 钳位残渣（如 3.6e-14）归零，增量保持 0.1/0.2 格
 	r.SkillGain = &gain
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(weight_g),0) FROM catch_log WHERE uid=? AND fish_key=?`, uid, f.Species).Scan(&r.PreviousBest); err != nil {
 		return nil, err
@@ -269,9 +273,9 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 		uid, now, fmt.Sprintf("xp+%d level %d->%d", totalXP, oldLevel, level)); err != nil {
 		return nil, err
 	}
-	if gain > 1e-9 {
+	if gain > 0 {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO skill(uid,skill_id,points) VALUES(?,?,?)
-			ON CONFLICT(uid,skill_id) DO UPDATE SET points=MIN(points+excluded.points,100.0)`, uid, r.SkillID, gain); err != nil {
+			ON CONFLICT(uid,skill_id) DO UPDATE SET points=MIN(ROUND((points+excluded.points)*10)/10,100.0)`, uid, r.SkillID, gain); err != nil {
 			return nil, err
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -13,6 +14,14 @@ import (
 
 // maxSkillPoints 是单个技能大类的熟练度上限。
 const maxSkillPoints = 100.0
+
+// QuantizeSkillPoints 把熟练度对齐到 0.1 显示格。官服增量只有 0.1/0.2，
+// 客户端 UI 也按 0.1 渲染；浮点累加（SQLite REAL / Go float64）会攒出
+// 99.99999999999996 这类尾差——显示为 100% 却仍小于上限，钳位后产生
+// 3.6e-14 的正残渣增量，客户端渲染出「+0 = 100%」技能行（2026-11-11 实测）。
+func QuantizeSkillPoints(v float64) float64 {
+	return math.Round(v*10) / 10
+}
 
 // ListSkills 取玩家技能熟练度。
 func (d *DB) ListSkills(ctx context.Context, uid int64) (map[int64]float64, error) {
@@ -36,12 +45,12 @@ func (d *DB) ListSkills(ctx context.Context, uid int64) (map[int64]float64, erro
 	return out, rows.Err()
 }
 
-// AddSkillPoints 增加熟练度（UPSERT 累加）。
+// AddSkillPoints 增加熟练度（UPSERT 累加，0.1 显示格量化防浮点尾差）。
 func (d *DB) AddSkillPoints(ctx context.Context, uid, skillID int64, delta float64) error {
 	_, err := d.SQL.ExecContext(ctx, `
-		INSERT INTO skill(uid, skill_id, points) VALUES(?,?,MIN(?,?))
+		INSERT INTO skill(uid, skill_id, points) VALUES(?,?,MIN(ROUND(?*10)/10,?))
 		ON CONFLICT (uid, skill_id) DO UPDATE
-		SET points = MIN(points + excluded.points, ?)`,
+		SET points = MIN(ROUND((points + excluded.points)*10)/10, ?)`,
 		uid, skillID, delta, maxSkillPoints, maxSkillPoints)
 	return err
 }
@@ -61,9 +70,9 @@ func (d *DB) GetSkillPointsTx(ctx context.Context, tx *sql.Tx, uid, skillID int6
 // AddSkillPointsTx 在事务内增加熟练度，供“扣物 + 加熟练度”原子提交使用。
 func (d *DB) AddSkillPointsTx(ctx context.Context, tx *sql.Tx, uid, skillID int64, delta float64) error {
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO skill(uid, skill_id, points) VALUES(?,?,MIN(?,?))
+		INSERT INTO skill(uid, skill_id, points) VALUES(?,?,MIN(ROUND(?*10)/10,?))
 		ON CONFLICT (uid, skill_id) DO UPDATE
-		SET points = MIN(points + excluded.points, ?)`,
+		SET points = MIN(ROUND((points + excluded.points)*10)/10, ?)`,
 		uid, skillID, delta, maxSkillPoints, maxSkillPoints)
 	return err
 }
