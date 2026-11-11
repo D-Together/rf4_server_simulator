@@ -238,7 +238,8 @@ func (s *Server) BuildProfile307W(ctx context.Context, uid int64, wNow int64) (*
 	// 把 f16 拷进 ifbfdldbana.gebeadddmlp；RUIUserInfoWidget（等级旁星号）
 	// 和 ddkpcmhdfdb.fgnijlofipp 都显示该值，24/19 的 f5 是同一字段。官服
 	// 语义按鱼种去重：钓到过 grade>=3（重量稀有/超稀有）的鱼种各计一次，
-	// 不等于统计页 3/2 按条数的稀有渔获计数。
+	// 不等于统计页 3/2 按条数的稀有渔获计数。「钓到过」= catch_log 里有一行，
+	// 放生的鱼也算（结算 14/4 就落库，入护只把 source 抬成 'keep'）。
 	rareCatches, rareErr := s.DB.RareSpeciesCount(ctx, uid, 3)
 	if rareErr != nil {
 		s.log.Warn("奖杯鱼种数读取失败，按 0 下发", "uid", uid, "err", rareErr)

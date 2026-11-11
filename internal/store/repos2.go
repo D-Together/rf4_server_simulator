@@ -283,6 +283,9 @@ func (d *DB) KeepnetDelete(ctx context.Context, uid int64, echoGUIDs []string) e
 // 鱼种数，按 fish_key 去重。面板等级旁星号与 24/19 玩家卡共用该口径
 // （客户端两路同落 ifbfdldbana.gebeadddmlp）；统计页 3/2 的逐鱼种条数
 // 是另一口径，不经此函数。
+//
+// catch_log 在 14/4 结算就落库（source='catch'），入护只抬成 'keep'，
+// 放生保持 'catch' —— 所以「钓到过」包含放生的鱼，与稀有鱼奖座同步。
 func (d *DB) RareSpeciesCount(ctx context.Context, uid, minGrade int64) (int64, error) {
 	var n int64
 	err := d.SQL.QueryRowContext(ctx,

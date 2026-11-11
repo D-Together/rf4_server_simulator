@@ -142,9 +142,16 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 	if xp < 1 {
 		xp = 1
 	}
+	// 结算要把这一尾记进 catch_log（图鉴口径），水域关卡不能为空——否则
+	// 3/17 面板与水城奖杯都归不到水域下。入护路径同样有这层兜底。
+	locLevel := f.LocLevel
+	if locLevel == "" {
+		locLevel = s.currentLevel(uid)
+	}
 	state := s.fishingStateForFish(uid, f)
 	state.mu.Lock()
 	gear := state.GearGuid
+	catchLoc, catchSpot := state.Loc, int64(state.Spot)
 	if !f.HappyHourKnown {
 		if sess := s.liveSessionByUID(uid); sess != nil {
 			f.HappyHour = sess.currentHappyHour().Active
@@ -241,6 +248,20 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 	r.IsRecord = r.PreviousBest <= 0 || f.WeightG > r.PreviousBest
 	now := float64(time.Now().UnixNano()) / 1e9
 	r.CaughtAt = now
+	// catch_log 是「钓获日志」，在 14/4 结算这一刻落库 —— 官方结算界面在玩家选择
+	// 入护或放生之前就已经画出图鉴、奖座与水域奖杯，说明官方的口径是「钓到即记」。
+	// 14/5 入护只把这行的 source 从 'catch' 抬成 'keep'（见 KeepFishingCatchWithCapacity），
+	// 14/6 放生保持 'catch'：钓到过就是钓到过，图鉴、307.f16 星号、3/17 面板与
+	// 321 统计因此都不再区分放生与入护。
+	if err := insertCatchLogSettleTx(ctx, tx, uid, f, locLevel, catchLoc, catchSpot, bait,
+		tackleCatForRig(rigType), xp, silver, now); err != nil {
+		return nil, err
+	}
+	// 稀有鱼 / 超级稀有鱼的鱼种数按「钓到过」记（catch_seen），同样在本事务内落库：
+	// 官方结算界面在玩家选择入护/放生之前就画奖座礼物卡，判定必须在结算时成立。
+	if err := recordCatchSeenTx(ctx, tx, uid, f.Species, locLevel, f.Grade, now); err != nil {
+		return nil, err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE profile SET xp=?,level=?,updated_ts=? WHERE uid=?`, newXP, level, now, uid); err != nil {
 		return nil, err
 	}
@@ -302,8 +323,43 @@ func (s *Server) settleCatchOnceWithQualification(ctx context.Context, uid int64
 			res.giftItems = append(res.giftItems, g.Items...)
 		}
 	}
-	// 稀有鱼 / 超级稀有鱼的鱼种数奖座**不在这里发**：图鉴口径是 catch_log，
-	// 而 catch_log 要到 14/5 入护才写。结算阶段发会让「拿到奖座后放生」的玩家
-	// 出现「背包有奖座、面板不计数」的不一致，改由 fishingKeep 入护后判定。
+	// 稀有鱼 / 超级稀有鱼的鱼种数奖座**在结算时判定**：本尾鱼已在事务里写进
+	// catch_seen，判定口径就是「钓到过的鱼种数」。发出来的物品随结果返回，
+	// 由 14/4 挂 801.f4 的礼物行（来源码 5「捕获了数条稀有鱼」，参数为鱼种数）
+	// 与 801.f8 奖励列表，客户端结算界面当场弹卡 —— 这正是官方的表现。
+	// 图鉴同口径：catch_log 也已在同一事务里写下本尾鱼，放生不回收。
+	if rare, super, rerr := s.rarityMilestoneAfterCatch(ctx, uid); rerr != nil {
+		s.log.Warn("稀有鱼里程碑判定失败", "uid", uid, "err", rerr)
+	} else {
+		res.rarityGifts = rare.Items
+		res.raritySpeciesCount = rare.Count
+		res.superRarityGifts = super.Items
+		res.superRaritySpeciesCount = super.Count
+	}
+	// 水域奖杯同一时机：本尾鱼已经把 catch_seen 里本水域的最后一种补上时当场发，
+	// 挂 801.f4 来源码 6「捕获了该水域的所有稀有鱼」——官服就是结算界面弹这张卡，
+	// 而不是等入护。放生与否不影响（奖杯是纪念品，官方顺序是先弹卡后选择）。
+	res.waterwayGifts = s.waterwayTrophyAfterCatch(ctx, uid, locLevel)
 	return res, nil
+}
+
+// insertCatchLogSettleTx 在 14/4 结算事务内写下本尾鱼的钓获记录（source='catch'）。
+//
+// 落库时机是「钓到」而不是「入护」：官方结算界面在玩家选择入护或放生之前就已经
+// 画出图鉴、稀有鱼奖座与水域奖杯，说明官方的收集口径就是「钓到过」。14/5 入护
+// 只把同一行的 source 抬成 'keep'（见 KeepFishingCatchWithCapacity），14/6 放生
+// 保持 'catch'。唯一索引 uq_catch_log_fish_identity(uid, source, catch_guid)
+// 保证重放不会重复记账；结算本身还有 catch-settlement 回执兜底。
+func insertCatchLogSettleTx(ctx context.Context, tx *sql.Tx, uid int64, f *RolledFish,
+	locLevel, loc string, spot int64, bait string, tackleCat, xp, silver int64, ts float64) error {
+	if tx == nil || f == nil || f.FishGUID == "" || f.Species == "" {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO catch_log(
+		ts,loc,spot,fish_key,name_zh,weight_g,length_m,source,bait,grade,xp,silver,loc_level,uid,catch_guid,tackle_cat)
+		VALUES(?,?,?,?,?,?,?,'catch',?,?,?,?,?,?,?,?)
+		ON CONFLICT(uid,source,catch_guid) WHERE catch_guid IS NOT NULL DO NOTHING`,
+		ts, loc, spot, f.Species, f.Name, f.WeightG, f.LengthM, bait, f.Grade, xp, silver,
+		locLevel, uid, f.FishGUID, tackleCat)
+	return err
 }

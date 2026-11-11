@@ -67,35 +67,60 @@ var superRareSpeciesMilestones = []rarityMilestone{
 	{50, "statuette_supertrophy_50"},
 }
 
-// raritySpeciesCounts 统计全服（不分水域）已经上星 / 蓝冠的**鱼种数**。
-// 同一种鱼钓多少条都只算一个，这正是官方奖座名的口径（「3条稀有鱼」= 3 种）。
+// rarityMilestoneBatch 是一族奖座在一次判定里的结果。
+// Count 是判定时的鱼种数，客户端礼物卡（811.f1）要的正是这个「条数」参数，
+// 填 0 时客户端会把整枚徽章跳过（809 实机扫频：来源码 3 + 参数 0 = 不画卡）。
+type rarityMilestoneBatch struct {
+	Count int64
+	Items []*store.Item
+}
+
+// raritySpeciesCounts 统计玩家**钓到过**的上星 / 蓝冠鱼种数（catch_seen）。
+//
+// 官方结算界面（801）在玩家选择入护或放生之前就把奖座礼物画出来了，所以鱼种数在
+// 「钓到」那一刻就成立（2026-11-11 回归）。catch_seen 在 14/4 结算事务里落库，
+// 与同一事务里写下的 catch_log 行一一对应；图鉴、307.f16 星号、3/17 面板读的是
+// catch_log，放生同样保留那一行，因此图鉴与奖座始终同步。
 func (s *Server) raritySpeciesCounts(ctx context.Context, uid int64) (rare, super int64, err error) {
 	if s == nil || s.DB == nil {
 		return 0, 0, nil
 	}
 	err = s.DB.SQL.QueryRowContext(ctx, `
-		SELECT COUNT(DISTINCT CASE WHEN grade>=? THEN fish_key END),
-		       COUNT(DISTINCT CASE WHEN grade>=? THEN fish_key END)
-		FROM catch_log WHERE uid=?`,
+		SELECT COUNT(DISTINCT CASE WHEN best_grade>=? THEN fish_key END),
+		       COUNT(DISTINCT CASE WHEN best_grade>=? THEN fish_key END)
+		FROM catch_seen WHERE uid=?`,
 		int64(recordTrophyGrade), int64(superTrophyGrade), uid).Scan(&rare, &super)
 	return rare, super, err
 }
 
-// rarityMilestoneAfterKeep 在 14/5 入护落库**之后**判定奖座。
+// recordCatchSeenTx 在钓获结算事务内记下本尾鱼的鱼种、水域与最高档位。
 //
-// 判定口径与 3/17 图鉴、307.f16 星号完全一致：都只认 catch_log。catch_log 只在
-// 入护时写入（14/6 放生不写），所以奖座也只能在入护后发——否则会出现玩家
-// 「结算时拿到奖座、随后放生，背包里有奖座但图鉴不计数」的错位。
-//
-// 入护时本尾鱼已落库，直接按当前鱼种数补发所有跨过而未发的档位即可；
-// 发放与登录巡检共用 grantRarityMilestones，kv 幂等标记保证不重复。
-func (s *Server) rarityMilestoneAfterKeep(ctx context.Context, uid int64) []*store.Item {
-	rare, super, err := s.raritySpeciesCounts(ctx, uid)
-	if err != nil {
-		s.log.Warn("稀有鱼种数统计失败", "uid", uid, "err", err)
+// 必须与结算回执同事务：结算失败回滚时这一尾不能留在计数里，重试才能重新判定。
+// 只有 grade>=3 的鱼落行（普通鱼永远不推进奖座），同鱼种同水域重复上星只抬高档位。
+// locLevel 是水域奖杯（来源码 6）的判定维度——它要的是「这个水域的面板是否集齐」。
+func recordCatchSeenTx(ctx context.Context, tx *sql.Tx, uid int64, species, locLevel string, grade int64, ts float64) error {
+	if tx == nil || species == "" || grade < recordTrophyGrade {
 		return nil
 	}
-	return s.grantRarityMilestones(ctx, uid, rare, super)
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO catch_seen(uid,loc_level,fish_key,best_grade,first_ts) VALUES(?,?,?,?,?)
+		ON CONFLICT(uid,loc_level,fish_key) DO UPDATE SET best_grade=MAX(catch_seen.best_grade, excluded.best_grade)`,
+		uid, locLevel, species, grade, ts)
+	return err
+}
+
+// rarityMilestoneAfterCatch 在 14/4 结算事务**提交之后**判定两族奖座。
+//
+// 结算响应（801）要用它返回的物品挂礼物行（来源码 3「捕获了数条稀有鱼」），
+// 所以判定必须发生在写 801 之前、且本尾鱼已经落进 catch_seen。
+func (s *Server) rarityMilestoneAfterCatch(ctx context.Context, uid int64) (rare, super rarityMilestoneBatch, err error) {
+	rareCount, superCount, err := s.raritySpeciesCounts(ctx, uid)
+	if err != nil {
+		return rarityMilestoneBatch{}, rarityMilestoneBatch{}, err
+	}
+	rareItems, superItems := s.grantRarityMilestones(ctx, uid, rareCount, superCount)
+	return rarityMilestoneBatch{Count: rareCount, Items: rareItems},
+		rarityMilestoneBatch{Count: superCount, Items: superItems}, nil
 }
 
 // issueRarityMilestone 发放一档奖座：kv 幂等标记与物品同一事务提交。
@@ -150,13 +175,14 @@ func (s *Server) issueRarityMilestone(ctx context.Context, uid int64, kind strin
 }
 
 // grantRarityMilestones 按当前鱼种数补发所有已达标但没发过的档位（可以一次跨多档）。
+// 两族分开返回，调用方要把它们挂成两张礼物卡（稀有鱼 / 超级稀有鱼各一）。
 // 单档失败只记日志、不影响其他档位——奖座是纪念品，宁可晚发不可整单失败。
-func (s *Server) grantRarityMilestones(ctx context.Context, uid, rare, super int64) []*store.Item {
+func (s *Server) grantRarityMilestones(ctx context.Context, uid, rare, super int64) (rareItems, superItems []*store.Item) {
 	if s == nil || s.DB == nil {
-		return nil
+		return nil, nil
 	}
-	var out []*store.Item
-	grant := func(kind string, ladders []rarityMilestone, have int64) {
+	grant := func(kind string, ladders []rarityMilestone, have int64) []*store.Item {
+		var out []*store.Item
 		for _, m := range ladders {
 			if have < m.Species {
 				continue
@@ -171,10 +197,10 @@ func (s *Server) grantRarityMilestones(ctx context.Context, uid, rare, super int
 				out = append(out, it)
 			}
 		}
+		return out
 	}
-	grant(rarityKindRare, rareSpeciesMilestones, rare)
-	grant(rarityKindSuperRare, superRareSpeciesMilestones, super)
-	return out
+	return grant(rarityKindRare, rareSpeciesMilestones, rare),
+		grant(rarityKindSuperRare, superRareSpeciesMilestones, super)
 }
 
 // pushRarityMilestoneItems 把新发的奖座推 4/22，让客户端背包立刻出现。
@@ -190,7 +216,7 @@ func pushRarityMilestoneItems(sess *Session, items []*store.Item) {
 	}
 }
 
-// rarityMilestoneLabel 反查奖座对应的档位说明，用于入护播报（「稀有鱼图鉴 3 种」）。
+// rarityMilestoneLabel 反查奖座对应的档位说明，用于日志/播报文案。
 func rarityMilestoneLabel(itemID string) string {
 	for _, m := range rareSpeciesMilestones {
 		if m.ItemID == itemID {
@@ -203,30 +229,6 @@ func rarityMilestoneLabel(itemID string) string {
 		}
 	}
 	return ""
-}
-
-// pushRarityStatuettesOnKeep 在 14/5 入护后推送奖座：4/22 增量进背包，
-// 同时在系统频道播报一行。入护不经过 801 结算界面，没有礼物弹窗，
-// 靠播报让玩家知道「刚才那条鱼解锁了奖座」。
-func pushRarityStatuettesOnKeep(sess *Session, items []*store.Item) {
-	if sess == nil || sess.Srv == nil {
-		return
-	}
-	for _, it := range items {
-		if it == nil {
-			continue
-		}
-		sess.Srv.pushItemUpdate(sess.Userid, it)
-		label := rarityMilestoneLabel(it.ItemID)
-		if label == "" {
-			continue
-		}
-		name := sess.Srv.lootItemName(sess.pushCtx(), it.ItemID)
-		if name == "" {
-			name = it.ItemID
-		}
-		sess.pushSystemChat(fmt.Sprintf("收藏奖座解锁：%s（%s）", name, label))
-	}
 }
 
 // ensureRarityMilestonesOnce 每会话只巡检一次，供背包列表（4/1、4/4）兜底。
@@ -251,14 +253,15 @@ func (s *Session) ensureRarityMilestonesOnce() {
 
 // ensureRarityMilestones 登录/打开奖赏面板时巡检，补发离线期间跨过的档位，
 // 也覆盖「本补丁上线前就已经有很多上星鱼种」的历史存档。幂等。
+// 结算路径发放失败（例如奖座物品定义临时读不到）时，这里也会兜住。
 func (s *Server) ensureRarityMilestones(ctx context.Context, uid int64) []*store.Item {
 	if s == nil || s.DB == nil {
 		return nil
 	}
-	rare, super, err := s.raritySpeciesCounts(ctx, uid)
+	rare, super, err := s.rarityMilestoneAfterCatch(ctx, uid)
 	if err != nil {
 		s.log.Warn("稀有鱼种数巡检失败", "uid", uid, "err", err)
 		return nil
 	}
-	return s.grantRarityMilestones(ctx, uid, rare, super)
+	return append(rare.Items, super.Items...)
 }
