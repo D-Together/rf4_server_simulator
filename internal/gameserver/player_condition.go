@@ -27,6 +27,7 @@ const (
 	tunableHungerDecayPerHour   = "condition_hunger_decay_per_hour"
 	tunableEnergyRegenPerHour   = "condition_energy_regen_per_hour"
 	tunableEnergyMax            = "condition_energy_max"
+	tunableEnergyRegenCap       = "condition_energy_regen_cap"
 	tunableHungerRegenFloor     = "condition_hunger_regen_floor"
 	tunableCastEnergyCost       = "condition_cast_energy_cost"
 	tunablePullEnergyCost       = "condition_pull_energy_cost"
@@ -57,14 +58,19 @@ const (
 )
 
 // 缺省标定值：
-// 饱食衰减 0.24/h 来自抓包（~0.0019/30s）；精力静止上限 0.85 来自抓包；
+// 饱食衰减 0.24/h 来自抓包（~0.0019/30s）；精力自然恢复封顶 0.85 来自抓包；
 // 精力恢复 2.0/h 是抓包"15 秒恢复 0.0086"的量级下界；其余为占位标定。
 const (
 	defHungerDecayPerHour = 0.24
 	// 满饱食度时约 30 秒回满一管（0.85 / 100 * 3600 ≈ 30.6s）：
 	// 挖掘/搏鱼的消耗靠“吃饱→快速回精力→再消耗”的循环，不再等几十分钟。
 	defEnergyRegenPerHour = 100.0
-	defEnergyMax          = store.DefaultPlayerConditionPrimary
+	// 精力硬上限 1.0：客户端状态条按 1.0 归一化画满（0.85 只画到 85%）。
+	// 官服抓包 f0 静止恒 0.85 是"自然恢复封顶"，不是上限——动作掉下去后
+	// 15 秒内只回升到 0.85 就停住。最后那 15% 要靠咖啡/可可这类消耗品补满，
+	// 把硬上限设成 0.85 会让所有回精力消耗品恒为零效果。
+	defEnergyMax          = 1.0
+	defEnergyRegenCap     = 0.85
 	defHungerRegenFloor   = 0.25
 	defCastEnergyCost     = 0.01
 	defPullEnergyCost     = 0.005
@@ -116,6 +122,7 @@ type conditionParams struct {
 	HungerDecayPerHour   float64
 	EnergyRegenPerHour   float64
 	EnergyMax            float64
+	EnergyRegenCap       float64
 	HungerRegenFloor     float64
 	CastEnergyCost       float64
 	PullEnergyCost       float64
@@ -151,6 +158,7 @@ func (s *Server) conditionParams() conditionParams {
 		HungerDecayPerHour:   s.tunableF(tunableHungerDecayPerHour, defHungerDecayPerHour),
 		EnergyRegenPerHour:   s.tunableF(tunableEnergyRegenPerHour, defEnergyRegenPerHour),
 		EnergyMax:            s.tunableF(tunableEnergyMax, defEnergyMax),
+		EnergyRegenCap:       s.tunableF(tunableEnergyRegenCap, defEnergyRegenCap),
 		HungerRegenFloor:     s.tunableF(tunableHungerRegenFloor, defHungerRegenFloor),
 		CastEnergyCost:       s.tunableF(tunableCastEnergyCost, defCastEnergyCost),
 		PullEnergyCost:       s.tunableF(tunablePullEnergyCost, defPullEnergyCost),
@@ -239,7 +247,22 @@ func advancePlayerCondition(cur store.PlayerCondition, now float64, p conditionP
 	}
 	factor := p.HungerRegenFloor + (1-p.HungerRegenFloor)*out.Secondary
 	prevEnergy := out.Primary
-	out.Primary = clampFloat(cur.Primary+regen*factor*elapsedH, 0, p.EnergyMax)
+	// 自然恢复只能回到 regenCap，回不到硬上限：官服抓包显示精力静止时稳定
+	// 停在 0.85、动作掉下去 15 秒内回升到 0.85 就不再涨。硬上限 1.0 留给
+	// 咖啡/可可这类消耗品，否则"喝咖啡回精力"在没有消耗的空闲期永远无效。
+	//
+	// 只封顶"自然恢复这一段"，不能用 clamp(cur+regen, 0, naturalCap) 硬钳：
+	// 那会在消耗品把精力顶到 1.0 之后，下一拍保活又把玩家按回 0.85。
+	// 已经在封顶之上的值原样保留，回落到封顶以下时才重新按自然恢复补。
+	naturalCap := math.Min(p.EnergyMax, p.EnergyRegenCap)
+	regenTo := cur.Primary + regen*factor*elapsedH
+	if cur.Primary < naturalCap && regenTo > naturalCap {
+		regenTo = naturalCap
+	}
+	if regenTo < cur.Primary {
+		regenTo = cur.Primary // 自然恢复不会是负增长
+	}
+	out.Primary = clampFloat(regenTo, 0, p.EnergyMax)
 	// 恢复精力要吃掉饱食度：按实际回复量折算，系数为 tunable（0 关闭）。
 	// 放在饱食度衰减之后、健康判定之前，保证同一拍里 f1 与健康压力源自洽。
 	if gained := out.Primary - prevEnergy; gained > 0 && p.EnergyRegenFoodCost > 0 {
