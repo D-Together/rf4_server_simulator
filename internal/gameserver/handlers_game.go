@@ -1399,7 +1399,6 @@ func finishNibbleHook(ctx *Ctx, st *FishState, pending *RolledFish, gear string,
 		st.Hooked = false
 		st.Resolved = false
 		st.PendingRepush = 0
-		st.LuckRepush = 0
 	}
 	st.mu.Unlock()
 	if castActive && !resolved {
@@ -1476,18 +1475,6 @@ func hFishingLeft(ctx *Ctx) ([]byte, bool) {
 			st.PendingRepush = 0
 			st.Resolved = true
 		}
-		st.mu.Unlock()
-		return nil, true
-	}
-	if (f0 == 1 || f0 == 2 || f0 == 8) && st.Hooked &&
-		st.Pending != nil && st.Pending.LuckProtected && st.LuckRepush < 2 {
-		st.LuckRepush++
-		st.Hooked = false
-		st.PushSent = false
-		st.PendingRepush = 0
-		srv.armPendingTimerLocked(ctx.Sess.Userid, st, 2*time.Second)
-		ctx.Log.Info("蓝冠天命保护：忽略钩型脱钩并重推", "f0", f0,
-			"fish", shortGUID(st.Pending.FishGUID), "retry", st.LuckRepush)
 		st.mu.Unlock()
 		return nil, true
 	}

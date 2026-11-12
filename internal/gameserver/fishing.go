@@ -74,7 +74,6 @@ type FishState struct {
 	biteTicket      uint64
 	pendingTicket   uint64
 	PendingRepush   int           // 14/12 f0=3/5/6 连续拒收鱼实体时的重推次数
-	LuckRepush      int           // 蓝冠天命鱼的有限重推次数
 	BiteAt          time.Time     // 原定咬钩绝对时刻；硬重启后据此恢复 timer
 	Keepnet         []*RolledFish // 回退缓存（DB 权威）
 	Bait            string
@@ -2102,7 +2101,6 @@ func (s *Server) scheduleBiteState(sess *Session, st *FishState, preserveHooked,
 	st.Pending = nil
 	st.hookedChatFishGUID = ""
 	st.PendingRepush = 0
-	st.LuckRepush = 0
 	if !preserveHooked {
 		st.Hooked = false
 	}
