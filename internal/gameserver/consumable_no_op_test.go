@@ -188,26 +188,39 @@ func TestItemUseFallsBackWithValidBodyWhenNoEffect(t *testing.T) {
 	drinkUseTestQty(t, s, coffee.GUID, 1, 0)
 }
 
+// 自然恢复的天花板是 EnergyRegenCap，不是硬上限 EnergyMax。
+// 用生产默认恢复速率（100/h）跑，保证一拍的增量足以跨过边界——
+// 恢复速率取小值时增量碰不到封顶，测不出这条约束。
+func TestNaturalRegenStopsAtRegenCap(t *testing.T) {
+	t.Parallel()
+	p := testConditionParams()
+	p.EnergyRegenPerHour = 100.0 // 生产默认值
+	p.EnergyRegenFoodCost = 0
+	for _, secs := range []float64{5, 10, 60, 600} {
+		// 场景一：恰好停在封顶。增量再大也不该继续往上爬。
+		cur := store.PlayerCondition{Primary: 0.85, Secondary: 1.0, Comfort: 1.0, UpdatedTS: 1000}
+		next := advancePlayerCondition(cur, 1000+secs, p, conditionEnv{})
+		if math.Abs(next.Primary-p.EnergyRegenCap) > 1e-9 {
+			t.Fatalf("停在封顶 %.0fs 后应为 %v，实得 %v", secs, p.EnergyRegenCap, next.Primary)
+		}
+		// 场景二：从下方接近，只能补到封顶，不能越过。
+		lower := store.PlayerCondition{Primary: 0.60, Secondary: 1.0, Comfort: 1.0, UpdatedTS: 1000}
+		back := advancePlayerCondition(lower, 1000+secs, p, conditionEnv{})
+		if back.Primary < 0.60 || back.Primary > p.EnergyRegenCap+1e-9 {
+			t.Fatalf("自然恢复应落在 [0.60, %v]，%.0fs 实得 %v", p.EnergyRegenCap, secs, back.Primary)
+		}
+	}
+}
+
 // 消耗品把精力顶到硬上限后，后续的自然恢复拍不能把它压回自然封顶。
-// 这条守的是"只封顶自然恢复、不回拉已有值"的语义：
-// 旧实现用 clamp(cur+regen, 0, naturalCap) 会把玩家喝咖啡补上的 15% 抹掉。
 func TestCoffeeEnergySurvivesKeepaliveTick(t *testing.T) {
 	t.Parallel()
 	p := testConditionParams()
+	p.EnergyRegenPerHour = 100.0 // 生产默认值：旧实现在这里会立刻越过封顶并压回
 	p.EnergyRegenFoodCost = 0
-	// 喝咖啡后的状态：精力 1.0（硬上限），饱食度不为 0 以免触发饿的压力。
 	cur := store.PlayerCondition{Primary: 1.0, Secondary: 0.80, Comfort: 1.0, UpdatedTS: 1000}
 	next := advancePlayerCondition(cur, 1000+60, p, conditionEnv{})
 	if math.Abs(next.Primary-1.0) > 1e-9 {
 		t.Fatalf("自然恢复拍不应把 1.0 压回 %v", next.Primary)
-	}
-	// 回到封顶以下后，才重新按自然恢复往上补，且只补到封顶。
-	lower := store.PlayerCondition{Primary: 0.60, Secondary: 0.80, Comfort: 1.0, UpdatedTS: 1000}
-	back := advancePlayerCondition(lower, 1000+60, p, conditionEnv{})
-	if back.Primary <= 0.60 {
-		t.Fatalf("封顶以下应继续自然恢复: %v", back.Primary)
-	}
-	if back.Primary > p.EnergyRegenCap+1e-9 {
-		t.Fatalf("自然恢复不应越过封顶 %v: %v", p.EnergyRegenCap, back.Primary)
 	}
 }

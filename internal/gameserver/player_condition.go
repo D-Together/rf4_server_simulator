@@ -247,22 +247,15 @@ func advancePlayerCondition(cur store.PlayerCondition, now float64, p conditionP
 	}
 	factor := p.HungerRegenFloor + (1-p.HungerRegenFloor)*out.Secondary
 	prevEnergy := out.Primary
-	// 自然恢复只能回到 regenCap，回不到硬上限：官服抓包显示精力静止时稳定
-	// 停在 0.85、动作掉下去 15 秒内回升到 0.85 就不再涨。硬上限 1.0 留给
+	// 自然恢复只能把精力推到 regenCap，推不到硬上限：官服抓包显示精力静止时
+	// 稳定停在 0.85、动作掉下去约 15 秒回升到 0.85 就不再涨。硬上限 1.0 留给
 	// 咖啡/可可这类消耗品，否则"喝咖啡回精力"在没有消耗的空闲期永远无效。
 	//
-	// 只封顶"自然恢复这一段"，不能用 clamp(cur+regen, 0, naturalCap) 硬钳：
-	// 那会在消耗品把精力顶到 1.0 之后，下一拍保活又把玩家按回 0.85。
-	// 已经在封顶之上的值原样保留，回落到封顶以下时才重新按自然恢复补。
+	// 封的是"自然恢复能到多高"这个天花板，不是"当前值不得超过多少"：
+	// 已经在封顶之上的值（消耗品补上去的）原样保留，不会被保活拍按回来。
 	naturalCap := math.Min(p.EnergyMax, p.EnergyRegenCap)
-	regenTo := cur.Primary + regen*factor*elapsedH
-	if cur.Primary < naturalCap && regenTo > naturalCap {
-		regenTo = naturalCap
-	}
-	if regenTo < cur.Primary {
-		regenTo = cur.Primary // 自然恢复不会是负增长
-	}
-	out.Primary = clampFloat(regenTo, 0, p.EnergyMax)
+	regenTo := clampFloat(cur.Primary+regen*factor*elapsedH, 0, naturalCap)
+	out.Primary = clampFloat(math.Max(cur.Primary, regenTo), 0, p.EnergyMax)
 	// 恢复精力要吃掉饱食度：按实际回复量折算，系数为 tunable（0 关闭）。
 	// 放在饱食度衰减之后、健康判定之前，保证同一拍里 f1 与健康压力源自洽。
 	if gained := out.Primary - prevEnergy; gained > 0 && p.EnergyRegenFoodCost > 0 {

@@ -35,10 +35,17 @@ Status: done
 - `internal/gameserver/player_condition.go`：新增 tunable `condition_energy_regen_cap`（默认 0.85），
   与 `condition_energy_max`（改为默认 1.0）分离。`advancePlayerCondition` 的自然恢复
   按 `min(EnergyMax, EnergyRegenCap)` 封顶；扣减、消耗品恢复、读口钳制仍按 `EnergyMax`。
+- 封的是"自然恢复能到多高"这个天花板，不是"当前值不得超过多少"：先算恢复目标
+  `clamp(cur+regen, 0, naturalCap)`，再取 `max(cur, 恢复目标)`。已在封顶之上的值
+  （消耗品补上去的）原样保留，不会被保活拍按回来。
 - `store.DefaultPlayerConditionPrimary` 保持 0.85 不动：那是**新档初始值**（官服新号
   从 85% 起步），不是上限语义；改它会牵动迁移回填与抛投系数基线。
 - 装备精力上限加成（`condition_gear_energy_max_cap`）继续叠加在硬上限上，钳到 1.0 不变。
-- 回滚：把 `condition_energy_max` 设回 0.85 即恢复旧行为，无需改代码（tunable 免重启）。
+- 升级：新增迁移 `00059_condition_energy_max.sql`，把历史遗留的 `condition_energy_max='0.85'`
+  升到 `1.0`。tunable 读取优先取已存在的行，只改代码默认值不会覆盖旧的显式行；
+  迁移只改这一个历史值，维护者标定的其它取值原样保留。
+- 回滚：把 `condition_energy_max` 与 `condition_energy_regen_cap` 都设回 0.85
+  即恢复旧行为（两者相等时自然恢复可达上限），无需改代码。
 
 ## Testing Decisions
 
