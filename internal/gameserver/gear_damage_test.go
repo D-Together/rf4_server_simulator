@@ -744,7 +744,7 @@ func TestRodBreakDestroysRigGearKeepsBrokenRod(t *testing.T) {
 
 	tree := rigRequestTree(t, proto.Guid(rod.GUID), proto.Guid(rod.GUID), proto.U32(1), proto.Null())
 	hctx := &Ctx{Sess: sess, Main: 17, Sub: 9, Tree: tree,
-		Body: lineBreakBodyWithLineOut(12.5),
+		Body:     lineBreakBodyWithLineOut(12.5),
 		DecodeOK: true, ExpectResponse: true, Log: logging.Discard()}
 	body, ok := hDynamicRodBreak(hctx)
 	if !ok || len(body) == 0 {
