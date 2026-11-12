@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"rf4server/internal/tunnel"
 )
 
 // 14/8 完整帧长 138 字节：剩余体力在偏移 45，钓组最弱环强度在偏移 49，都是
@@ -88,7 +90,8 @@ func TestFishOverloadPct(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			fish := &RolledFish{FishGUID: "f", Species: "perch", WeightG: c.weightG}
-			got, ok := s.fishOverloadPct(limit, fish, c.stamina)
+			pull := s.fishFightPullKgfFor(fish)
+			got, ok := fishOverloadPct(limit, pull, c.stamina)
 			if !ok {
 				t.Fatal("overload unavailable for a known species")
 			}
@@ -99,7 +102,6 @@ func TestFishOverloadPct(t *testing.T) {
 				t.Fatalf("want a positive overload, got %.1f%%", got)
 			}
 			// 与公式直算一致：体力归零时分子的确归零。
-			pull := s.fishFightPullKgfFor(fish)
 			want := math.Max(0, (c.stamina*pull-limit)/limit*100)
 			if math.Abs(got-want) > 1e-6 {
 				t.Fatalf("got %.4f, want %.4f", got, want)
@@ -107,11 +109,12 @@ func TestFishOverloadPct(t *testing.T) {
 		})
 	}
 	// 分母缺失（未上报钓组最弱环）时不出超载，避免拿 0 当分母。
-	if _, ok := s.fishOverloadPct(0, &RolledFish{Species: "perch", WeightG: 20000}, 1.0); ok {
+	if _, ok := fishOverloadPct(0, 20, 1.0); ok {
 		t.Fatal("zero rig limit must not produce an overload value")
 	}
-	if _, ok := s.fishOverloadPct(11, nil, 1.0); ok {
-		t.Fatal("nil fish must not produce an overload value")
+	// 分子缺失（鱼种无标定拉力）同样不出数。
+	if _, ok := fishOverloadPct(11, 0, 1.0); ok {
+		t.Fatal("missing pull must not produce an overload value")
 	}
 }
 
@@ -317,5 +320,94 @@ func TestStaminaReportGatingAndThrottle(t *testing.T) {
 		if strings.HasPrefix(m.Text, "[耐力]") {
 			t.Fatal("report was written into the personal mail table")
 		}
+	}
+}
+
+// staminaReportFixture 造一套「手持竿正在搏鱼」的最小环境。
+func staminaReportFixture(t *testing.T) (*Server, *Session, *tunnel.Conn, *FishState, string) {
+	t.Helper()
+	s, _ := newRigTestServer(t)
+	sess, peer := newTunnelProbe(t, s)
+	uid := sess.Userid
+	rod, err := s.CreateItem(t.Context(), uid, "spin_10001_S60L", "backpack", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := s.selectFishingRod(uid, rod.GUID)
+	fish := &RolledFish{FishGUID: newFishGUID(), Species: "perch", WeightG: 400, GearGUID: rod.GUID}
+	st.mu.Lock()
+	st.GearGuid, st.Pending, st.CastActive, st.InWater, st.Hooked = rod.GUID, fish, true, true, true
+	st.mu.Unlock()
+	return s, sess, peer, st, rod.GUID
+}
+
+// 开关缓存：默认关时读一次库就缓存，菜单改设置后立刻失效——关掉即刻停止，
+// 不必等到下一个 5 秒窗口，也不会因为缓存而把旧状态沿用下去。
+func TestStaminaReportSwitchCacheInvalidation(t *testing.T) {
+	s, sess, peer, st, _ := staminaReportFixture(t)
+	ch := collectHookedChat(peer)
+	body := loadFrame(t, 0.5, 11.0)
+	makeCtx := func(ss *Session) *Ctx {
+		c := miscCtx(ss, 14, 8, nil)
+		c.Body = body
+		return c
+	}
+	now := time.Now()
+
+	s.maybeReportStamina(makeCtx(sess), st, now)
+	st.mu.Lock()
+	cached, on := st.staminaFlagCached, st.staminaFlagOn
+	st.mu.Unlock()
+	if !cached || on {
+		t.Fatalf("switch off must be cached as off: cached=%v on=%v", cached, on)
+	}
+	if texts := finishHookedChat(t, sess, ch); len(texts) != 0 {
+		t.Fatalf("switch off pushed %v", texts)
+	}
+
+	sendGearAssistantForTest(t, s, sess, "2 开")
+	s.maybeReportStamina(makeCtx(sess), st, now)
+	if texts := finishHookedChat(t, sess, ch); len(texts) != 1 {
+		t.Fatalf("enabling did not invalidate the cache: %v", texts)
+	}
+
+	sendGearAssistantForTest(t, s, sess, "b")
+	sendGearAssistantForTest(t, s, sess, "2 关")
+	s.maybeReportStamina(makeCtx(sess), st, now.Add(10*time.Second))
+	if texts := finishHookedChat(t, sess, ch); len(texts) != 0 {
+		t.Fatalf("disabling did not invalidate the cache: %v", texts)
+	}
+}
+
+// 重连不重复播报：竿状态与节流标记都挂在服务端按 uid 的 FishState 上，
+// 新会话复用同一对象，同一尾鱼不会因为重连再播一次。
+func TestStaminaReportSurvivesReconnect(t *testing.T) {
+	s, sess, peer, st, _ := staminaReportFixture(t)
+	ch := collectHookedChat(peer)
+	body := loadFrame(t, 0.5, 11.0)
+	makeCtx := func(ss *Session) *Ctx {
+		c := miscCtx(ss, 14, 8, nil)
+		c.Body = body
+		return c
+	}
+	now := time.Now()
+	sendGearAssistantForTest(t, s, sess, "2 开")
+	s.maybeReportStamina(makeCtx(sess), st, now)
+	if texts := finishHookedChat(t, sess, ch); len(texts) != 1 {
+		t.Fatalf("first fight frame must report: %v", texts)
+	}
+
+	reconnected := &Session{ID: 2, Userid: sess.Userid, Srv: s, log: sess.log, tunnel: sess.tunnel}
+	if got := s.fishingState(sess.Userid); got != st {
+		t.Fatal("reconnect rebuilt the rod state instead of reusing it")
+	}
+	s.maybeReportStamina(makeCtx(reconnected), st, now.Add(time.Second))
+	if texts := finishHookedChat(t, sess, ch); len(texts) != 0 {
+		t.Fatalf("reconnect repeated the report for the same fish: %v", texts)
+	}
+	// 过了窗口按正常节拍继续，属于节流后的下一拍，不是重连重复。
+	s.maybeReportStamina(makeCtx(reconnected), st, now.Add(6*time.Second))
+	if texts := finishHookedChat(t, sess, ch); len(texts) != 1 {
+		t.Fatalf("next window after reconnect was lost: %v", texts)
 	}
 }

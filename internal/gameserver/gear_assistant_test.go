@@ -127,6 +127,52 @@ func TestGearAssistantCommandsAndPersistence(t *testing.T) {
 	}
 }
 
+func TestGearAssistantLegacySingleWordAlias(t *testing.T) {
+	env := newDLineTestEnv(t, 1000001)
+	if _, err := env.db.EnsureProfile(t.Context(), env.sess.Userid); err != nil {
+		t.Fatal(err)
+	}
+	overloadOn := func() bool {
+		t.Helper()
+		on, err := readOverloadProtection(t.Context(), env.db.SQL, env.sess.Userid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return on
+	}
+	lastReply := func() string {
+		t.Helper()
+		mails, err := env.db.MailList(t.Context(), env.sess.Userid, false)
+		if err != nil || len(mails) == 0 {
+			t.Fatalf("no assistant reply: %+v %v", mails, err)
+		}
+		return mails[0].Text
+	}
+	// 旧版单字指令直接作用于满红不爆，不必先记序号。
+	sendGearAssistantForTest(t, env.srv, env.sess, "开")
+	if reply := lastReply(); !overloadOn() || !strings.Contains(reply, "已开启") {
+		t.Fatalf("legacy 开 did not enable overload: %q", reply)
+	}
+	sendGearAssistantForTest(t, env.srv, env.sess, "b")
+	sendGearAssistantForTest(t, env.srv, env.sess, "状态")
+	if reply := lastReply(); !strings.Contains(reply, "【当前状态】：开启") || !overloadOn() {
+		t.Fatalf("legacy 状态 must only show the state: %q", reply)
+	}
+	// 单字别名等价于「1 <动作>」，同样会进入二级；先 b 退回一级，
+	// 才能继续用一级别名验证「关」，并让带参写法在一级被判为未知。
+	sendGearAssistantForTest(t, env.srv, env.sess, "b")
+	sendGearAssistantForTest(t, env.srv, env.sess, "关")
+	if reply := lastReply(); overloadOn() || !strings.Contains(reply, "已关闭") {
+		t.Fatalf("legacy 关 did not disable overload: %q", reply)
+	}
+	sendGearAssistantForTest(t, env.srv, env.sess, "b")
+	// 别名只认单字：带参数的旧写法仍算未知输入，不改设置。
+	sendGearAssistantForTest(t, env.srv, env.sess, "开 关")
+	if reply := lastReply(); overloadOn() || !strings.Contains(reply, "【满红不爆】") {
+		t.Fatalf("legacy alias must stay single-word only: %q", reply)
+	}
+}
+
 func TestGearAssistantMailReplayAndIsolation(t *testing.T) {
 	s, db := newProgressSrv(t)
 	const uid = int64(1000001)

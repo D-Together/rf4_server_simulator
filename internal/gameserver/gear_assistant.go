@@ -63,6 +63,13 @@ func parseGearCommand(text string) gearCommand {
 		head = "overload"
 	case "2", "耐力", "stamina", "Stamina", "STAMINA":
 		head = "stamina"
+	case "开", "开启", "关", "关闭", "状态":
+		// 两级菜单之前的单字指令，语义是满红不爆。保留成一级快捷别名：
+		// 老玩家不必先记序号，也不会因为菜单化而失去「开关」这个动作。
+		if len(fields) > 1 {
+			return gearCommand{mode: "unknown"}
+		}
+		return gearCommand{mode: "cmd", feature: "overload", action: legacyGearAction(head)}
 	default:
 		return gearCommand{mode: "unknown"}
 	}
@@ -84,6 +91,17 @@ func parseGearCommand(text string) gearCommand {
 		}
 	}
 	return gearCommand{mode: "cmd", feature: head, action: action}
+}
+
+// legacyGearAction 把旧单字指令还原成二级动作；「状态」对应空动作（只显示菜单）。
+func legacyGearAction(text string) string {
+	switch text {
+	case "开", "开启":
+		return "on"
+	case "关", "关闭":
+		return "off"
+	}
+	return ""
 }
 
 // gearReply 拼出二级菜单内任意操作的回复，统一带快捷键尾行。
@@ -260,8 +278,12 @@ func (s *Server) gearSubShow(ctx *Ctx, uid int64, feature string, prefix ...stri
 
 // gearSubAction 在二级内执行开/关，写设置后停留二级（重显二级菜单）。
 func (s *Server) gearSubAction(ctx *Ctx, uid int64, feature, action string) ([]byte, bool) {
-	s.overloadProtectionMu.Lock()
-	defer s.overloadProtectionMu.Unlock()
+	// 只有满红不爆要和断件/负载判定串行（同一把锁也在磨损结算里用）。
+	// 耐力播报只读写自己那一行 kv，没必要占用它，避免菜单的 DB+邮件写入阻塞搏鱼结算。
+	if feature == "overload" {
+		s.overloadProtectionMu.Lock()
+		defer s.overloadProtectionMu.Unlock()
+	}
 	c := ctx.Sess.pushCtx()
 	tx, err := beginEconomyTx(c, s.DB)
 	if err != nil {
@@ -297,14 +319,20 @@ func (s *Server) gearSubAction(ctx *Ctx, uid int64, feature, action string) ([]b
 		ctx.ReplyFailure("System.IO.IOException", "钓具设置保存失败，设置未改变")
 		return nil, true
 	}
-	if next != enabled && feature == "overload" {
-		now := time.Now()
-		for _, st := range s.fishingStatesFor(uid) {
-			st.mu.Lock()
-			// Keep incurred wear; the timestamp only bounds later tick billing.
-			st.reelWear.lastLoadAt = now
-			st.reelWear.protectionChangedAt = now
-			st.mu.Unlock()
+	if next != enabled {
+		switch feature {
+		case "overload":
+			now := time.Now()
+			for _, st := range s.fishingStatesFor(uid) {
+				st.mu.Lock()
+				// Keep incurred wear; the timestamp only bounds later tick billing.
+				st.reelWear.lastLoadAt = now
+				st.reelWear.protectionChangedAt = now
+				st.mu.Unlock()
+			}
+		case "stamina":
+			// 设置已落库，清掉进程内缓存，下一条 14/8 重新读。
+			s.invalidateStaminaFlag(uid)
 		}
 	}
 	ctx.AfterResponse(func() { s.notifyMail(ctx.Sess.pushCtx(), uid, mailID) })

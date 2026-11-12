@@ -35,6 +35,7 @@ Status: done
 - 数值：`fishStaminaFromLoad` 从 `14/8` 原始 body 偏移 45 读 F32 小端值，校验 `[0,1]` 与有限性；`fishRigLimitFromLoad` 从偏移 49 读钓组最弱环 kgf，校验 `(0,500]` 与有限性。两者只用于播报，不进结算、不进磨损账、不改 `obj27` 形状。
 - 播报条件：`st.Hooked && st.Pending != nil && st.CastActive && !st.Resolved`，且 `s.fishingState(uid) == st`（当前手持竿）。
 - 节拍：**不另起 ticker**，以每约 2 秒到达的 `14/8` 为心跳做 5 秒节流（`FishState.lastStaminaReportAt` / `lastStaminaFishGUID` 两个进程内字段，不进持久化快照）。搏鱼结束、换竿、掉线后自然停止，无 goroutine 或定时器需回收；每尾新鱼首帧立即播报。
+- 开关读取：先过内存门控（`fishingState(uid) == st`、搏鱼态），再查 kv，并把结果缓存在 `FishState.staminaFlagCached/staminaFlagOn`；菜单写入提交后调用 `invalidateStaminaFlag` 失效。命中缓存时每个 `14/8` 零查询，非手持竿/非搏鱼态同样零查询。
 - 超载率：`超载 = max(0, (剩余体力 × 标定拉力 − 钓组最弱环) ÷ 钓组最弱环) × 100`。分子用 `fishFightPullKgfFor`（与 `27#8` 同源），分母用帧内 `.1.5`（与服务端 `gearBreakLimitKg` 逐位一致），不查装备库。拉得动时为 0%，体力耗尽时分子归零。
 - 播报通道：`sess.Push(24, 27, buildChatEchoPush(...))`，与 `notifyFishHooked` 同通道；不写 `mail` 表、不用 24/10 公聊；文案 `[耐力] NN.N% · [超载] NN%`，帧内读不到最弱环或该鱼种无标定拉力时退化为 `[耐力] NN.N%`。
 - 兼容：客户端基线 `4.0.25034`；不改 `14/14` / `24/27` 响应形状、不改表结构、不加迁移；回滚只需移除 `recordFightReelLoad` 末尾一行调用，kv 旧值无害。
@@ -42,7 +43,7 @@ Status: done
 ## Testing Decisions
 
 - 阶段一：分析脚本用**手造**合成帧（已知 float32 槽位按固定步长递减、另设递增计数器作对照、其余恒定）验证能挑出正确偏移与方向；期望值来自字面量，不是复用解析代码再算一遍。截断帧（`…+K`）必须报警而非静默分析。
-- 阶段二（已实现）：`gear_assistant_stamina_test.go` 按抓包确认的偏移（138 字节帧、offset 45 体力 / offset 49 钓组最弱环，均 F32 小端）合成帧，测 `fishStaminaFromLoad` 与 `fishRigLimitFromLoad`（含短帧/越界/NaN/非正值拒绝）、`fishOverloadPct`（小鱼恒 0%、大鱼为正、体力耗尽归零、分母或鱼缺失不出数）、两级菜单的开关指令与幂等、默认关、玩家隔离、重连保留、与满红不爆互不影响、一级菜单列出双开关；行为测「开关关/非手持竿/非搏鱼态/短帧零推送」「小鱼 `[耐力] 100.0% · [超载] 0%`」「同鱼耐力降到 37.1% 仍为 0%」「20kg 鱼出正超载」「帧内无最弱环时只报耐力」「5 秒节流」「换鱼立即播报」「24/27 形状」「不写 mail 表」。
+- 阶段二（已实现）：`gear_assistant_stamina_test.go` 按抓包确认的偏移（138 字节帧、offset 45 体力 / offset 49 钓组最弱环，均 F32 小端）合成帧，测 `fishStaminaFromLoad` 与 `fishRigLimitFromLoad`（含短帧/越界/NaN/非正值拒绝）、`fishOverloadPct`（小鱼恒 0%、大鱼为正、体力耗尽归零、分母或分子缺失不出数）、两级菜单的开关指令与幂等、默认关、玩家隔离、重连保留、与满红不爆互不影响、一级菜单列出双开关、旧单字指令别名、开关缓存失效（开启/关闭都立即生效）、重连不重复播报；行为测「开关关/非手持竿/非搏鱼态/短帧零推送」「小鱼 `[耐力] 100.0% · [超载] 0%`」「同鱼耐力降到 37.1% 仍为 0%」「20kg 鱼出正超载」「帧内无最弱环时只报耐力」「5 秒节流」「换鱼立即播报」「24/27 形状」「不写 mail 表」。
 - 实机验收：开启开关完整搏鱼一次，聊天框每 5 秒一条、数值趋势与客户端体力条一致；关闭后零推送；多竿切换只播手持竿。
 - 回滚后变红：阶段二的开关与播报行为测试；阶段一脚本不受服务端回滚影响。
 
@@ -112,3 +113,12 @@ Status: done
 - `[决策]` 分子用 `fishFightPullKgfFor`（标定拉力 × 剩余体力），分母用帧内 `.1.5`。理由是实测张力已被泄力削平（14.8kg n.pike 那场制动力 9.42、`.1.7` 峰值 9.86），用它算不出"鱼到底多强"，而标定拉力是逐鱼种标定值、与 `27#8` 同源。
 - `[事实]` 用玩家真实存档的 14 尾采样验证：ruffe 0.14kg / 褐鳟 3.38kg、4.38kg / 欧鳊 5.72kg 在 11.2kgf 钓组上恒为 **0%**；江鳕 9.74kg 49%、14.23kg 120%；狗鱼 16.48kg 175%；鲤鱼 26.27kg **322%**。与玩家"小鱼满体力也拉得上、大鱼要磨很久"的手感一致。
 - `[事实]` `internal/gameserver/stamina_load_probe.go` 的采集器保留（tunable `stamina_load_probe`，默认 0），继续用于口径对照；确认口径稳定后可单独移除。
+
+### 评审修复（2026-11-12，PR #432）
+
+- `[P2-1]` 14/8 每帧查库：改为「内存门控 → 读 kv → 锁内取数 → 推送」，并把开关缓存在 `FishState.staminaFlagCached/staminaFlagOn`。默认关、非手持竿、非搏鱼态、缓存命中都不再产生 `SELECT v FROM kv`；搏鱼期间由「每帧一次」降到「一场搏鱼一次」，菜单改设置后 `invalidateStaminaFlag` 立即失效。
+- `[P2-2]` `fish` 指针出锁：`maybeReportStamina` 不再把 `*RolledFish` 带出 `st.mu`。标定拉力 `fishFightPullKgfFor` 与 `fishGUID` 在锁内取好，`fishOverloadPct` 改成 `(limitKg, pullKgf, stamina)` 的纯算术函数，只接值不接指针。
+- `[P3-1]` 重连重复播报：核查后**不存在**该情形——`FishState` 挂在 `Server.fishStates[uid]` 上，`removeSession` 只删会话与二级菜单状态（`gearMenuClear`），竿状态及其节流字段跨重连保留，同一尾鱼不会被视为新鱼。补 `TestStaminaReportSurvivesReconnect` 固化：新 `Session` 复用同一 `FishState` 时 1 秒内零推送、6 秒后按节拍正常播报。
+- `[P3-2]` 旧单字指令：`开/开启/关/关闭/状态` 保留为满红不爆的一级快捷别名（只认单字，带参仍算未知输入），`docs/gameplay.md` 同步改写为两级菜单 + 耐力播报说明。补 `TestGearAssistantLegacySingleWordAlias`。
+- `[P3-3]` 锁粒度：`gearSubAction` 只在 `feature == "overload"` 时持有 `overloadProtectionMu`；耐力播报的 kv 读写与回复邮件不再占用同时保护断件/负载与磨损结算的锁。
+- `[事实]` `-race` 复核：本次改动按「锁内取值、出锁只用值」实现；本机 `CGO_ENABLED=1` 时 `go test -race ./internal/gameserver/ -run 'Stamina|GearAssistant|FishOverload' -count=1` 已通过、无 data race；建议 CI 开 `CGO_ENABLED=1` 跑全量 `go test -race ./internal/gameserver/`。
