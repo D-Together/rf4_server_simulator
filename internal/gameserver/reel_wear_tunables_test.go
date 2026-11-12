@@ -33,7 +33,7 @@ func TestReelSlipCalibrationDefaults(t *testing.T) {
 	}
 	// 缺省校准对齐官服 W5 实测：0.01%/41.7s ≈ 0.00024%/s。
 	if math.Abs(reelSlipCalibrationSeconds-41.7) > 1e-9 {
-		t.Errorf("校准秒数缺省应取官服档位 41.7，实得 %.4f", reelSlipCalibrationSeconds)
+		t.Errorf("校准秒数缺省应取官服实测 41.7，实得 %.4f", reelSlipCalibrationSeconds)
 	}
 	if got := srv.reelSlipDeadbandRatio(); math.Abs(got-reelSlipDeadbandRatioDefault) > 1e-12 {
 		t.Errorf("默认打滑门槛=%.4f，期望 %.4f", got, reelSlipDeadbandRatioDefault)
@@ -46,7 +46,7 @@ func TestReelSlipCalibrationDefaults(t *testing.T) {
 	}
 }
 
-// 打滑磨损量 = 档位率 / 校准秒数 x tick x 油系数。校准秒数翻倍 → 磨损减半。
+// 打滑磨损量 = 统一基准率 / 校准秒数 x tick x 油系数（拍平后与档位无关）。校准秒数翻倍 → 磨损减半。
 func TestReelSlipWearHalvesWithDoubledCalibration(t *testing.T) {
 	t.Parallel()
 	srv, db := newEconomyTxTestServer(t)
@@ -62,7 +62,7 @@ func TestReelSlipWearHalvesWithDoubledCalibration(t *testing.T) {
 	// 手算：0.0001 / 41.7 * 2 * 1 * 1（拍平后速率与档位无关）。
 	wantBase := reelSlipWear / reelSlipCalibrationSeconds * tick
 	if math.Abs(base-wantBase) > 1e-12 {
-		t.Fatalf("29 档打滑磨损=%.12f，手算 %.12f", base, wantBase)
+		t.Fatalf("统一基准打滑磨损=%.12f，手算 %.12f", base, wantBase)
 	}
 
 	if err := db.TunableSet(ctx, "reel_slip_calibration_seconds", "83.4", "test"); err != nil {

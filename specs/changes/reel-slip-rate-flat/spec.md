@@ -32,7 +32,10 @@ Status: done
 - 档位对磨损的全部剩余作用 = 触发侧 `reelDragAtSetting` 的 dragKg 曲线（决定打滑难易）；
   速率侧不再读档位。
 - 摘除 6 个档位键（`reel_slip_wear_low/s25/s26/s27/s28/max`）：后台 UI 与 api.go 区间
-  校验同步删除，历史存量 tunable 行不再被读取、不迁移（同锁轮烧穿键先例）。
+  校验同步删除，历史存量 tunable 行不再被读取、不迁移（同锁轮烧穿键先例）。边界：
+  旧脚本继续 POST 这 6 个键会被后台当作普通 tunable 入库（区间校验已随键删除），
+  运行时不再读取；后台「摩擦片磨损」分组说明已点明停用，运营自定义过的档位值会
+  静默回统一基准 0.0001。
 - 保留：`reel_slip_calibration_seconds`（41.7）、`reel_slip_deadband_ratio`（1.05×）、
   轮油品质 0.8~1.2 与适配倍率——它们各自有独立实测或既有玩法层依据。
 
