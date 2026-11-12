@@ -57,7 +57,9 @@ type Server struct {
 	fishStates             map[int64]map[string]*FishState
 	heldFishingRods        map[int64]string
 	fishMu                 sync.Mutex
-	overloadProtectionMu   sync.RWMutex // 在线开关与断件/负载判定同步
+	overloadProtectionMu   sync.RWMutex     // 在线开关与断件/负载判定同步
+	gearMenuMu             sync.Mutex       // 钓具助手二级菜单状态同步
+	gearMenuState          map[int64]string // 钓具助手二级菜单：""=一级，"overload"/"stamina"=二级
 	levelMap               map[int64]string
 	levelMu                sync.Mutex
 	fishEcologyMu          sync.RWMutex
@@ -264,6 +266,7 @@ func (s *Server) byID(sid uint64) *Session {
 
 // removeSession 移除会话注册。
 func (s *Server) removeSession(sess *Session) {
+	s.gearMenuClear(sess.Userid) // 二级菜单状态只在会话内有效，断线即回一级
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.sessions[sess.ID] == sess {

@@ -332,7 +332,7 @@ func hDynamicRodBreak(ctx *Ctx) ([]byte, bool) {
 		outcome, err := srv.breakLineOrRodWithLineOut(ctx.Sess.pushCtx(), ctx.Sess.Userid, rodGUID, brokenGUID, lineOutM)
 		if err == nil {
 			if outcome.OverloadProtected {
-				ctx.ReplyFailure("System.OperationCanceledException", "满红不爆已取消装备破坏")
+				ctx.ReplyFailure("System.OperationCanceledException", "【满红不爆】已取消装备破坏")
 				return nil, true
 			}
 			st.mu.Lock()
