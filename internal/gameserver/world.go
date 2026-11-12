@@ -491,7 +491,7 @@ type placeTripPrice struct {
 // 不含票价），服务端按实抓价整段校验；Silver/Gold 为 0 表示该币种价格未
 // 实抓，该币种购票一律拒绝（不回落客户端报价，审查 P1），实抓后补录。
 var placeTripPrices = map[string]placeTripPrice{
-	"level_018_moskitnoe": {Silver: 29800, Gold: 45},  // 铜湖 298 银（2026-11-05 实抓）/ 0.45 金（面板价，金币报文未实抓）
+	"level_018_moskitnoe": {Silver: 29800, Gold: 45},  // 铜湖 298 银（2026-11-05 实抓）/ 0.45 金（面板价读数，金币报文未实抓，待实抓校准）
 	"level_012_north_sea": {Silver: 139500, Gold: 95}, // 挪威海 1395 银（2026-11-05）/ 0.95 金（2026-11-11 23:52 实抓 gold=true price=95）
 }
 

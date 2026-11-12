@@ -189,12 +189,15 @@ func TestPlaceTripGoldPurchase(t *testing.T) {
 	if body, handled := hPlaceTripTx(ctx); !handled || body == nil {
 		t.Fatalf("金币购票未返回档案: handled=%v body=%v", handled, body != nil)
 	}
-	var gold int64
-	if err := srv.DB.SQL.QueryRow(`SELECT gold FROM profile WHERE uid=?`, uid).Scan(&gold); err != nil {
+	var silver, gold int64
+	if err := srv.DB.SQL.QueryRow(`SELECT silver, gold FROM profile WHERE uid=?`, uid).Scan(&silver, &gold); err != nil {
 		t.Fatal(err)
 	}
 	if gold != 100-45 {
 		t.Fatalf("金币扣款错误: %d", gold)
+	}
+	if silver != 100 {
+		t.Fatalf("金币购票不应动银币: silver=%d", silver)
 	}
 }
 
@@ -215,12 +218,15 @@ func TestPlaceTripGoldPurchaseNorthSea(t *testing.T) {
 	if body, handled := hPlaceTripTx(ctx); !handled || body == nil {
 		t.Fatalf("挪威海金币购票未返回档案: handled=%v body=%v", handled, body != nil)
 	}
-	var gold int64
-	if err := srv.DB.SQL.QueryRow(`SELECT gold FROM profile WHERE uid=?`, uid).Scan(&gold); err != nil {
+	var silver, gold int64
+	if err := srv.DB.SQL.QueryRow(`SELECT silver, gold FROM profile WHERE uid=?`, uid).Scan(&silver, &gold); err != nil {
 		t.Fatal(err)
 	}
 	if gold != 100-95 {
 		t.Fatalf("挪威海金币扣款错误: %d", gold)
+	}
+	if silver != 100 {
+		t.Fatalf("金币购票不应动银币: silver=%d", silver)
 	}
 	remaining, _, purchases := tripStateRow(t, srv, uid, "level_012_north_sea")
 	if remaining != 18000 || purchases != 1 {
