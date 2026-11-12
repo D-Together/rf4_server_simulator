@@ -1,6 +1,6 @@
 # 删除蓝冠天命保护（中钩后救援重推）
 
-Status: in-progress
+Status: done
 
 <!-- 状态取值：draft | ready | in-progress | done | cancelled
      完成时原地改这里，不要归档、不要搬家、不要另开第二份。 -->
