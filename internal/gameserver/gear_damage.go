@@ -1535,8 +1535,9 @@ func (s *Server) backpackStackGUIDsForItems(ctx context.Context, uid int64, nume
 }
 
 // breakRodTx 处理 17/9 断竿：竿本体耐久归零、渔轮保留；主线只按客户端上报的
-// 实际放线米数扣减（lineOutM<=0 视为未上报、一米不扣），扣剩的线与渔轮一样
-// 留在断竿上，可拆卸换竿；f5 钓组与挂线配件全部丢失销毁。
+// 实际放线米数扣减（lineOutM<=0 视为未上报、一米不扣；线长读不出来按未上报
+// 处理，不判死），扣剩的线与渔轮一样留在断竿上，可拆卸换竿；f3 指向不在本竿
+// 上的陈旧引用时只清引用不动物品。f5 钓组与挂线配件全部丢失销毁。
 func (s *Server) breakRodTx(ctx context.Context, uid int64, rodGUID, brokenGUID string, lineOutM float64) (*gearBreakOutcome, error) {
 	tx, err := s.DB.SQL.BeginTx(ctx, nil)
 	if err != nil {
@@ -1581,6 +1582,15 @@ func (s *Server) breakRodTx(ctx context.Context, uid int64, rodGUID, brokenGUID 
 	if lineGUID != "" {
 		lineRow, _ = s.DB.GetItemByGUIDTx(ctx, tx, lineGUID)
 	}
+	if lineRow != nil && (lineRow.Container != "rig" || lineRow.RigGUID != rodGUID) {
+		// f3 是陈旧引用（线已被拆回背包或挂到别的竿）：只清引用不动物品，
+		// 否则会把玩家手里的线改短甚至删掉。lineRow 置空走"无主线"分支。
+		if s.log != nil {
+			s.log.Info("断竿跳过陈旧主线引用", "rod", guidShort(rodGUID),
+				"line", guidShort(lineGUID), "container", lineRow.Container)
+		}
+		lineRow = nil
+	}
 	if lineRow != nil {
 		lineFields, err = FieldsFromJSON(lineRow.FieldsJSON)
 		if err != nil {
@@ -1592,7 +1602,9 @@ func (s *Server) breakRodTx(ctx context.Context, uid int64, rodGUID, brokenGUID 
 				beforeLength = lineLengthM(def)
 			}
 		}
-		if lineOutM > 0 {
+		// 长度读不出来（字段缺失且定义全长不可得）时按未上报处理：
+		// 一米不扣、整卷保留，不能因为读不到长度就把主线判死。
+		if lineOutM > 0 && beforeLength > 0 {
 			lossLength = int64(lineOutM + 0.5)
 			if lossLength < 1 {
 				lossLength = 1
@@ -1603,7 +1615,8 @@ func (s *Server) breakRodTx(ctx context.Context, uid int64, rodGUID, brokenGUID 
 		}
 	}
 	afterLength := beforeLength - lossLength
-	lineKept := lineRow != nil && afterLength > 0
+	// lossLength==0 时线必然保留：未上报或长度不可读都不产生扣减。
+	lineKept := lineRow != nil && (lossLength == 0 || afterLength > 0)
 
 	stored := protoFieldAt(fields, rod.WireClass, csRigObject)
 	compGUIDs := map[string]bool{}
@@ -1659,7 +1672,8 @@ func (s *Server) breakRodTx(ctx context.Context, uid int64, rodGUID, brokenGUID 
 	}
 	// 主线随断竿只扣放出去的米数：扣剩的线更新长度后仍挂在断竿上（f3 与
 	// catLine 投影行保留）；上报米数 ≥ 剩余线长时耗尽删除，与断主线耗尽同形。
-	if lineRow != nil && lineKept {
+	// 未扣（lossLength==0）不动线字段——长度不可读的线没有字段可写。
+	if lineRow != nil && lineKept && lossLength > 0 {
 		if !setItemLengthField(lineRow, lineFields, afterLength) {
 			return nil, errLineLengthField
 		}
@@ -1673,10 +1687,11 @@ func (s *Server) breakRodTx(ctx context.Context, uid int64, rodGUID, brokenGUID 
 		}
 		removed = append(removed, lineRow.GUID)
 	}
-	if lineRow != nil && (lossLength > 0 || !lineKept) {
+	// 只有真扣了米数才记 line_break；耐久字段不填——断竿不动线的耐久，
+	// 长度变化看 BeforeLength/AfterLength。
+	if lineRow != nil && lossLength > 0 {
 		entry := store.ItemDamageLog{
 			UID: uid, ItemGUID: lineRow.GUID, ItemID: lineRow.ItemID, Event: damageEventLineBreak,
-			BeforeDurability: ptrFloat64(lineRow.Durability), AfterDurability: ptrFloat64(lineRow.Durability),
 			BeforeLength: ptrInt64(beforeLength), AfterLength: ptrInt64(afterLength), BrokenGUID: brokenGUID,
 			DetailJSON: damageDetailJSON(map[string]any{"rod_guid": rodGUID, "reason": "rod_break", "loss_m": lossLength}),
 		}

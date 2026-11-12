@@ -34,7 +34,10 @@ Status: done
     `rodBreakLineOutM` 不动。
   - 扣减与 `lineLossTx` 主线分支同源：`itemLengthField` 读剩余长度（缺字段
     回退定义全长），`int64(lineOutM+0.5)` 取整，正数不足 1 米按 1 米，
-    `beforeLength` 封顶。
+    `beforeLength` 封顶。两处不扣减的护栏（评审补充）：线长读不出来
+    （字段缺失且定义全长不可得）按未上报处理，整卷保留不判死；f3 指向
+    `Container != "rig" || RigGUID != 竿` 的陈旧引用时只清引用与投影，
+    不动物品本身。只有真扣了米数才写线字段与 `line_break` 日志。
   - 线保留时：`setItemLengthField` + `updateItemFieldsTx`；f3 引用与
     rig_component 的 catLine 投影行保留（从销毁集合与 `DELETE FROM
     rig_component` 的豁免条件里把线与渔轮并排）；线 GUID 进 `UpdatedTrees`
@@ -42,7 +45,8 @@ Status: done
   - 线耗尽（或行缺失）时：`DeleteItemCascadeTx` + 清 f3 + 清投影行 + 进移除
     列表，与现状一致。
   - 伤害日志：扣减记 `line_break`（detail `reason: rod_break` + `loss_m`），
-    耗尽再补 `line_exhausted`，与 `lineLossTx` 的记账形状一致；
+    耗尽再补 `line_exhausted`，与 `lineLossTx` 的记账形状一致；不填耐久字段
+    （断竿不动线的耐久，长度看 BeforeLength/AfterLength，避免误读）；
     `lost_on_rod_break` 仍只记挂线配件。
   - `gearBreakOutcome.LineBroken` 保持 false（断竿计数、跑鱼播报、
     `st.GearGuid` 清理都不变），`LineLossM` 带上扣减米数供日志。
@@ -58,6 +62,9 @@ Status: done
 - 新增三态：上报 12.5m/50m 线 → 剩 37m 且线仍挂竿（f3 与 catLine 投影行
   保留、不在移除列表）；上报 200m/50m 线 → 耗尽删除；body 无放线字段 →
   50m 全保留。
+- 评审补充：上报 0.5m → 钳到扣 1m（剩 49）；线长不可读 + 上报 12.5m →
+  不删线（修复前会误删）；f3 陈旧引用（线在背包）→ 断竿不动背包线、只清
+  引用与投影；断竿后 17/3 拆线 → 37m 整卷退回背包、f3 与投影清掉。
 - 回滚后以上用例变红，可据此确认覆盖有效。
 
 ## Out of Scope
@@ -72,8 +79,9 @@ Status: done
   报文验证，同一命令同一 body 布局，断竿上报同样携带。
 - `[事实]` 现状整卷销毁：`gear_damage.go` `breakRodTx` 把 f3 主线 GUID 并入
   销毁集合并记 `lost_on_rod_break`。
-- `[推断]` 拆卸（17/3）不受断竿耐久拦截，只挡装配——保留在断竿上的线可拆下
-  换竿，不存在"线卡死在断竿上"。实机回归时确认。
+- `[推断→已测]` 拆卸（17/3）不受断竿耐久拦截，只挡装配——保留在断竿上的线
+  可拆下换竿，不存在"线卡死在断竿上"。`TestRodBreakLineDetachableAfterBreak`
+  已覆盖模拟侧；实机回归时再确认。
 - `[事实]` 全量 `go test ./...` 中 `TestFishMarketFlow` /
   `TestCafeNativeFlowPaysAndPushesRemoval` 在满套件并行下偶发"等待推送超时"
   （固定 2s WaitPush）；干净 HEAD 基线（stash 本改动后）复现同样两例失败，
