@@ -189,12 +189,12 @@ func TestItemUseFallsBackWithValidBodyWhenNoEffect(t *testing.T) {
 }
 
 // 自然恢复的天花板是 EnergyRegenCap，不是硬上限 EnergyMax。
-// 用生产默认恢复速率（100/h）跑，保证一拍的增量足以跨过边界——
+// 用生产默认恢复速率跑，保证一拍的增量足以跨过边界——
 // 恢复速率取小值时增量碰不到封顶，测不出这条约束。
 func TestNaturalRegenStopsAtRegenCap(t *testing.T) {
 	t.Parallel()
 	p := testConditionParams()
-	p.EnergyRegenPerHour = 100.0 // 生产默认值
+	p.EnergyRegenPerHour = defEnergyRegenPerHour // 生产默认值
 	p.EnergyRegenFoodCost = 0
 	for _, secs := range []float64{5, 10, 60, 600} {
 		// 场景一：恰好停在封顶。增量再大也不该继续往上爬。
@@ -216,7 +216,7 @@ func TestNaturalRegenStopsAtRegenCap(t *testing.T) {
 func TestCoffeeEnergySurvivesKeepaliveTick(t *testing.T) {
 	t.Parallel()
 	p := testConditionParams()
-	p.EnergyRegenPerHour = 100.0 // 生产默认值：旧实现在这里会立刻越过封顶并压回
+	p.EnergyRegenPerHour = defEnergyRegenPerHour // 生产默认值：旧实现在这里会立刻越过封顶并压回
 	p.EnergyRegenFoodCost = 0
 	cur := store.PlayerCondition{Primary: 1.0, Secondary: 0.80, Comfort: 1.0, UpdatedTS: 1000}
 	next := advancePlayerCondition(cur, 1000+60, p, conditionEnv{})
