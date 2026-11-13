@@ -265,6 +265,7 @@ func (s *Server) tryBaitDig(ctx *Ctx) ([]byte, bool) {
 	// 体力参数必须在开经济事务之后不再查库，故这里先取（tunableF 有 2 秒装载超时）。
 	condParams := s.conditionParamsForUID(cctx, ctx.Sess.Userid)
 	condCost := s.baitDigEnergyCost()
+	condEnv := s.conditionEnvForUID(ctx.Sess.Userid)
 
 	tx, err := beginEconomyTx(cctx, s.DB)
 	if err != nil {
@@ -273,7 +274,7 @@ func (s *Server) tryBaitDig(ctx *Ctx) ([]byte, bool) {
 	defer func() { _ = tx.Rollback() }()
 	// 体力扣减与饵入包同事务：任一侧失败整体回滚，不会出现"白挖"或"白扣"。
 	// conditionParams/消耗量必须在 beginEconomyTx 之前取好（见 player_condition_energy.go）。
-	spent, err := spendEnergyTx(cctx, tx, ctx.Sess.Userid, condParams, condCost)
+	spent, err := spendEnergyTx(cctx, tx, ctx.Sess.Userid, condParams, condEnv, condCost)
 	if err != nil {
 		if errors.Is(err, errEnergyNotEnough) {
 			ctx.Log.Info("9/3 挖饵被拒：精力不足", "tool", tool.ItemID,
