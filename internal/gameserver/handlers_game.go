@@ -1166,10 +1166,11 @@ func hFishingStep(ctx *Ctx) ([]byte, bool) {
 				}
 				st.updateLureActionLocked(now, previousMask, anim)
 			}
-			// 0x200/0x400/0x800/0x1000 是不同水层与姿态的“在水中”位族；岸上不会出现。
+			// 入水证据见 rigAnimInWater：基础位族之外，浮钓接受顺流 0x40 与
+			// 下沉 0x80000；岸上抛竿不会出现这些位。
 			enterWater := false
 			needBite := false
-			if st.CastActive && !st.InWater && anim&rigAnimInWaterMask != 0 {
+			if st.CastActive && !st.InWater && rigAnimInWater(anim, st.RigType) {
 				st.InWater = true
 				enterWater = true
 				if st.NeedBite {
@@ -1214,6 +1215,19 @@ func hFishingFall(ctx *Ctx) ([]byte, bool) {
 	st.FallSeen = true
 	st.FallTs = time.Now()
 	rigType, gear := st.RigType, st.GearGuid
+	// 14/3 是客户端“钩体已在水中”的一次性上报（FishingSet.gpnmjgkigmg 以
+	// BodyEnvironment 在水判定发送，岸上落点不发），与 14/7 的入水位互为补充：
+	// 覆盖路亚线杯开自由下沉（f5=0x0 无姿态位）与各钓法的下沉相位。
+	// 打窝竿不锁存——它不钓鱼，历史上靠“永不入水”挡住发鱼定时器。
+	enterWater, needBite := false, false
+	if st.CastActive && !st.InWater && !spodRigTypes[rigType] {
+		st.InWater = true
+		enterWater = true
+		if st.NeedBite {
+			st.NeedBite = false
+			needBite = true
+		}
+	}
 	st.mu.Unlock()
 	// 打窝器入水就把料倒进落点：它不发 14/7，14/3 就是它的入水信号。
 	// 幂等键沿用本次抛竿，客户端重复上报不会重复扣份。
@@ -1221,6 +1235,14 @@ func hFishingFall(ctx *Ctx) ([]byte, bool) {
 		if err := srv.consumeCastBait(ctx.Sess, st); err != nil {
 			ctx.Log.Warn("打窝器入窝料扣减失败", "rod", shortGUID(gear), "err", err)
 		}
+	} else if enterWater {
+		if err := srv.consumeCastBait(ctx.Sess, st); err != nil {
+			ctx.Log.Warn("入水窝料扣减失败", "rod", shortGUID(gear), "err", err)
+		}
+	}
+	if needBite {
+		ctx.Log.Info("钓组在水中（14/3），补排咬钩", "rod", shortGUID(gear))
+		ctx.Sess.Srv.scheduleBiteForHooked(ctx.Sess, st)
 	}
 	return nil, true
 }
